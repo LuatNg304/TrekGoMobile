@@ -1,37 +1,40 @@
-import React, { useState } from 'react';
+import { RentalCartModal } from "@/components/RentalCartModal";
+import { TopHeader } from "@/components/TopHeader";
+import { Colors, Radius, Shadows } from "@/constants/theme";
+import { useApp } from "@/context/AppContext";
+import { EquipmentCategory } from "@/types";
+import { Ionicons } from "@expo/vector-icons";
+import { type Href, useRouter } from "expo-router";
+import { useState } from "react";
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
   Image,
   SafeAreaView,
-} from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { Colors, Radius, Shadows } from '@/constants/theme';
-import { TopHeader } from '@/components/TopHeader';
-import { useApp } from '@/context/AppContext';
-import { EquipmentCategory } from '@/types';
-import { RentalCartModal } from '@/components/RentalCartModal';
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 
 export default function RentalScreen() {
+  const router = useRouter();
   const { equipment, cart, addToCart, activeTrip } = useApp();
 
-  const [selectedCategory, setSelectedCategory] = useState<EquipmentCategory>('Tất cả');
+  const [selectedCategory, setSelectedCategory] =
+    useState<EquipmentCategory>("Tất cả");
   const [cartModalVisible, setCartModalVisible] = useState<boolean>(false);
 
   const categories: EquipmentCategory[] = [
-    'Tất cả',
-    'Tent',
-    'Backpack',
-    'Trekking Pole',
-    'Sleeping Bag',
-    'Accessories',
+    "Tất cả",
+    "Tent",
+    "Backpack",
+    "Trekking Pole",
+    "Sleeping Bag",
+    "Accessories",
   ];
 
-  const filteredEquipment = equipment.filter(item => {
-    if (selectedCategory === 'Tất cả') return true;
+  const filteredEquipment = equipment.filter((item) => {
+    if (selectedCategory === "Tất cả") return true;
     return item.category === selectedCategory;
   });
 
@@ -41,7 +44,10 @@ export default function RentalScreen() {
     <SafeAreaView style={styles.safeArea}>
       <TopHeader subtitle="Rental" />
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+      >
         {/* 1. Trip Context Banner */}
         <View style={styles.contextBanner}>
           <View style={styles.contextHeader}>
@@ -50,13 +56,18 @@ export default function RentalScreen() {
           </View>
           <Text style={styles.tripNameText}>{activeTrip.name}</Text>
           <Text style={styles.tripDetailsSub}>
-            Thời gian: {activeTrip.startDate} · Điểm giao đồ: Bến xe Miền Đông mới
+            Thời gian: {activeTrip.startDate} · Điểm giao đồ: Bến xe Miền Đông
+            mới
           </Text>
         </View>
 
         {/* 2. Category Filter Pills */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryScroll}>
-          {categories.map(cat => (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.categoryScroll}
+        >
+          {categories.map((cat) => (
             <TouchableOpacity
               key={cat}
               style={[
@@ -80,13 +91,16 @@ export default function RentalScreen() {
 
         {/* 3. Products List */}
         <View style={styles.productsGrid}>
-          {filteredEquipment.map(item => {
-            const inCart = cart.find(c => c.item.id === item.id);
+          {filteredEquipment.map((item) => {
+            const inCart = cart.find((c) => c.item.id === item.id);
 
             return (
               <View key={item.id} style={styles.productCard}>
                 <View style={styles.imageBox}>
-                  <Image source={{ uri: item.imageUrl }} style={styles.productImage} />
+                  <Image
+                    source={{ uri: item.imageUrl }}
+                    style={styles.productImage}
+                  />
                   <View style={styles.stockBadge}>
                     <Text style={styles.stockText}>Còn {item.stock} cái</Text>
                   </View>
@@ -95,39 +109,61 @@ export default function RentalScreen() {
                 <View style={styles.productBody}>
                   <Text style={styles.categoryTag}>{item.category}</Text>
                   <Text style={styles.productTitle}>{item.name}</Text>
+                  <TouchableOpacity
+                    style={styles.detailLink}
+                    onPress={() =>
+                      router.push(`/rental-products/${item.id}` as Href)
+                    }
+                  >
+                    <Text style={styles.detailLinkText}>
+                      Xem chi tiết thiết bị
+                    </Text>
 
+                    <Ionicons
+                      name="chevron-forward"
+                      size={14}
+                      color={Colors.primaryDark}
+                    />
+                  </TouchableOpacity>
                   {/* Specs list */}
                   <View style={styles.specsList}>
                     {item.specs.map((spec, idx) => (
-                      <Text key={idx} style={styles.specText}>• {spec}</Text>
+                      <Text key={idx} style={styles.specText}>
+                        • {spec}
+                      </Text>
                     ))}
                   </View>
 
                   <View style={styles.pricingRow}>
                     <View>
                       <Text style={styles.dailyPrice}>
-                        {item.dailyRate.toLocaleString('vi-VN')} đ <Text style={styles.perDay}>/ngày</Text>
+                        {item.dailyRate.toLocaleString("vi-VN")} đ{" "}
+                        <Text style={styles.perDay}>/ngày</Text>
                       </Text>
                       <Text style={styles.depositPrice}>
-                        Cọc: {item.deposit.toLocaleString('vi-VN')} đ (Hoàn lại)
+                        Cọc: {item.deposit.toLocaleString("vi-VN")} đ (Hoàn lại)
                       </Text>
                     </View>
 
                     <TouchableOpacity
-                      style={[
-                        styles.addBtn,
-                        inCart && styles.addBtnInCart,
-                      ]}
+                      style={[styles.addBtn, inCart && styles.addBtnInCart]}
                       onPress={() => addToCart(item, 1)}
                       activeOpacity={0.85}
                     >
                       <Ionicons
-                        name={inCart ? 'checkmark' : 'add'}
+                        name={inCart ? "checkmark" : "add"}
                         size={18}
-                        color={inCart ? '#0c2000' : Colors.onPrimary}
+                        color={inCart ? "#0c2000" : Colors.onPrimary}
                       />
-                      <Text style={[styles.addBtnText, inCart && styles.addBtnTextInCart]}>
-                        {inCart ? `Đã thêm (${inCart.quantity})` : 'Thuê món này'}
+                      <Text
+                        style={[
+                          styles.addBtnText,
+                          inCart && styles.addBtnTextInCart,
+                        ]}
+                      >
+                        {inCart
+                          ? `Đã thêm (${inCart.quantity})`
+                          : "Thuê món này"}
                       </Text>
                     </TouchableOpacity>
                   </View>
@@ -146,8 +182,12 @@ export default function RentalScreen() {
               <Text style={styles.cartCountText}>{cartTotalItems}</Text>
             </View>
             <View>
-              <Text style={styles.cartBarTitle}>Đã chọn {cartTotalItems} thiết bị</Text>
-              <Text style={styles.cartBarSub}>Hoàn cọc 100% khi kết thúc tour</Text>
+              <Text style={styles.cartBarTitle}>
+                Đã chọn {cartTotalItems} thiết bị
+              </Text>
+              <Text style={styles.cartBarSub}>
+                Hoàn cọc 100% khi kết thúc tour
+              </Text>
             </View>
           </View>
 
@@ -191,20 +231,20 @@ const styles = StyleSheet.create({
     ...Shadows.card,
   },
   contextHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 6,
     marginBottom: 4,
   },
   contextTitle: {
     fontSize: 9,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Colors.primaryDark,
     letterSpacing: 0.5,
   },
   tripNameText: {
     fontSize: 16,
-    fontWeight: '900',
+    fontWeight: "900",
     color: Colors.onSurface,
   },
   tripDetailsSub: {
@@ -229,7 +269,7 @@ const styles = StyleSheet.create({
   },
   categoryPillText: {
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: "700",
     color: Colors.onSurfaceVariant,
   },
   categoryPillTextActive: {
@@ -242,48 +282,60 @@ const styles = StyleSheet.create({
   productCard: {
     backgroundColor: Colors.surfaceContainerLowest,
     borderRadius: Radius.xl, // 24px signature rounded card
-    overflow: 'hidden',
+    overflow: "hidden",
     ...Shadows.card,
   },
   imageBox: {
     height: 150,
-    width: '100%',
-    position: 'relative',
+    width: "100%",
+    position: "relative",
   },
   productImage: {
-    width: '100%',
-    height: '100%',
+    width: "100%",
+    height: "100%",
   },
   stockBadge: {
-    position: 'absolute',
+    position: "absolute",
     top: 10,
     right: 10,
-    backgroundColor: 'rgba(30, 35, 28, 0.85)',
+    backgroundColor: "rgba(30, 35, 28, 0.85)",
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: Radius.full,
   },
   stockText: {
     fontSize: 10,
-    fontWeight: '700',
-    color: '#ffffff',
+    fontWeight: "700",
+    color: "#ffffff",
   },
   productBody: {
     padding: 14,
   },
   categoryTag: {
     fontSize: 9,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Colors.secondary,
-    textTransform: 'uppercase',
+    textTransform: "uppercase",
     letterSpacing: 0.5,
   },
   productTitle: {
     fontSize: 16,
-    fontWeight: '900',
+    fontWeight: "900",
     color: Colors.onSurface,
     marginTop: 2,
     marginBottom: 6,
+  },
+  detailLink: {
+    alignSelf: "flex-start",
+    marginBottom: 9,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+  },
+  detailLinkText: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: Colors.primaryDark,
   },
   specsList: {
     gap: 2,
@@ -295,21 +347,21 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
   pricingRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     borderTopWidth: 1,
     borderTopColor: Colors.surfaceContainerLow,
     paddingTop: 10,
   },
   dailyPrice: {
     fontSize: 16,
-    fontWeight: '900',
+    fontWeight: "900",
     color: Colors.primaryDark,
   },
   perDay: {
     fontSize: 11,
-    fontWeight: '400',
+    fontWeight: "400",
     color: Colors.onSurfaceVariant,
   },
   depositPrice: {
@@ -318,8 +370,8 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
   addBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 4,
     backgroundColor: Colors.primaryContainer,
     paddingHorizontal: 12,
@@ -332,14 +384,14 @@ const styles = StyleSheet.create({
   },
   addBtnText: {
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Colors.onPrimary,
   },
   addBtnTextInCart: {
-    color: '#0c2000',
+    color: "#0c2000",
   },
   floatingCartBar: {
-    position: 'absolute',
+    position: "absolute",
     bottom: 12,
     left: 16,
     right: 16,
@@ -347,14 +399,14 @@ const styles = StyleSheet.create({
     borderRadius: Radius.full,
     paddingVertical: 10,
     paddingHorizontal: 16,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     ...Shadows.hover,
   },
   floatingCartLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 10,
   },
   cartCountPill: {
@@ -362,17 +414,17 @@ const styles = StyleSheet.create({
     height: 28,
     borderRadius: Radius.full,
     backgroundColor: Colors.primaryContainer,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   cartCountText: {
     fontSize: 13,
-    fontWeight: '900',
+    fontWeight: "900",
     color: Colors.onPrimary,
   },
   cartBarTitle: {
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Colors.inverseOnSurface,
   },
   cartBarSub: {
@@ -380,8 +432,8 @@ const styles = StyleSheet.create({
     color: Colors.mute,
   },
   cartViewBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 4,
     backgroundColor: Colors.primaryContainer,
     paddingHorizontal: 14,
@@ -390,7 +442,7 @@ const styles = StyleSheet.create({
   },
   cartViewBtnText: {
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Colors.onPrimary,
   },
 });

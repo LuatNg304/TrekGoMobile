@@ -1,9 +1,20 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity, ScrollView, TextInput } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { Colors, Radius, Shadows } from '@/constants/theme';
-import { Trip } from '@/types';
-import { useApp } from '@/context/AppContext';
+import { Ionicons } from "@expo/vector-icons";
+import { useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
+
+import { Colors, Radius, Shadows } from "@/constants/theme";
+import { useApp } from "@/context/AppContext";
+import { Trip } from "@/types";
 
 interface BookingModalProps {
   visible: boolean;
@@ -11,390 +22,1122 @@ interface BookingModalProps {
   onClose: () => void;
 }
 
-export const BookingModal: React.FC<BookingModalProps> = ({
-  visible,
-  trip,
-  onClose,
-}) => {
-  const { bookPublicTrip } = useApp();
-  const [participantsCount, setParticipantsCount] = useState<number>(1);
-  const [contactName, setContactName] = useState<string>('Anh Thư');
-  const [contactPhone, setContactPhone] = useState<string>('0908 777 666');
-  const [isBooked, setIsBooked] = useState<boolean>(false);
-  const [generatedCode, setGeneratedCode] = useState<string>('');
+type BookingStep = "INFORMATION" | "REVIEW" | "SUCCESS";
 
-  const pricePerPerson = trip.pricePerPerson || 2850000;
+type PaymentMethod = "BANK" | "EWALLET";
+
+export function BookingModal({ visible, trip, onClose }: BookingModalProps) {
+  const { bookPublicTrip } = useApp();
+
+  const [step, setStep] = useState<BookingStep>("INFORMATION");
+
+  const [participantsCount, setParticipantsCount] = useState(1);
+
+  const [contactName, setContactName] = useState("Anh Thư");
+
+  const [contactPhone, setContactPhone] = useState("0908 777 666");
+
+  const [emergencyContact, setEmergencyContact] = useState("0909 123 456");
+
+  const [acceptedSafety, setAcceptedSafety] = useState(false);
+
+  const [acceptedPolicy, setAcceptedPolicy] = useState(false);
+
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("BANK");
+
+  const [submitting, setSubmitting] = useState(false);
+
+  const [ticketCode, setTicketCode] = useState("");
+
+  const pricePerPerson = trip.pricePerPerson ?? 2850000;
+
   const totalPrice = pricePerPerson * participantsCount;
 
-  const handleConfirm = () => {
-    const code = '#BK-' + Math.floor(1000 + Math.random() * 9000);
-    bookPublicTrip(trip.id, participantsCount);
-    setGeneratedCode(code);
-    setIsBooked(true);
-  };
+  const depositAmount = Math.round(totalPrice * 0.3);
 
-  const handleFinish = () => {
-    setIsBooked(false);
+  const remainingAmount = totalPrice - depositAmount;
+
+  const availableSlots = Math.max(0, trip.capacity - trip.enrolledCount);
+
+  function resetModal() {
+    setStep("INFORMATION");
+    setAcceptedSafety(false);
+    setAcceptedPolicy(false);
+    setSubmitting(false);
+  }
+
+  function handleClose() {
+    resetModal();
     onClose();
-  };
+  }
+
+  function decreaseParticipants() {
+    setParticipantsCount((current) => Math.max(1, current - 1));
+  }
+
+  function increaseParticipants() {
+    setParticipantsCount((current) =>
+      Math.min(Math.min(4, availableSlots), current + 1),
+    );
+  }
+
+  function continueToReview() {
+    if (!contactName.trim()) {
+      Alert.alert("Thiếu họ tên", "Vui lòng nhập họ tên người đại diện.");
+      return;
+    }
+
+    if (contactPhone.replace(/\s/g, "").length < 9) {
+      Alert.alert(
+        "Số điện thoại chưa hợp lệ",
+        "Vui lòng kiểm tra lại số điện thoại liên hệ.",
+      );
+      return;
+    }
+
+    if (emergencyContact.replace(/\s/g, "").length < 9) {
+      Alert.alert(
+        "Thiếu liên hệ khẩn cấp",
+        "Vui lòng nhập số điện thoại liên hệ khẩn cấp.",
+      );
+      return;
+    }
+
+    if (!acceptedSafety) {
+      Alert.alert(
+        "Chưa xác nhận an toàn",
+        "Bạn cần xác nhận tình trạng sức khỏe và cam kết tuân thủ hướng dẫn của Trek Leader.",
+      );
+      return;
+    }
+
+    setStep("REVIEW");
+  }
+
+  function confirmBooking() {
+    if (!acceptedPolicy) {
+      Alert.alert(
+        "Chưa đồng ý chính sách",
+        "Vui lòng đọc và đồng ý với chính sách đặt cọc, hoàn hủy.",
+      );
+      return;
+    }
+
+    setSubmitting(true);
+
+    setTimeout(() => {
+      const generatedTicket = `#BK-${Math.floor(1000 + Math.random() * 9000)}`;
+
+      bookPublicTrip(trip.id, participantsCount);
+
+      setTicketCode(generatedTicket);
+      setSubmitting(false);
+      setStep("SUCCESS");
+    }, 650);
+  }
+
+  function finishBooking() {
+    resetModal();
+    onClose();
+  }
 
   return (
-    <Modal visible={visible} transparent animationType="slide">
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={handleClose}
+    >
       <View style={styles.overlay}>
         <View style={styles.container}>
           <View style={styles.dragHandle} />
 
-          <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
-            <Ionicons name="close" size={20} color={Colors.onSurfaceVariant} />
-          </TouchableOpacity>
+          {step !== "SUCCESS" ? (
+            <View style={styles.stepHeader}>
+              <TouchableOpacity
+                style={styles.headerButton}
+                onPress={() => {
+                  if (step === "REVIEW") {
+                    setStep("INFORMATION");
+                    return;
+                  }
 
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
-            {isBooked ? (
-              // Booking Confirmed Success Screen
-              <View style={styles.successBox}>
-                <View style={styles.successIcon}>
-                  <Ionicons name="checkmark-circle" size={54} color={Colors.primaryDark} />
-                </View>
-                <Text style={styles.successTitle}>Đặt Chỗ Thành Công!</Text>
-                <Text style={styles.successSub}>
-                  Vé tham gia Public Tour đã được xác nhận. Thông tin xe trung chuyển và tài xế đã sẵn sàng trong mục chuẩn bị chuyến.
+                  handleClose();
+                }}
+              >
+                <Ionicons
+                  name={step === "REVIEW" ? "arrow-back" : "close"}
+                  size={20}
+                  color={Colors.onSurface}
+                />
+              </TouchableOpacity>
+
+              <View style={styles.stepHeaderCenter}>
+                <Text style={styles.stepCaption}>
+                  {step === "INFORMATION" ? "BƯỚC 1/2" : "BƯỚC 2/2"}
                 </Text>
 
-                <View style={styles.ticketCard}>
-                  <View style={styles.ticketHeader}>
-                    <Text style={styles.ticketLabel}>MÃ VÉ TREKGO</Text>
-                    <Text style={styles.ticketCode}>{generatedCode}</Text>
-                  </View>
-                  <View style={styles.ticketDivider} />
-                  <View style={styles.ticketDetails}>
-                    <Text style={styles.ticketTripName}>{trip.name}</Text>
-                    <Text style={styles.ticketMeta}>
-                      {participantsCount} Thành viên · Khởi hành: {trip.startDate}
-                    </Text>
-                    <Text style={styles.ticketTotal}>
-                      Tổng tiền: {totalPrice.toLocaleString('vi-VN')} đ (Đã thanh toán)
-                    </Text>
-                  </View>
-                </View>
-
-                <TouchableOpacity style={styles.confirmBtn} onPress={handleFinish}>
-                  <Text style={styles.confirmBtnText}>Hoàn tất & Xem Chuyến Đi</Text>
-                </TouchableOpacity>
+                <Text style={styles.stepTitle}>
+                  {step === "INFORMATION"
+                    ? "Thông tin đặt tour"
+                    : "Rà soát & đặt cọc"}
+                </Text>
               </View>
-            ) : (
-              // Booking Form
-              <View>
-                <View style={styles.header}>
+
+              <View style={styles.headerButtonPlaceholder} />
+            </View>
+          ) : null}
+
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={styles.scrollContent}
+          >
+            {step === "INFORMATION" ? (
+              <>
+                <View style={styles.tripSummary}>
                   <View style={styles.badgeRow}>
-                    <Text style={styles.tourType}>PUBLIC TOUR</Text>
-                    <Text style={styles.slotsLeft}>Còn {trip.capacity - trip.enrolledCount} chỗ trống</Text>
+                    <View style={styles.publicBadge}>
+                      <Ionicons name="earth" size={12} color="#0c2000" />
+
+                      <Text style={styles.publicBadgeText}>PUBLIC TOUR</Text>
+                    </View>
+
+                    <Text style={styles.slotsText}>
+                      Còn {availableSlots} chỗ
+                    </Text>
                   </View>
-                  <Text style={styles.title}>{trip.name}</Text>
-                  <Text style={styles.subtitle}>Leader: {trip.leader.name} ★ 5.0</Text>
+
+                  <Text style={styles.tripName}>{trip.name}</Text>
+
+                  <Text style={styles.tripMeta}>
+                    {trip.startDate} · {trip.durationDays} ngày
+                  </Text>
                 </View>
 
-                {/* Participant Counter */}
                 <View style={styles.section}>
-                  <Text style={styles.sectionLabel}>Số lượng thành viên tham gia:</Text>
-                  <View style={styles.counterRow}>
+                  <Text style={styles.sectionTitle}>Số người tham gia</Text>
+
+                  <View style={styles.counterCard}>
                     <TouchableOpacity
-                      style={styles.counterBtn}
-                      onPress={() => setParticipantsCount(p => Math.max(1, p - 1))}
+                      style={styles.counterButton}
+                      onPress={decreaseParticipants}
+                      disabled={participantsCount === 1}
                     >
-                      <Ionicons name="remove" size={18} color={Colors.ink} />
+                      <Ionicons
+                        name="remove"
+                        size={20}
+                        color={
+                          participantsCount === 1
+                            ? Colors.onSurfaceMuted
+                            : Colors.onSurface
+                        }
+                      />
                     </TouchableOpacity>
-                    <Text style={styles.counterVal}>{participantsCount} Người</Text>
+
+                    <View style={styles.counterCenter}>
+                      <Text style={styles.counterValue}>
+                        {participantsCount}
+                      </Text>
+
+                      <Text style={styles.counterLabel}>Thành viên</Text>
+                    </View>
+
                     <TouchableOpacity
-                      style={styles.counterBtn}
-                      onPress={() => setParticipantsCount(p => Math.min(4, p + 1))}
+                      style={styles.counterButton}
+                      onPress={increaseParticipants}
+                      disabled={
+                        participantsCount >= Math.min(4, availableSlots)
+                      }
                     >
-                      <Ionicons name="add" size={18} color={Colors.ink} />
+                      <Ionicons
+                        name="add"
+                        size={20}
+                        color={
+                          participantsCount >= Math.min(4, availableSlots)
+                            ? Colors.onSurfaceMuted
+                            : Colors.onSurface
+                        }
+                      />
                     </TouchableOpacity>
                   </View>
                 </View>
 
-                {/* Contact info */}
                 <View style={styles.section}>
-                  <Text style={styles.sectionLabel}>Thông tin liên hệ đại diện:</Text>
+                  <Text style={styles.sectionTitle}>Người đại diện</Text>
+
+                  <Text style={styles.inputLabel}>Họ và tên</Text>
+
                   <TextInput
                     style={styles.input}
                     value={contactName}
                     onChangeText={setContactName}
-                    placeholder="Họ tên người đặt..."
+                    placeholder="Nhập họ và tên"
+                    placeholderTextColor={Colors.onSurfaceMuted}
                   />
+
+                  <Text style={styles.inputLabel}>Số điện thoại</Text>
+
                   <TextInput
-                    style={[styles.input, { marginTop: 8 }]}
+                    style={styles.input}
                     value={contactPhone}
                     onChangeText={setContactPhone}
-                    placeholder="Số điện thoại Zalo..."
+                    placeholder="Số điện thoại/Zalo"
+                    placeholderTextColor={Colors.onSurfaceMuted}
+                    keyboardType="phone-pad"
+                  />
+
+                  <Text style={styles.inputLabel}>Liên hệ khẩn cấp</Text>
+
+                  <TextInput
+                    style={styles.input}
+                    value={emergencyContact}
+                    onChangeText={setEmergencyContact}
+                    placeholder="Số điện thoại người thân"
+                    placeholderTextColor={Colors.onSurfaceMuted}
                     keyboardType="phone-pad"
                   />
                 </View>
 
-                {/* Cost Breakdown */}
-                <View style={styles.pricingCard}>
-                  <View style={styles.priceRow}>
-                    <Text style={styles.priceLabel}>Giá tour / người:</Text>
-                    <Text style={styles.priceVal}>{pricePerPerson.toLocaleString('vi-VN')} đ</Text>
+                <View style={styles.safetyCard}>
+                  <View style={styles.safetyHeader}>
+                    <View style={styles.safetyIcon}>
+                      <Ionicons
+                        name="shield-checkmark"
+                        size={19}
+                        color={Colors.primaryDark}
+                      />
+                    </View>
+
+                    <View style={styles.safetyHeading}>
+                      <Text style={styles.safetyTitle}>
+                        Xác nhận sức khỏe & an toàn
+                      </Text>
+
+                      <Text style={styles.safetySubtitle}>
+                        Bắt buộc trước khi giữ chỗ
+                      </Text>
+                    </View>
                   </View>
-                  <View style={styles.priceRow}>
-                    <Text style={styles.priceLabel}>Số lượng:</Text>
-                    <Text style={styles.priceVal}>x {participantsCount}</Text>
+
+                  <TouchableOpacity
+                    style={styles.checkboxRow}
+                    onPress={() => setAcceptedSafety((current) => !current)}
+                    activeOpacity={0.8}
+                  >
+                    <View
+                      style={[
+                        styles.checkbox,
+                        acceptedSafety && styles.checkboxSelected,
+                      ]}
+                    >
+                      {acceptedSafety ? (
+                        <Ionicons name="checkmark" size={15} color="#0c2000" />
+                      ) : null}
+                    </View>
+
+                    <Text style={styles.checkboxText}>
+                      Tôi xác nhận các thành viên đủ sức khỏe tham gia và cam
+                      kết tuân thủ hướng dẫn của Trek Leader trong suốt chuyến
+                      đi.
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                <TouchableOpacity
+                  style={styles.primaryButton}
+                  onPress={continueToReview}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.primaryButtonText}>Tiếp tục rà soát</Text>
+
+                  <Ionicons
+                    name="arrow-forward"
+                    size={19}
+                    color={Colors.onPrimary}
+                  />
+                </TouchableOpacity>
+              </>
+            ) : null}
+
+            {step === "REVIEW" ? (
+              <>
+                <View style={styles.reviewCard}>
+                  <View style={styles.reviewHeader}>
+                    <View>
+                      <Text style={styles.reviewCaption}>CHUYẾN ĐI</Text>
+
+                      <Text style={styles.reviewTrip}>{trip.name}</Text>
+                    </View>
+
+                    <View style={styles.memberBadge}>
+                      <Text style={styles.memberBadgeText}>
+                        {participantsCount} người
+                      </Text>
+                    </View>
                   </View>
-                  <View style={styles.priceRow}>
-                    <Text style={styles.priceLabel}>Bảo hiểm trekking 100tr:</Text>
-                    <Text style={styles.freeBadge}>Miễn phí</Text>
-                  </View>
+
                   <View style={styles.divider} />
-                  <View style={styles.priceRow}>
-                    <Text style={styles.totalLabel}>Tổng thanh toán:</Text>
-                    <Text style={styles.totalVal}>{totalPrice.toLocaleString('vi-VN')} đ</Text>
+
+                  <ReviewRow label="Người đại diện" value={contactName} />
+
+                  <ReviewRow label="Điện thoại" value={contactPhone} />
+
+                  <ReviewRow
+                    label="Liên hệ khẩn cấp"
+                    value={emergencyContact}
+                  />
+                </View>
+
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>Chi tiết thanh toán</Text>
+
+                  <View style={styles.paymentSummary}>
+                    <PriceRow
+                      label={`Giá tour × ${participantsCount}`}
+                      value={`${totalPrice.toLocaleString("vi-VN")} đ`}
+                    />
+
+                    <PriceRow
+                      label="Bảo hiểm trekking"
+                      value="Đã bao gồm"
+                      highlighted
+                    />
+
+                    <View style={styles.divider} />
+
+                    <PriceRow
+                      label="Đặt cọc giữ chỗ (30%)"
+                      value={`${depositAmount.toLocaleString("vi-VN")} đ`}
+                      total
+                    />
+
+                    <Text style={styles.remainingDescription}>
+                      Số tiền còn lại {remainingAmount.toLocaleString("vi-VN")}{" "}
+                      đ sẽ được thanh toán theo lịch của chuyến đi.
+                    </Text>
                   </View>
                 </View>
 
-                {/* Action button */}
-                <TouchableOpacity style={styles.confirmBtn} onPress={handleConfirm} activeOpacity={0.85}>
-                  <Ionicons name="card" size={20} color={Colors.onPrimary} />
-                  <Text style={styles.confirmBtnText}>Xác Nhận & Giữ Chỗ Ngay</Text>
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>Phương thức đặt cọc</Text>
+
+                  <PaymentOption
+                    selected={paymentMethod === "BANK"}
+                    icon="business-outline"
+                    title="Chuyển khoản ngân hàng"
+                    subtitle="Xác nhận tự động bằng mã giao dịch"
+                    onPress={() => setPaymentMethod("BANK")}
+                  />
+
+                  <PaymentOption
+                    selected={paymentMethod === "EWALLET"}
+                    icon="wallet-outline"
+                    title="Ví điện tử"
+                    subtitle="MoMo hoặc phương thức liên kết"
+                    onPress={() => setPaymentMethod("EWALLET")}
+                  />
+                </View>
+
+                <TouchableOpacity
+                  style={styles.checkboxRow}
+                  onPress={() => setAcceptedPolicy((current) => !current)}
+                  activeOpacity={0.8}
+                >
+                  <View
+                    style={[
+                      styles.checkbox,
+                      acceptedPolicy && styles.checkboxSelected,
+                    ]}
+                  >
+                    {acceptedPolicy ? (
+                      <Ionicons name="checkmark" size={15} color="#0c2000" />
+                    ) : null}
+                  </View>
+
+                  <Text style={styles.checkboxText}>
+                    Tôi đã kiểm tra thông tin và đồng ý với chính sách đặt cọc,
+                    hoàn hủy và điều khoản tham gia chuyến đi.
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.primaryButton,
+                    submitting && styles.disabledButton,
+                  ]}
+                  onPress={confirmBooking}
+                  disabled={submitting}
+                  activeOpacity={0.85}
+                >
+                  {submitting ? (
+                    <ActivityIndicator color={Colors.onPrimary} />
+                  ) : (
+                    <>
+                      <Ionicons
+                        name="shield-checkmark"
+                        size={20}
+                        color={Colors.onPrimary}
+                      />
+
+                      <Text style={styles.primaryButtonText}>
+                        Đặt cọc {depositAmount.toLocaleString("vi-VN")} đ
+                      </Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </>
+            ) : null}
+
+            {step === "SUCCESS" ? (
+              <View style={styles.successContainer}>
+                <View style={styles.successIcon}>
+                  <Ionicons name="checkmark" size={42} color="#0c2000" />
+                </View>
+
+                <Text style={styles.successTitle}>Đặt chỗ thành công!</Text>
+
+                <Text style={styles.successDescription}>
+                  Tiền cọc đã được ghi nhận. Vé QR và checklist chuẩn bị đã được
+                  tạo cho chuyến đi của bạn.
+                </Text>
+
+                <View style={styles.ticketCard}>
+                  <View style={styles.ticketTop}>
+                    <View>
+                      <Text style={styles.ticketLabel}>MÃ VÉ TREKGO</Text>
+
+                      <Text style={styles.ticketCode}>{ticketCode}</Text>
+                    </View>
+
+                    <View style={styles.qrPlaceholder}>
+                      <Ionicons name="qr-code" size={48} color={Colors.ink} />
+                    </View>
+                  </View>
+
+                  <View style={styles.ticketDivider} />
+
+                  <Text style={styles.ticketTripName}>{trip.name}</Text>
+
+                  <Text style={styles.ticketMeta}>
+                    {participantsCount} thành viên · {trip.startDate}
+                  </Text>
+
+                  <View style={styles.depositPaid}>
+                    <Ionicons
+                      name="checkmark-circle"
+                      size={16}
+                      color={Colors.primaryDark}
+                    />
+
+                    <Text style={styles.depositPaidText}>
+                      Đã thanh toán cọc {depositAmount.toLocaleString("vi-VN")}{" "}
+                      đ
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.nextStepCard}>
+                  <Ionicons
+                    name="information-circle"
+                    size={20}
+                    color={Colors.primaryDark}
+                  />
+
+                  <Text style={styles.nextStepText}>
+                    Tiếp theo, mở “Chuyến của tôi” để xem QR check-in, checklist
+                    và thông tin xe trung chuyển.
+                  </Text>
+                </View>
+
+                <TouchableOpacity
+                  style={styles.primaryButton}
+                  onPress={finishBooking}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.primaryButtonText}>
+                    Hoàn tất & xem chuyến đi
+                  </Text>
+
+                  <Ionicons
+                    name="arrow-forward"
+                    size={19}
+                    color={Colors.onPrimary}
+                  />
                 </TouchableOpacity>
               </View>
-            )}
+            ) : null}
           </ScrollView>
         </View>
       </View>
     </Modal>
   );
-};
+}
+
+interface ReviewRowProps {
+  label: string;
+  value: string;
+}
+
+function ReviewRow({ label, value }: ReviewRowProps) {
+  return (
+    <View style={styles.reviewRow}>
+      <Text style={styles.reviewLabel}>{label}</Text>
+
+      <Text style={styles.reviewValue}>{value}</Text>
+    </View>
+  );
+}
+
+interface PriceRowProps {
+  label: string;
+  value: string;
+  highlighted?: boolean;
+  total?: boolean;
+}
+
+function PriceRow({
+  label,
+  value,
+  highlighted = false,
+  total = false,
+}: PriceRowProps) {
+  return (
+    <View style={styles.priceRow}>
+      <Text style={[styles.priceLabel, total && styles.totalLabel]}>
+        {label}
+      </Text>
+
+      <Text
+        style={[
+          styles.priceValue,
+          highlighted && styles.highlightedPrice,
+          total && styles.totalValue,
+        ]}
+      >
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+interface PaymentOptionProps {
+  selected: boolean;
+  icon: "business-outline" | "wallet-outline";
+  title: string;
+  subtitle: string;
+  onPress: () => void;
+}
+
+function PaymentOption({
+  selected,
+  icon,
+  title,
+  subtitle,
+  onPress,
+}: PaymentOptionProps) {
+  return (
+    <TouchableOpacity
+      style={[styles.paymentOption, selected && styles.paymentOptionSelected]}
+      onPress={onPress}
+      activeOpacity={0.8}
+    >
+      <View style={styles.paymentIcon}>
+        <Ionicons name={icon} size={21} color={Colors.primaryDark} />
+      </View>
+
+      <View style={styles.paymentInfo}>
+        <Text style={styles.paymentTitle}>{title}</Text>
+
+        <Text style={styles.paymentSubtitle}>{subtitle}</Text>
+      </View>
+
+      <View style={[styles.radio, selected && styles.radioSelected]}>
+        {selected ? <View style={styles.radioDot} /> : null}
+      </View>
+    </TouchableOpacity>
+  );
+}
 
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.65)',
-    justifyContent: 'flex-end',
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(0, 0, 0, 0.68)",
   },
   container: {
+    maxHeight: "94%",
+    paddingHorizontal: 20,
+    paddingTop: 10,
     backgroundColor: Colors.surface,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    padding: 20,
-    maxHeight: '90%',
     ...Shadows.hover,
   },
   dragHandle: {
-    width: 40,
+    width: 42,
     height: 4,
+    alignSelf: "center",
+    marginBottom: 10,
     borderRadius: Radius.full,
     backgroundColor: Colors.surfaceContainerHighest,
-    alignSelf: 'center',
-    marginBottom: 12,
   },
-  closeBtn: {
-    position: 'absolute',
-    top: 16,
-    right: 16,
-    width: 32,
-    height: 32,
+  stepHeader: {
+    height: 50,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  headerButton: {
+    width: 38,
+    height: 38,
+    alignItems: "center",
+    justifyContent: "center",
     borderRadius: Radius.full,
     backgroundColor: Colors.surfaceContainer,
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 10,
   },
-  header: {
-    marginBottom: 16,
+  headerButtonPlaceholder: {
+    width: 38,
+  },
+  stepHeaderCenter: {
+    flex: 1,
+    alignItems: "center",
+  },
+  stepCaption: {
+    fontSize: 9,
+    fontWeight: "900",
+    color: Colors.primaryDark,
+  },
+  stepTitle: {
+    marginTop: 1,
+    fontSize: 15,
+    fontWeight: "900",
+    color: Colors.onSurface,
+  },
+  scrollContent: {
+    paddingBottom: 30,
+  },
+  tripSummary: {
+    padding: 15,
+    marginTop: 8,
+    borderRadius: Radius.xl,
+    backgroundColor: Colors.primaryPale,
   },
   badgeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 4,
+    flexDirection: "row",
+    justifyContent: "space-between",
   },
-  tourType: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: '#0c2000',
-    backgroundColor: Colors.secondaryContainer,
+  publicBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
     paddingHorizontal: 8,
-    paddingVertical: 2,
+    paddingVertical: 3,
     borderRadius: Radius.full,
+    backgroundColor: Colors.secondaryContainer,
   },
-  slotsLeft: {
+  publicBadgeText: {
+    fontSize: 9,
+    fontWeight: "900",
+    color: "#0c2000",
+  },
+  slotsText: {
     fontSize: 10,
-    fontWeight: '700',
+    fontWeight: "800",
     color: Colors.primaryDark,
   },
-  title: {
-    fontSize: 20,
-    fontWeight: '900',
-    color: Colors.onSurface,
+  tripName: {
+    marginTop: 10,
+    fontSize: 19,
+    fontWeight: "900",
+    color: Colors.inkDeep,
   },
-  subtitle: {
-    fontSize: 12,
+  tripMeta: {
+    marginTop: 4,
+    fontSize: 11,
     color: Colors.onSurfaceVariant,
-    marginTop: 2,
   },
   section: {
-    marginBottom: 16,
+    marginTop: 18,
   },
-  sectionLabel: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: Colors.onSurface,
-    marginBottom: 8,
-  },
-  counterRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 16,
-  },
-  counterBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.surfaceContainerLow,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: Colors.surfaceContainerHigh,
-  },
-  counterVal: {
-    fontSize: 16,
-    fontWeight: '800',
+  sectionTitle: {
+    marginBottom: 9,
+    fontSize: 14,
+    fontWeight: "900",
     color: Colors.onSurface,
   },
-  input: {
-    height: 44,
-    borderRadius: Radius.md,
-    backgroundColor: Colors.surfaceContainerLowest,
+  counterCard: {
+    height: 66,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: 12,
-    fontSize: 13,
-    color: Colors.onSurface,
-    borderWidth: 1,
-    borderColor: Colors.surfaceContainerHigh,
-  },
-  pricingCard: {
-    backgroundColor: Colors.surfaceContainerLowest,
     borderRadius: Radius.lg,
-    padding: 14,
-    marginBottom: 16,
+    backgroundColor: Colors.surfaceContainerLowest,
     ...Shadows.card,
   },
-  priceRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 6,
+  counterButton: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: Radius.full,
+    backgroundColor: Colors.surfaceContainerLow,
   },
-  priceLabel: {
-    fontSize: 12,
-    color: Colors.onSurfaceVariant,
+  counterCenter: {
+    alignItems: "center",
   },
-  priceVal: {
-    fontSize: 12,
-    fontWeight: '700',
+  counterValue: {
+    fontSize: 20,
+    fontWeight: "900",
     color: Colors.onSurface,
   },
-  freeBadge: {
+  counterLabel: {
+    fontSize: 10,
+    color: Colors.onSurfaceVariant,
+  },
+  inputLabel: {
+    marginTop: 9,
+    marginBottom: 5,
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: "700",
+    color: Colors.onSurfaceVariant,
+  },
+  input: {
+    height: 46,
+    paddingHorizontal: 13,
+    borderWidth: 1,
+    borderColor: Colors.surfaceContainerHigh,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.surfaceContainerLowest,
+    color: Colors.onSurface,
+    fontSize: 13,
+  },
+  safetyCard: {
+    padding: 14,
+    marginTop: 18,
+    borderRadius: Radius.lg,
+    backgroundColor: Colors.primaryPale,
+  },
+  safetyHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  safetyIcon: {
+    width: 38,
+    height: 38,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: Radius.full,
+    backgroundColor: Colors.surfaceContainerLowest,
+  },
+  safetyHeading: {
+    marginLeft: 10,
+  },
+  safetyTitle: {
+    fontSize: 13,
+    fontWeight: "900",
+    color: Colors.onSurface,
+  },
+  safetySubtitle: {
+    marginTop: 2,
+    fontSize: 10,
+    color: Colors.onSurfaceVariant,
+  },
+  checkboxRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    marginTop: 14,
+  },
+  checkbox: {
+    width: 22,
+    height: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1.5,
+    borderColor: Colors.onSurfaceMuted,
+    borderRadius: 6,
+    backgroundColor: Colors.surfaceContainerLowest,
+  },
+  checkboxSelected: {
+    borderColor: Colors.primary,
+    backgroundColor: Colors.secondaryContainer,
+  },
+  checkboxText: {
+    flex: 1,
+    fontSize: 11,
+    lineHeight: 17,
+    color: Colors.onSurfaceVariant,
+  },
+  primaryButton: {
+    minHeight: 54,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingHorizontal: 16,
+    marginTop: 20,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.primaryContainer,
+    ...Shadows.hover,
+  },
+  disabledButton: {
+    opacity: 0.65,
+  },
+  primaryButtonText: {
+    fontSize: 15,
+    fontWeight: "900",
+    color: Colors.onPrimary,
+  },
+  reviewCard: {
+    padding: 15,
+    marginTop: 8,
+    borderRadius: Radius.xl,
+    backgroundColor: Colors.surfaceContainerLowest,
+    ...Shadows.card,
+  },
+  reviewHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  reviewCaption: {
+    fontSize: 9,
+    fontWeight: "900",
     color: Colors.primaryDark,
+  },
+  reviewTrip: {
+    marginTop: 3,
+    fontSize: 15,
+    fontWeight: "900",
+    color: Colors.onSurface,
+  },
+  memberBadge: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.secondaryContainer,
+  },
+  memberBadgeText: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#0c2000",
   },
   divider: {
     height: 1,
+    marginVertical: 12,
     backgroundColor: Colors.surfaceContainerHigh,
-    marginVertical: 8,
   },
-  totalLabel: {
-    fontSize: 14,
-    fontWeight: '900',
+  reviewRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 12,
+    marginBottom: 8,
+  },
+  reviewLabel: {
+    fontSize: 11,
+    color: Colors.onSurfaceVariant,
+  },
+  reviewValue: {
+    flex: 1,
+    textAlign: "right",
+    fontSize: 11,
+    fontWeight: "700",
     color: Colors.onSurface,
   },
-  totalVal: {
-    fontSize: 18,
-    fontWeight: '900',
-    color: Colors.primaryDark,
+  paymentSummary: {
+    padding: 15,
+    borderRadius: Radius.lg,
+    backgroundColor: Colors.surfaceContainerLowest,
+    ...Shadows.card,
   },
-  confirmBtn: {
-    height: 52,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.primaryContainer,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    ...Shadows.hover,
+  priceRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 12,
+    marginBottom: 8,
   },
-  confirmBtnText: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: Colors.onPrimary,
-  },
-  successBox: {
-    alignItems: 'center',
-    paddingVertical: 16,
-  },
-  successIcon: {
-    marginBottom: 12,
-  },
-  successTitle: {
-    fontSize: 20,
-    fontWeight: '900',
-    color: Colors.onSurface,
-    textAlign: 'center',
-  },
-  successSub: {
+  priceLabel: {
+    flex: 1,
     fontSize: 12,
     color: Colors.onSurfaceVariant,
-    textAlign: 'center',
-    marginVertical: 8,
+  },
+  priceValue: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: Colors.onSurface,
+  },
+  highlightedPrice: {
+    color: Colors.primaryDark,
+  },
+  totalLabel: {
+    fontWeight: "900",
+    color: Colors.onSurface,
+  },
+  totalValue: {
+    fontSize: 18,
+    fontWeight: "900",
+    color: Colors.primaryDark,
+  },
+  remainingDescription: {
+    marginTop: 4,
+    fontSize: 10,
+    lineHeight: 15,
+    color: Colors.onSurfaceMuted,
+  },
+  paymentOption: {
+    minHeight: 66,
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 11,
+    marginBottom: 9,
+    borderWidth: 1.5,
+    borderColor: Colors.surfaceContainerHigh,
+    borderRadius: Radius.lg,
+    backgroundColor: Colors.surfaceContainerLowest,
+  },
+  paymentOptionSelected: {
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primaryPale,
+  },
+  paymentIcon: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: Radius.full,
+    backgroundColor: Colors.surfaceContainerLowest,
+  },
+  paymentInfo: {
+    flex: 1,
+    marginLeft: 10,
+  },
+  paymentTitle: {
+    fontSize: 12,
+    fontWeight: "900",
+    color: Colors.onSurface,
+  },
+  paymentSubtitle: {
+    marginTop: 2,
+    fontSize: 10,
+    color: Colors.onSurfaceVariant,
+  },
+  radio: {
+    width: 20,
+    height: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1.5,
+    borderColor: Colors.onSurfaceMuted,
+    borderRadius: Radius.full,
+  },
+  radioSelected: {
+    borderColor: Colors.primaryDark,
+  },
+  radioDot: {
+    width: 10,
+    height: 10,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.primaryDark,
+  },
+  successContainer: {
+    alignItems: "center",
+    paddingTop: 18,
+  },
+  successIcon: {
+    width: 76,
+    height: 76,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: Radius.full,
+    backgroundColor: Colors.secondaryContainer,
+  },
+  successTitle: {
+    marginTop: 15,
+    fontSize: 23,
+    fontWeight: "900",
+    color: Colors.onSurface,
+  },
+  successDescription: {
+    maxWidth: 320,
+    marginTop: 7,
+    textAlign: "center",
+    fontSize: 12,
     lineHeight: 18,
+    color: Colors.onSurfaceVariant,
   },
   ticketCard: {
-    width: '100%',
-    backgroundColor: Colors.surfaceContainerLowest,
-    borderRadius: Radius.lg,
+    width: "100%",
     padding: 16,
+    marginTop: 18,
     borderWidth: 1.5,
     borderColor: Colors.primary,
-    marginVertical: 16,
+    borderRadius: Radius.xl,
+    backgroundColor: Colors.surfaceContainerLowest,
+    ...Shadows.card,
   },
-  ticketHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+  ticketTop: {
+    flexDirection: "row",
+    justifyContent: "space-between",
   },
   ticketLabel: {
-    fontSize: 10,
-    fontWeight: '800',
+    fontSize: 9,
+    fontWeight: "900",
     color: Colors.onSurfaceVariant,
-    letterSpacing: 0.5,
   },
   ticketCode: {
-    fontSize: 16,
-    fontWeight: '900',
+    marginTop: 4,
+    fontSize: 23,
+    fontWeight: "900",
     color: Colors.primaryDark,
+  },
+  qrPlaceholder: {
+    width: 66,
+    height: 66,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: Radius.md,
+    backgroundColor: Colors.surfaceContainerLow,
   },
   ticketDivider: {
     height: 1,
-    backgroundColor: Colors.surfaceContainer,
-    marginVertical: 10,
-  },
-  ticketDetails: {
-    gap: 4,
+    marginVertical: 13,
+    backgroundColor: Colors.surfaceContainerHigh,
   },
   ticketTripName: {
     fontSize: 15,
-    fontWeight: '800',
+    fontWeight: "900",
     color: Colors.onSurface,
   },
   ticketMeta: {
-    fontSize: 12,
+    marginTop: 4,
+    fontSize: 11,
     color: Colors.onSurfaceVariant,
   },
-  ticketTotal: {
-    fontSize: 13,
-    fontWeight: '700',
+  depositPaid: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 12,
+  },
+  depositPaidText: {
+    fontSize: 11,
+    fontWeight: "800",
     color: Colors.primaryDark,
-    marginTop: 4,
+  },
+  nextStepCard: {
+    width: "100%",
+    flexDirection: "row",
+    gap: 9,
+    padding: 12,
+    marginTop: 14,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.primaryPale,
+  },
+  nextStepText: {
+    flex: 1,
+    fontSize: 11,
+    lineHeight: 16,
+    color: Colors.onSurfaceVariant,
   },
 });
