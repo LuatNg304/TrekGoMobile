@@ -298,6 +298,28 @@ export default function TripsScreen() {
               <Text style={styles.gpsLiveBtnText}>Vào GPS</Text>
             </TouchableOpacity>
           </View>
+
+          <TouchableOpacity
+            style={styles.cancelBookingButton}
+            onPress={() =>
+              router.push({
+                pathname: "/trips/[id]/cancel",
+                params: {
+                  id: activeTrip.id,
+                  name: activeTrip.name,
+                  bookingCode: activeTrip.bookingCode || "#BK-8842",
+                  amount: String(activeTrip.pricePerPerson || 2850000),
+                },
+              } as unknown as Href)
+            }
+            activeOpacity={0.85}
+          >
+            <Ionicons name="close-circle-outline" size={17} color="#B91C1C" />
+
+            <Text style={styles.cancelBookingButtonText}>
+              Hủy booking và yêu cầu hoàn tiền
+            </Text>
+          </TouchableOpacity>
         </View>
 
         {trips.length > 1 && (
@@ -1313,5 +1335,22 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 14,
     fontWeight: "800",
+  },
+  cancelBookingButton: {
+    minHeight: 44,
+    marginTop: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    borderWidth: 1,
+    borderColor: "#FCA5A5",
+    borderRadius: Radius.full,
+    backgroundColor: "#FEF2F2",
+  },
+  cancelBookingButtonText: {
+    color: "#B91C1C",
+    fontSize: 11,
+    fontWeight: "900",
   },
 });
