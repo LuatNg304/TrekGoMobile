@@ -19,7 +19,6 @@ export default function ProfileScreen() {
   const router = useRouter();
   const { user, toggleUserRole, activeTrip, resolveMemberAlert } = useApp();
 
-  const [leaderCheckedIn, setLeaderCheckedIn] = useState<number>(5);
   const [switchedTrailNotice, setSwitchedTrailNotice] = useState<string | null>(null);
 
   const offRouteMember = activeTrip.participants.find(p => p.isOffRoute);

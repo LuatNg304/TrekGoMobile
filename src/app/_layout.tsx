@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet, Platform, SafeAreaView } from 'react-native';
+import { View, StyleSheet, Platform } from 'react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { AppProvider } from '@/context/AppContext';
