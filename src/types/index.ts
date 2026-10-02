@@ -160,7 +160,7 @@ export interface UserProfile {
   name: string;
   email: string;
   avatar: string;
-  role: 'TREKKER' | 'LEADER';
+  role: 'TREKKER' | 'LEADER' | 'STAFF_DELIVERY';
   completedTripsCount: number;
   totalDistanceKm: number;
   unlockedTrailsCount: number;

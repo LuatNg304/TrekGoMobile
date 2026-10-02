@@ -1,42 +1,44 @@
-import React, { createContext, useContext, useState } from 'react';
-import { 
-  UserProfile, 
-  Trip, 
-  Trail, 
-  EquipmentItem, 
-  RentalOrder, 
-  LiveNavTelemetry, 
-  Checkpoint 
-} from '@/types';
-import { 
-  mockUserProfile, 
-  mockTrips, 
-  mockTrails, 
-  mockEquipment, 
-  mockRentalOrders, 
-  initialLiveTelemetry 
+import {
+  initialLiveTelemetry,
+  mockEquipment,
+  mockRentalOrders,
+  mockTrails,
+  mockTrips,
+  mockUserProfile
 } from '@/data/mockData';
+import {
+  EquipmentItem,
+  LiveNavTelemetry,
+  RentalOrder,
+  Trail,
+  Trip,
+  UserProfile
+} from '@/types';
+import React, { createContext, useContext, useState } from 'react';
 
 interface AppContextType {
   user: UserProfile;
   setUser: React.Dispatch<React.SetStateAction<UserProfile>>;
   toggleUserRole: () => void;
-  
+  authRole: 'STAFF_DELIVERY' | 'LEADER' | null;
+  signInAsRole: (role: 'STAFF_DELIVERY' | 'LEADER') => void;
+  signOut: () => void;
+
   trips: Trip[];
   activeTrip: Trip;
   createPrivateTrip: (tripData: Partial<Trip>) => void;
   bookPublicTrip: (tripId: string, participantsCount: number) => void;
-  
+
   trails: Trail[];
   unlockTrail: (trailId: string) => void;
-  
+
   equipment: EquipmentItem[];
   rentalOrders: RentalOrder[];
   cart: { item: EquipmentItem; quantity: number }[];
   addToCart: (item: EquipmentItem, quantity: number) => void;
   removeFromCart: (itemId: string) => void;
   checkoutRental: (tripId: string, days: number) => void;
-  
+
   // Live GPS & Navigation State
   telemetry: LiveNavTelemetry;
   activeTrail: Trail;
@@ -51,6 +53,7 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<UserProfile>(mockUserProfile);
+  const [authRole, setAuthRole] = useState<'STAFF_DELIVERY' | 'LEADER' | null>(null);
   const [trips, setTrips] = useState<Trip[]>(mockTrips);
   const [trails, setTrails] = useState<Trail[]>(mockTrails);
   const [equipment] = useState<EquipmentItem[]>(mockEquipment);
@@ -67,6 +70,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       role: prev.role === 'TREKKER' ? 'LEADER' : 'TREKKER',
     }));
   };
+
+  const signInAsRole = (role: 'STAFF_DELIVERY' | 'LEADER') => {
+    setAuthRole(role);
+    setUser(prev => ({ ...prev, role, name: role === 'LEADER' ? 'Minh Khoa' : 'Hoàng Văn Tuấn' }));
+  };
+
+  const signOut = () => setAuthRole(null);
 
   const createPrivateTrip = (tripData: Partial<Trip>) => {
     const inviteCode = 'TG-' + Math.random().toString(36).substring(2, 7).toUpperCase();
@@ -240,6 +250,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         user,
         setUser,
         toggleUserRole,
+        authRole,
+        signInAsRole,
+        signOut,
         trips,
         activeTrip,
         createPrivateTrip,

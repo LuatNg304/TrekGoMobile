@@ -7,9 +7,9 @@ import {
   TouchableOpacity,
   Image,
   Dimensions,
-  SafeAreaView,
   Platform,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors, Radius, Shadows } from '@/constants/theme';
