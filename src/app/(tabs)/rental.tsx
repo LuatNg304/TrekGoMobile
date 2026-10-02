@@ -12,7 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors, Radius, Shadows } from '@/constants/theme';
 import { TopHeader } from '@/components/TopHeader';
 import { useApp } from '@/context/AppContext';
-import { EquipmentCategory, EquipmentItem } from '@/types';
+import { EquipmentCategory } from '@/types';
 import { RentalCartModal } from '@/components/RentalCartModal';
 
 export default function RentalScreen() {

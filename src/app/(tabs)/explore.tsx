@@ -15,7 +15,7 @@ import { Colors, Radius, Shadows } from '@/constants/theme';
 import { TopHeader } from '@/components/TopHeader';
 import { TacticalMap } from '@/components/TacticalMap';
 import { useApp } from '@/context/AppContext';
-import { Trail, DifficultyLevel } from '@/types';
+import { Trail } from '@/types';
 import { CreatePrivateTripModal } from '@/components/CreatePrivateTripModal';
 
 export default function ExploreScreen() {
@@ -365,7 +365,7 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   heroOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(20, 25, 18, 0.45)',
   },
   offlineGpsBadge: {

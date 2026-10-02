@@ -6,7 +6,6 @@ import {
   EquipmentItem, 
   RentalOrder, 
   LiveNavTelemetry, 
-  Checkpoint 
 } from '@/types';
 import { 
   mockUserProfile, 

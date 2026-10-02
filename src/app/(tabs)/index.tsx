@@ -8,10 +8,9 @@ import {
   Image,
   Dimensions,
   SafeAreaView,
-  Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import { Colors, Radius, Shadows } from '@/constants/theme';
 import { TopHeader } from '@/components/TopHeader';
 import { useApp } from '@/context/AppContext';
@@ -388,7 +387,7 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   imageOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(20, 25, 18, 0.45)',
   },
   countdownBadge: {

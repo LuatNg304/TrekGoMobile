@@ -6,7 +6,6 @@ import {
   ScrollView,
   TouchableOpacity,
   SafeAreaView,
-  Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -18,7 +17,7 @@ import { CreatePrivateTripModal } from '@/components/CreatePrivateTripModal';
 
 export default function TripsScreen() {
   const router = useRouter();
-  const { trips, activeTrip, user } = useApp();
+  const { trips, activeTrip } = useApp();
 
   const [activeFilter, setActiveFilter] = useState<'UPCOMING' | 'PENDING' | 'HISTORY'>('UPCOMING');
   const [prepModalVisible, setPrepModalVisible] = useState(false);
