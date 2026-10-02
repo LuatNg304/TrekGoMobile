@@ -18,14 +18,43 @@ import { useApp } from "@/context/AppContext";
 
 type TripFilter = "UPCOMING" | "PENDING" | "HISTORY";
 
+const completedTrip = {
+  id: "trip-bidoup-completed",
+  name: "Bidoup – Núi Bà (2N1Đ)",
+  destination: "Lạc Dương, Lâm Đồng",
+  date: "18 – 19 Tháng 08, 2026",
+  duration: "2 ngày 1 đêm",
+  leader: "Leader Hoàng Nam",
+  distance: "27 km",
+  elevation: "2.287 m",
+  members: 11,
+  reviewed: false,
+};
+
 export default function TripsScreen() {
   const router = useRouter();
   const { trips, activeTrip } = useApp();
 
   const [activeFilter, setActiveFilter] = useState<TripFilter>("UPCOMING");
+
   const [prepModalVisible, setPrepModalVisible] = useState(false);
+
   const [createPrivateModalVisible, setCreatePrivateModalVisible] =
     useState(false);
+
+  const pendingTrips = trips.filter(
+    (trip) =>
+      trip.type === "PUBLIC" && trip.status === "UPCOMING" && !trip.bookingCode,
+  );
+
+  function openTripDetail(tripId: string) {
+    router.push({
+      pathname: "/trips/[id]",
+      params: {
+        id: tripId,
+      },
+    } as unknown as Href);
+  }
 
   function openTicket() {
     router.push({
@@ -36,112 +65,98 @@ export default function TripsScreen() {
     } as unknown as Href);
   }
 
-  function openTripDetail() {
+  function openReview() {
     router.push({
-      pathname: "/trips/[id]",
+      pathname: "/trips/[id]/review",
       params: {
-        id: activeTrip.id,
+        id: completedTrip.id,
+        name: completedTrip.name,
+        leader: completedTrip.leader,
+        date: completedTrip.date,
       },
     } as unknown as Href);
   }
 
-  return (
-    <SafeAreaView style={styles.safeArea}>
-      <TopHeader subtitle="Trips" />
-
+  function renderFilters() {
+    return (
       <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.subFilterRow}
       >
-        {/* Main view switcher */}
-        <View style={styles.segmentContainer}>
-          <View style={styles.segmentBox}>
-            <TouchableOpacity
-              style={[styles.segmentBtn, styles.segmentBtnActive]}
-            >
-              <Ionicons name="briefcase" size={16} color={Colors.onPrimary} />
-
-              <Text style={styles.segmentBtnTextActive}>Chuyến của tôi</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.segmentBtn}
-              onPress={() => router.push("/(tabs)/rental")}
-            >
-              <Ionicons
-                name="basket-outline"
-                size={16}
-                color={Colors.onSurfaceVariant}
-              />
-
-              <Text style={styles.segmentBtnText}>Thuê thiết bị</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* Filters */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.subFilterRow}
+        <TouchableOpacity
+          style={[
+            styles.subFilterChip,
+            activeFilter === "UPCOMING" && styles.subFilterChipActive,
+          ]}
+          onPress={() => setActiveFilter("UPCOMING")}
         >
-          <TouchableOpacity
+          <Text
             style={[
-              styles.subFilterChip,
-              activeFilter === "UPCOMING" && styles.subFilterChipActive,
+              styles.subFilterText,
+              activeFilter === "UPCOMING" && styles.subFilterTextActive,
             ]}
-            onPress={() => setActiveFilter("UPCOMING")}
           >
-            <Text
-              style={[
-                styles.subFilterText,
-                activeFilter === "UPCOMING" && styles.subFilterTextActive,
-              ]}
-            >
-              Sắp tới
-            </Text>
+            Sắp tới
+          </Text>
 
-            <View style={styles.countBadge}>
-              <Text style={styles.countBadgeText}>2</Text>
+          <View style={styles.countBadge}>
+            <Text style={styles.countBadgeText}>2</Text>
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            styles.subFilterChip,
+            activeFilter === "PENDING" && styles.subFilterChipActive,
+          ]}
+          onPress={() => setActiveFilter("PENDING")}
+        >
+          <Text
+            style={[
+              styles.subFilterText,
+              activeFilter === "PENDING" && styles.subFilterTextActive,
+            ]}
+          >
+            Chờ xác nhận
+          </Text>
+
+          {pendingTrips.length > 0 && (
+            <View style={styles.pendingCountBadge}>
+              <Text style={styles.pendingCountBadgeText}>
+                {pendingTrips.length}
+              </Text>
             </View>
-          </TouchableOpacity>
+          )}
+        </TouchableOpacity>
 
-          <TouchableOpacity
+        <TouchableOpacity
+          style={[
+            styles.subFilterChip,
+            activeFilter === "HISTORY" && styles.subFilterChipActive,
+          ]}
+          onPress={() => setActiveFilter("HISTORY")}
+        >
+          <Text
             style={[
-              styles.subFilterChip,
-              activeFilter === "PENDING" && styles.subFilterChipActive,
+              styles.subFilterText,
+              activeFilter === "HISTORY" && styles.subFilterTextActive,
             ]}
-            onPress={() => setActiveFilter("PENDING")}
           >
-            <Text
-              style={[
-                styles.subFilterText,
-                activeFilter === "PENDING" && styles.subFilterTextActive,
-              ]}
-            >
-              Chờ xác nhận
-            </Text>
-          </TouchableOpacity>
+            Lịch sử đã đi
+          </Text>
 
-          <TouchableOpacity
-            style={[
-              styles.subFilterChip,
-              activeFilter === "HISTORY" && styles.subFilterChipActive,
-            ]}
-            onPress={() => setActiveFilter("HISTORY")}
-          >
-            <Text
-              style={[
-                styles.subFilterText,
-                activeFilter === "HISTORY" && styles.subFilterTextActive,
-              ]}
-            >
-              Lịch sử đã đi (12)
-            </Text>
-          </TouchableOpacity>
-        </ScrollView>
+          <View style={styles.historyCountBadge}>
+            <Text style={styles.historyCountBadgeText}>12</Text>
+          </View>
+        </TouchableOpacity>
+      </ScrollView>
+    );
+  }
 
-        {/* Active public trip */}
+  function renderUpcomingTrips() {
+    return (
+      <>
         <View style={styles.tripCard}>
           <View style={styles.tripCardTop}>
             <View style={styles.leaderBadge}>
@@ -159,7 +174,7 @@ export default function TripsScreen() {
 
           <TouchableOpacity
             style={styles.tripDetails}
-            onPress={openTripDetail}
+            onPress={() => openTripDetail(activeTrip.id)}
             activeOpacity={0.75}
           >
             <View style={styles.tripTitleRow}>
@@ -185,37 +200,35 @@ export default function TripsScreen() {
             </View>
           </TouchableOpacity>
 
-          {/* Logistics */}
           <View style={styles.logisticsBox}>
             <View style={styles.busIconBox}>
               <Ionicons name="bus" size={18} color="#0C2000" />
             </View>
 
-            <View style={styles.logisticsContent}>
+            <View style={styles.flexOne}>
               <Text style={styles.logisticsTitle}>
                 {activeTrip.logistics?.pickupLocation ??
                   "Điểm tập trung TrekGo"}
               </Text>
 
               <Text style={styles.logisticsSub}>
-                Xe 16 chỗ TrekGo Express
+                TrekGo Express
                 {activeTrip.logistics?.vehiclePlate
-                  ? ` (BKS: ${activeTrip.logistics.vehiclePlate})`
+                  ? ` · ${activeTrip.logistics.vehiclePlate}`
                   : ""}
               </Text>
             </View>
           </View>
 
-          {/* Weather and rental */}
           <View style={styles.quickGrid}>
             <View style={styles.quickTile}>
               <Ionicons name="partly-sunny" size={18} color="#725C00" />
 
-              <View style={styles.quickTileContent}>
+              <View style={styles.flexOne}>
                 <Text style={styles.quickTileLabel}>Thời tiết</Text>
 
                 <Text style={styles.quickTileVal} numberOfLines={1}>
-                  {activeTrip.weather.tempC}°C · Mây rải rác
+                  {activeTrip.weather.tempC}°C · {activeTrip.weather.condition}
                 </Text>
               </View>
             </View>
@@ -226,20 +239,16 @@ export default function TripsScreen() {
             >
               <Ionicons name="basket" size={18} color={Colors.primaryDark} />
 
-              <View style={styles.quickTileContent}>
+              <View style={styles.flexOne}>
                 <Text style={styles.quickTileLabel}>Đồ đã thuê</Text>
 
-                <Text
-                  style={[styles.quickTileVal, styles.rentalQuickValue]}
-                  numberOfLines={1}
-                >
-                  1 món (Đã gán) ›
+                <Text style={styles.quickRentalValue} numberOfLines={1}>
+                  {activeTrip.rentedItemsCount ?? 0} món ›
                 </Text>
               </View>
             </TouchableOpacity>
           </View>
 
-          {/* Ticket */}
           <TouchableOpacity
             style={styles.ticketBtn}
             onPress={openTicket}
@@ -253,7 +262,7 @@ export default function TripsScreen() {
               />
             </View>
 
-            <View style={styles.ticketTextContent}>
+            <View style={styles.flexOne}>
               <Text style={styles.ticketBtnText}>Xem vé QR và mã đặt chỗ</Text>
 
               <Text style={styles.ticketBtnSubtext}>
@@ -268,7 +277,6 @@ export default function TripsScreen() {
             />
           </TouchableOpacity>
 
-          {/* Operational actions */}
           <View style={styles.cardActionsRow}>
             <TouchableOpacity
               style={styles.prepBtn}
@@ -282,7 +290,7 @@ export default function TripsScreen() {
 
             <TouchableOpacity
               style={styles.gpsLiveBtn}
-              onPress={() => router.push("/navigation")}
+              onPress={() => setPrepModalVisible(true)}
               activeOpacity={0.85}
             >
               <Ionicons name="navigate" size={16} color={Colors.onPrimary} />
@@ -292,7 +300,6 @@ export default function TripsScreen() {
           </View>
         </View>
 
-        {/* Private trip */}
         {trips.length > 1 && (
           <View style={styles.privateTripCard}>
             <View style={styles.privateTop}>
@@ -310,7 +317,7 @@ export default function TripsScreen() {
             <Text style={styles.privateTitle}>{trips[1].name}</Text>
 
             <Text style={styles.privateSub}>
-              Dự kiến: Tháng sau · 2 ngày 1 đêm
+              {trips[1].startDate} · {trips[1].durationDays} ngày
             </Text>
 
             <View style={styles.participantsBox}>
@@ -348,7 +355,6 @@ export default function TripsScreen() {
           </View>
         )}
 
-        {/* Create private trip */}
         <TouchableOpacity
           style={styles.createTripBanner}
           onPress={() => setCreatePrivateModalVisible(true)}
@@ -358,7 +364,7 @@ export default function TripsScreen() {
             <Ionicons name="add" size={24} color={Colors.onPrimary} />
           </View>
 
-          <View style={styles.createTripContent}>
+          <View style={styles.flexOne}>
             <Text style={styles.createTripTitle}>Tổ chức chuyến đi riêng</Text>
 
             <Text style={styles.createTripSub}>
@@ -372,6 +378,247 @@ export default function TripsScreen() {
             color={Colors.primaryDark}
           />
         </TouchableOpacity>
+      </>
+    );
+  }
+
+  function renderPendingTrips() {
+    if (pendingTrips.length === 0) {
+      return (
+        <View style={styles.emptyState}>
+          <View style={styles.emptyIcon}>
+            <Ionicons
+              name="time-outline"
+              size={34}
+              color={Colors.primaryDark}
+            />
+          </View>
+
+          <Text style={styles.emptyTitle}>Không có chuyến chờ xác nhận</Text>
+
+          <Text style={styles.emptyDescription}>
+            Các chuyến sau khi đặt cọc thành công sẽ được chuyển sang mục Sắp
+            tới.
+          </Text>
+
+          <TouchableOpacity
+            style={styles.emptyButton}
+            onPress={() => router.push("/(tabs)")}
+          >
+            <Text style={styles.emptyButtonText}>Khám phá chuyến mới</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    return (
+      <>
+        {pendingTrips.map((trip) => (
+          <View key={trip.id} style={styles.pendingCard}>
+            <View style={styles.pendingCardTop}>
+              <View style={styles.pendingStatusPill}>
+                <Ionicons name="time-outline" size={13} color="#7A5700" />
+
+                <Text style={styles.pendingStatusText}>CHỜ XÁC NHẬN</Text>
+              </View>
+
+              <Text style={styles.pendingPrice}>
+                {trip.pricePerPerson
+                  ? `${trip.pricePerPerson.toLocaleString("vi-VN")}đ`
+                  : "Liên hệ"}
+              </Text>
+            </View>
+
+            <Text style={styles.pendingTripName}>{trip.name}</Text>
+
+            <View style={styles.infoRow}>
+              <Ionicons
+                name="location-outline"
+                size={16}
+                color={Colors.primaryDark}
+              />
+
+              <Text style={styles.infoText}>{trip.destination}</Text>
+            </View>
+
+            <View style={styles.infoRow}>
+              <Ionicons
+                name="calendar-outline"
+                size={16}
+                color={Colors.primaryDark}
+              />
+
+              <Text style={styles.infoText}>
+                {trip.startDate} – {trip.endDate}
+              </Text>
+            </View>
+
+            <View style={styles.pendingNotice}>
+              <Ionicons
+                name="information-circle-outline"
+                size={18}
+                color="#7A5700"
+              />
+
+              <Text style={styles.pendingNoticeText}>
+                Đang chờ hoàn tất đặt cọc để xác nhận chỗ.
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              style={styles.outlineButton}
+              onPress={() => openTripDetail(trip.id)}
+            >
+              <Text style={styles.outlineButtonText}>Xem chi tiết chuyến</Text>
+
+              <Ionicons
+                name="chevron-forward"
+                size={17}
+                color={Colors.primaryDark}
+              />
+            </TouchableOpacity>
+          </View>
+        ))}
+      </>
+    );
+  }
+
+  function renderHistory() {
+    return (
+      <View style={styles.historyCard}>
+        <View style={styles.historyTop}>
+          <View style={styles.completedPill}>
+            <Ionicons name="checkmark-circle" size={14} color="#1B4332" />
+
+            <Text style={styles.completedText}>ĐÃ HOÀN THÀNH</Text>
+          </View>
+
+          <Text style={styles.historyDate}>{completedTrip.date}</Text>
+        </View>
+
+        <Text style={styles.historyTripName}>{completedTrip.name}</Text>
+
+        <Text style={styles.historyDestination}>
+          {completedTrip.destination}
+        </Text>
+
+        <View style={styles.historyStats}>
+          <View style={styles.historyStat}>
+            <Ionicons
+              name="walk-outline"
+              size={18}
+              color={Colors.primaryDark}
+            />
+
+            <Text style={styles.historyStatValue}>
+              {completedTrip.distance}
+            </Text>
+
+            <Text style={styles.historyStatLabel}>Quãng đường</Text>
+          </View>
+
+          <View style={styles.statDivider} />
+
+          <View style={styles.historyStat}>
+            <Ionicons
+              name="trending-up-outline"
+              size={18}
+              color={Colors.primaryDark}
+            />
+
+            <Text style={styles.historyStatValue}>
+              {completedTrip.elevation}
+            </Text>
+
+            <Text style={styles.historyStatLabel}>Độ cao</Text>
+          </View>
+
+          <View style={styles.statDivider} />
+
+          <View style={styles.historyStat}>
+            <Ionicons
+              name="people-outline"
+              size={18}
+              color={Colors.primaryDark}
+            />
+
+            <Text style={styles.historyStatValue}>{completedTrip.members}</Text>
+
+            <Text style={styles.historyStatLabel}>Thành viên</Text>
+          </View>
+        </View>
+
+        <View style={styles.leaderSummary}>
+          <View style={styles.leaderAvatar}>
+            <Text style={styles.leaderAvatarText}>HN</Text>
+          </View>
+
+          <View style={styles.flexOne}>
+            <Text style={styles.leaderLabel}>Dẫn đoàn</Text>
+
+            <Text style={styles.leaderName}>{completedTrip.leader}</Text>
+          </View>
+
+          <View style={styles.ratingSummary}>
+            <Ionicons name="star" size={14} color="#F59E0B" />
+
+            <Text style={styles.ratingSummaryText}>4.9</Text>
+          </View>
+        </View>
+
+        <TouchableOpacity
+          style={styles.reviewButton}
+          onPress={openReview}
+          activeOpacity={0.85}
+        >
+          <Ionicons name="star-outline" size={19} color="#FFFFFF" />
+
+          <Text style={styles.reviewButtonText}>Đánh giá chuyến đi</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  return (
+    <SafeAreaView style={styles.safeArea}>
+      <TopHeader subtitle="Trips" />
+
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+      >
+        <View style={styles.segmentContainer}>
+          <View style={styles.segmentBox}>
+            <TouchableOpacity
+              style={[styles.segmentBtn, styles.segmentBtnActive]}
+            >
+              <Ionicons name="briefcase" size={16} color={Colors.onPrimary} />
+
+              <Text style={styles.segmentBtnTextActive}>Chuyến của tôi</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.segmentBtn}
+              onPress={() => router.push("/(tabs)/rental")}
+            >
+              <Ionicons
+                name="basket-outline"
+                size={16}
+                color={Colors.onSurfaceVariant}
+              />
+
+              <Text style={styles.segmentBtnText}>Thuê thiết bị</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {renderFilters()}
+
+        {activeFilter === "UPCOMING" && renderUpcomingTrips()}
+
+        {activeFilter === "PENDING" && renderPendingTrips()}
+
+        {activeFilter === "HISTORY" && renderHistory()}
       </ScrollView>
 
       <TripPrepModal
@@ -394,6 +641,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.surface,
   },
+  flexOne: {
+    flex: 1,
+  },
   scrollContent: {
     paddingBottom: 40,
   },
@@ -403,8 +653,8 @@ const styles = StyleSheet.create({
     paddingBottom: 10,
   },
   segmentBox: {
-    flexDirection: "row",
     padding: 3,
+    flexDirection: "row",
     borderRadius: Radius.full,
     backgroundColor: Colors.surfaceContainer,
   },
@@ -439,7 +689,7 @@ const styles = StyleSheet.create({
   },
   subFilterChip: {
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 7,
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
@@ -459,8 +709,8 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   countBadge: {
-    width: 16,
-    height: 16,
+    width: 17,
+    height: 17,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: Radius.full,
@@ -469,6 +719,33 @@ const styles = StyleSheet.create({
   countBadgeText: {
     color: Colors.onPrimary,
     fontSize: 10,
+    fontWeight: "800",
+  },
+  pendingCountBadge: {
+    width: 17,
+    height: 17,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: Radius.full,
+    backgroundColor: "#F59E0B",
+  },
+  pendingCountBadgeText: {
+    color: "#FFFFFF",
+    fontSize: 10,
+    fontWeight: "800",
+  },
+  historyCountBadge: {
+    minWidth: 17,
+    height: 17,
+    paddingHorizontal: 4,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: Radius.full,
+    backgroundColor: Colors.surfaceContainerHighest,
+  },
+  historyCountBadgeText: {
+    color: Colors.onSurface,
+    fontSize: 9,
     fontWeight: "800",
   },
   tripCard: {
@@ -501,7 +778,7 @@ const styles = StyleSheet.create({
   },
   confirmedBadge: {
     paddingHorizontal: 8,
-    paddingVertical: 2,
+    paddingVertical: 3,
     borderRadius: Radius.full,
     backgroundColor: Colors.primaryContainer,
   },
@@ -516,7 +793,6 @@ const styles = StyleSheet.create({
   tripTitleRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
     gap: 10,
   },
   tripTitle: {
@@ -545,9 +821,6 @@ const styles = StyleSheet.create({
     gap: 10,
     borderRadius: Radius.md,
     backgroundColor: Colors.surfaceContainerLow,
-  },
-  logisticsContent: {
-    flex: 1,
   },
   busIconBox: {
     width: 34,
@@ -582,10 +855,6 @@ const styles = StyleSheet.create({
     borderRadius: Radius.md,
     backgroundColor: Colors.surfaceContainerLow,
   },
-  quickTileContent: {
-    flex: 1,
-    minWidth: 0,
-  },
   quickTileLabel: {
     color: Colors.onSurfaceVariant,
     fontSize: 10,
@@ -595,8 +864,10 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700",
   },
-  rentalQuickValue: {
+  quickRentalValue: {
     color: Colors.primaryDark,
+    fontSize: 12,
+    fontWeight: "800",
   },
   ticketBtn: {
     minHeight: 58,
@@ -617,9 +888,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderRadius: Radius.md,
     backgroundColor: Colors.primaryPale,
-  },
-  ticketTextContent: {
-    flex: 1,
   },
   ticketBtnText: {
     color: Colors.primaryDark,
@@ -786,9 +1054,6 @@ const styles = StyleSheet.create({
     borderRadius: Radius.full,
     backgroundColor: Colors.primaryContainer,
   },
-  createTripContent: {
-    flex: 1,
-  },
   createTripTitle: {
     color: Colors.inkDeep,
     fontSize: 14,
@@ -799,5 +1064,254 @@ const styles = StyleSheet.create({
     color: Colors.onSurfaceVariant,
     fontSize: 11,
     lineHeight: 15,
+  },
+  pendingCard: {
+    marginHorizontal: 16,
+    padding: 16,
+    borderRadius: Radius.xl,
+    backgroundColor: Colors.surfaceContainerLowest,
+    ...Shadows.card,
+  },
+  pendingCardTop: {
+    marginBottom: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  pendingStatusPill: {
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    borderRadius: Radius.full,
+    backgroundColor: "#FFF1BF",
+  },
+  pendingStatusText: {
+    color: "#7A5700",
+    fontSize: 9,
+    fontWeight: "900",
+  },
+  pendingPrice: {
+    color: Colors.primaryDark,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  pendingTripName: {
+    marginBottom: 10,
+    color: Colors.onSurface,
+    fontSize: 19,
+    fontWeight: "900",
+  },
+  infoRow: {
+    marginTop: 7,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  infoText: {
+    flex: 1,
+    color: Colors.onSurfaceVariant,
+    fontSize: 12,
+  },
+  pendingNotice: {
+    marginTop: 14,
+    padding: 11,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    borderRadius: Radius.md,
+    backgroundColor: "#FFF7D6",
+  },
+  pendingNoticeText: {
+    flex: 1,
+    color: "#6B5200",
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  outlineButton: {
+    minHeight: 46,
+    marginTop: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    borderWidth: 1,
+    borderColor: Colors.primaryDark,
+    borderRadius: Radius.full,
+  },
+  outlineButtonText: {
+    color: Colors.primaryDark,
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  emptyState: {
+    marginHorizontal: 16,
+    paddingHorizontal: 24,
+    paddingVertical: 42,
+    alignItems: "center",
+    borderRadius: Radius.xl,
+    backgroundColor: Colors.surfaceContainerLowest,
+    ...Shadows.card,
+  },
+  emptyIcon: {
+    width: 68,
+    height: 68,
+    marginBottom: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 34,
+    backgroundColor: Colors.primaryPale,
+  },
+  emptyTitle: {
+    color: Colors.onSurface,
+    fontSize: 17,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  emptyDescription: {
+    marginTop: 7,
+    color: Colors.onSurfaceVariant,
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: "center",
+  },
+  emptyButton: {
+    minHeight: 44,
+    marginTop: 18,
+    paddingHorizontal: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: Radius.full,
+    backgroundColor: Colors.primaryDark,
+  },
+  emptyButtonText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  historyCard: {
+    marginHorizontal: 16,
+    padding: 16,
+    borderRadius: Radius.xl,
+    backgroundColor: Colors.surfaceContainerLowest,
+    ...Shadows.hover,
+  },
+  historyTop: {
+    marginBottom: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  completedPill: {
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    borderRadius: Radius.full,
+    backgroundColor: "#DFF4E7",
+  },
+  completedText: {
+    color: "#1B4332",
+    fontSize: 9,
+    fontWeight: "900",
+  },
+  historyDate: {
+    color: Colors.onSurfaceVariant,
+    fontSize: 10,
+  },
+  historyTripName: {
+    color: Colors.onSurface,
+    fontSize: 20,
+    fontWeight: "900",
+  },
+  historyDestination: {
+    marginTop: 4,
+    color: Colors.onSurfaceVariant,
+    fontSize: 12,
+  },
+  historyStats: {
+    marginTop: 16,
+    paddingVertical: 12,
+    flexDirection: "row",
+    borderRadius: Radius.md,
+    backgroundColor: Colors.surfaceContainerLow,
+  },
+  historyStat: {
+    flex: 1,
+    alignItems: "center",
+  },
+  historyStatValue: {
+    marginTop: 4,
+    color: Colors.onSurface,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  historyStatLabel: {
+    marginTop: 2,
+    color: Colors.onSurfaceVariant,
+    fontSize: 9,
+  },
+  statDivider: {
+    width: 1,
+    backgroundColor: Colors.surfaceContainerHighest,
+  },
+  leaderSummary: {
+    marginTop: 14,
+    padding: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: Radius.md,
+    backgroundColor: Colors.surfaceContainerLow,
+  },
+  leaderAvatar: {
+    width: 38,
+    height: 38,
+    marginRight: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 19,
+    backgroundColor: Colors.primaryDark,
+  },
+  leaderAvatarText: {
+    color: "#FFFFFF",
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  leaderLabel: {
+    color: Colors.onSurfaceVariant,
+    fontSize: 9,
+  },
+  leaderName: {
+    marginTop: 2,
+    color: Colors.onSurface,
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  ratingSummary: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+  },
+  ratingSummaryText: {
+    color: Colors.onSurface,
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  reviewButton: {
+    minHeight: 50,
+    marginTop: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.primaryDark,
+  },
+  reviewButtonText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "800",
   },
 });
