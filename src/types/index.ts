@@ -2,7 +2,11 @@ export type DifficultyLevel = "Dễ" | "Trung bình" | "Khó" | "Thách thức";
 
 export type TripType = "PUBLIC" | "PRIVATE";
 
-export type TripStatus = "UPCOMING" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED";
+export type TripStatus =
+  | "UPCOMING"
+  | "IN_PROGRESS"
+  | "COMPLETED"
+  | "CANCELLED";
 
 export type CheckpointStatus = "PENDING" | "REACHED" | "COMPLETED";
 
@@ -42,12 +46,10 @@ export interface Checkpoint {
   distanceFromStartKm: number;
   status: CheckpointStatus;
   mission?: CheckpointMission;
-
   coords: {
     x: number;
     y: number;
   };
-
   realCoords?: {
     lat: number;
     lon: number;
@@ -93,9 +95,7 @@ export interface PersonalTrail {
   visibility: PersonalTrailVisibility;
   verificationStatus: PersonalTrailVerificationStatus;
   rejectionReason?: string;
-
   routePreset: "RIDGE" | "FOREST" | "WATERFALL";
-
   routePoints: PersonalTrailRoutePoint[];
   checkpoints: Checkpoint[];
   createdAt: string;
@@ -117,14 +117,104 @@ export interface CreatePersonalTrailInput {
   submitForVerification: boolean;
 }
 
+export type CommunityAuthorRole = "TREKKER" | "LEADER";
+
+export interface CommunityAuthor {
+  id: string;
+  name: string;
+  avatar: string;
+  role: CommunityAuthorRole;
+  verified: boolean;
+  badge?: string;
+}
+
+export interface CommunityProfile extends CommunityAuthor {
+  coverImage: string;
+  bio: string;
+  location: string;
+  joinedAt: string;
+  followersCount: number;
+  followingCount: number;
+  completedTripsCount: number;
+  totalDistanceKm: number;
+  specialties: string[];
+  isFollowing: boolean;
+}
+
+export type CommunityNotificationType =
+  | "LIKE"
+  | "COMMENT"
+  | "FOLLOW"
+  | "SAFETY"
+  | "SYSTEM";
+
+export interface CommunityNotification {
+  id: string;
+  type: CommunityNotificationType;
+  title: string;
+  message: string;
+  createdAt: string;
+  isRead: boolean;
+  actor?: CommunityAuthor;
+  postId?: string;
+  profileId?: string;
+}
+
+export interface CommunityComment {
+  id: string;
+  postId: string;
+  author: CommunityAuthor;
+  content: string;
+  createdAt: string;
+}
+
+export interface CommunityPost {
+  id: string;
+  author: CommunityAuthor;
+  content: string;
+  imageUrl?: string;
+  location?: string;
+  trailName?: string;
+  tags: string[];
+  createdAt: string;
+  likesCount: number;
+  commentsCount: number;
+  isLiked: boolean;
+  isSaved: boolean;
+  comments: CommunityComment[];
+}
+
+export interface CreateCommunityPostInput {
+  content: string;
+  imageUrl?: string;
+  location?: string;
+  trailName?: string;
+  tags: string[];
+}
+
+export type CommunityReportReason =
+  | "SPAM"
+  | "HARASSMENT"
+  | "DANGEROUS_INFORMATION"
+  | "MISINFORMATION"
+  | "OTHER";
+
+export interface CommunityReport {
+  id: string;
+  postId: string;
+  reporterId: string;
+  reason: CommunityReportReason;
+  detail?: string;
+  createdAt: string;
+  status: "SUBMITTED";
+}
+
 export interface TripParticipant {
   id: string;
   name: string;
   avatar: string;
   phone?: string;
-
   role: "LEADER" | "MEMBER" | "HOST";
-
   isOffRoute?: boolean;
   deviationMeters?: number;
   lastKnownLocation?: string;
@@ -160,7 +250,6 @@ export interface Trip {
   endDate: string;
   durationDays: number;
   status: TripStatus;
-
   leader: {
     name: string;
     avatar: string;
@@ -168,7 +257,6 @@ export interface Trip {
     rating: number;
     badge: string;
   };
-
   capacity: number;
   enrolledCount: number;
   pricePerPerson?: number;
@@ -224,9 +312,7 @@ export interface UserProfile {
   name: string;
   email: string;
   avatar: string;
-
   role: "TREKKER" | "LEADER";
-
   completedTripsCount: number;
   totalDistanceKm: number;
   unlockedTrailsCount: number;

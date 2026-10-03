@@ -1,8 +1,13 @@
-import React from 'react';
-import { View, StyleSheet, Platform } from 'react-native';
-import { Tabs } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { Colors, Radius, Shadows } from '@/constants/theme';
+import { Ionicons } from "@expo/vector-icons";
+import { Tabs } from "expo-router";
+import {
+  type ColorValue,
+  Platform,
+  StyleSheet,
+  View,
+} from "react-native";
+
+import { Colors, Radius, Shadows } from "@/constants/theme";
 
 export default function TabLayout() {
   return (
@@ -13,93 +18,107 @@ export default function TabLayout() {
         tabBarActiveTintColor: Colors.ink,
         tabBarInactiveTintColor: Colors.onSurfaceMuted,
         tabBarStyle: {
-          backgroundColor: 'rgba(251, 249, 243, 0.98)',
-          borderTopWidth: 1,
-          borderTopColor: 'rgba(0, 0, 0, 0.06)',
-          height: Platform.OS === 'ios' ? 84 : 64,
-          paddingBottom: Platform.OS === 'ios' ? 24 : 8,
+          height: Platform.OS === "ios" ? 84 : 64,
           paddingTop: 8,
+          paddingBottom: Platform.OS === "ios" ? 24 : 8,
+          borderTopWidth: 1,
+          borderTopColor: "rgba(0, 0, 0, 0.06)",
+          backgroundColor: "rgba(251, 249, 243, 0.98)",
           ...Shadows.card,
         },
         tabBarLabelStyle: {
-          fontSize: 10,
-          fontWeight: '700',
           marginTop: 2,
+          fontSize: 9,
+          fontWeight: "700",
         },
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Home',
+          title: "Home",
           tabBarIcon: ({ focused, color }) => (
-            <View style={[styles.iconContainer, focused && styles.iconActiveContainer]}>
-              <Ionicons
-                name={focused ? 'home' : 'home-outline'}
-                size={20}
-                color={focused ? Colors.onPrimary : color}
-              />
-            </View>
+            <TabIcon
+              focused={focused}
+              color={color}
+              activeIcon="home"
+              inactiveIcon="home-outline"
+            />
           ),
         }}
       />
+
       <Tabs.Screen
         name="explore"
         options={{
-          title: 'Explore',
+          title: "Explore",
           tabBarIcon: ({ focused, color }) => (
-            <View style={[styles.iconContainer, focused && styles.iconActiveContainer]}>
-              <Ionicons
-                name={focused ? 'compass' : 'compass-outline'}
-                size={20}
-                color={focused ? Colors.onPrimary : color}
-              />
-            </View>
+            <TabIcon
+              focused={focused}
+              color={color}
+              activeIcon="compass"
+              inactiveIcon="compass-outline"
+            />
           ),
         }}
       />
+
+      <Tabs.Screen
+        name="community"
+        options={{
+          title: "Community",
+          tabBarIcon: ({ focused, color }) => (
+            <TabIcon
+              focused={focused}
+              color={color}
+              activeIcon="people"
+              inactiveIcon="people-outline"
+            />
+          ),
+        }}
+      />
+
       <Tabs.Screen
         name="trips"
         options={{
-          title: 'Trips',
+          title: "Trips",
           tabBarIcon: ({ focused, color }) => (
-            <View style={[styles.iconContainer, focused && styles.iconActiveContainer]}>
-              <Ionicons
-                name={focused ? 'trail-sign' : 'trail-sign-outline'}
-                size={20}
-                color={focused ? Colors.onPrimary : color}
-              />
-            </View>
+            <TabIcon
+              focused={focused}
+              color={color}
+              activeIcon="trail-sign"
+              inactiveIcon="trail-sign-outline"
+            />
           ),
         }}
       />
+
       <Tabs.Screen
         name="rental"
         options={{
-          title: 'Rental',
+          title: "Rental",
           tabBarIcon: ({ focused, color }) => (
-            <View style={[styles.iconContainer, focused && styles.iconActiveContainer]}>
-              <Ionicons
-                name={focused ? 'basket' : 'basket-outline'}
-                size={20}
-                color={focused ? Colors.onPrimary : color}
-              />
-            </View>
+            <TabIcon
+              focused={focused}
+              color={color}
+              activeIcon="basket"
+              inactiveIcon="basket-outline"
+            />
           ),
         }}
       />
+
       <Tabs.Screen
         name="profile"
         options={{
-          title: 'Profile',
+          title: "Profile",
           tabBarIcon: ({ focused, color }) => (
-            <View style={[styles.iconContainer, focused && styles.iconActiveContainer]}>
-              <Ionicons
-                name={focused ? 'person' : 'person-outline'}
-                size={20}
-                color={focused ? Colors.onPrimary : color}
-              />
-            </View>
+            <TabIcon
+              focused={focused}
+              color={color}
+              activeIcon="person"
+              inactiveIcon="person-outline"
+            />
           ),
         }}
       />
@@ -107,15 +126,37 @@ export default function TabLayout() {
   );
 }
 
+function TabIcon({
+  focused,
+  color,
+  activeIcon,
+  inactiveIcon,
+}: {
+  focused: boolean;
+  color: ColorValue;
+  activeIcon: keyof typeof Ionicons.glyphMap;
+  inactiveIcon: keyof typeof Ionicons.glyphMap;
+}) {
+  return (
+    <View style={[styles.iconContainer, focused && styles.iconActiveContainer]}>
+      <Ionicons
+        name={focused ? activeIcon : inactiveIcon}
+        size={19}
+        color={focused ? Colors.onPrimary : color}
+      />
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   iconContainer: {
-    width: 38,
-    height: 28,
+    width: 34,
+    height: 27,
+    alignItems: "center",
+    justifyContent: "center",
     borderRadius: Radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   iconActiveContainer: {
-    backgroundColor: Colors.primary, // #9fe870 signature lime active indicator
+    backgroundColor: Colors.primary,
   },
 });

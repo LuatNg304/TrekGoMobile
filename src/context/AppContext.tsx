@@ -1,6 +1,12 @@
 import React, { createContext, useContext, useState } from "react";
 
 import {
+  CommunityNotification,
+  CommunityPost,
+  CommunityProfile,
+  CommunityReport,
+  CommunityReportReason,
+  CreateCommunityPostInput,
   CreatePersonalTrailInput,
   EquipmentItem,
   LiveNavTelemetry,
@@ -62,6 +68,23 @@ interface AppContextType {
   ) => void;
   submitPersonalTrail: (trailId: string) => void;
   deletePersonalTrail: (trailId: string) => void;
+
+  communityPosts: CommunityPost[];
+  communityProfiles: CommunityProfile[];
+  communityNotifications: CommunityNotification[];
+  communityReports: CommunityReport[];
+  createCommunityPost: (input: CreateCommunityPostInput) => CommunityPost;
+  toggleCommunityPostLike: (postId: string) => void;
+  toggleCommunityPostSaved: (postId: string) => void;
+  addCommunityComment: (postId: string, content: string) => void;
+  toggleCommunityFollow: (profileId: string) => void;
+  markCommunityNotificationRead: (notificationId: string) => void;
+  markAllCommunityNotificationsRead: () => void;
+  reportCommunityPost: (
+    postId: string,
+    reason: CommunityReportReason,
+    detail?: string,
+  ) => void;
 
   equipment: EquipmentItem[];
   rentalOrders: RentalOrder[];
@@ -182,6 +205,246 @@ const initialPersonalTrails: PersonalTrail[] = [
   },
 ];
 
+const initialCommunityPosts: CommunityPost[] = [
+  {
+    id: "community-post-pinhatt",
+    author: {
+      id: "leader-hoang-nam",
+      name: "Hoàng Nam",
+      avatar: "https://i.pravatar.cc/200?img=12",
+      role: "LEADER",
+      verified: true,
+      badge: "Verified Leader",
+    },
+    content:
+      "Sáng nay Pinhatt có mây thấp và gió khá mạnh ở đoạn sống núi. Đoàn đi sau 9 giờ nên mang áo gió, giữ khoảng cách và tránh đứng lâu tại mép đá.",
+    imageUrl:
+      "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1200&q=80",
+    location: "Đỉnh Pinhatt, Lâm Đồng",
+    trailName: "Đường mòn săn hoàng hôn Pinhatt",
+    tags: ["Cảnh báo", "Pinhatt", "Thời tiết"],
+    createdAt: "35 phút trước",
+    likesCount: 128,
+    commentsCount: 2,
+    isLiked: false,
+    isSaved: true,
+    comments: [
+      {
+        id: "comment-pinhatt-1",
+        postId: "community-post-pinhatt",
+        author: {
+          id: "trekker-minh-anh",
+          name: "Minh Anh",
+          avatar: "https://i.pravatar.cc/200?img=47",
+          role: "TREKKER",
+          verified: false,
+        },
+        content: "Cảm ơn Leader, nhóm mình sẽ xuất phát sớm hơn dự kiến.",
+        createdAt: "20 phút trước",
+      },
+      {
+        id: "comment-pinhatt-2",
+        postId: "community-post-pinhatt",
+        author: {
+          id: "leader-khanh-linh",
+          name: "Khánh Linh",
+          avatar: "https://i.pravatar.cc/200?img=32",
+          role: "LEADER",
+          verified: true,
+          badge: "Top Organizer",
+        },
+        content: "Đoạn CP2 cũng hơi trơn, nhớ kiểm tra đế giày trước khi lên.",
+        createdAt: "12 phút trước",
+      },
+    ],
+  },
+  {
+    id: "community-post-ta-nang",
+    author: {
+      id: "trekker-minh-anh",
+      name: "Minh Anh",
+      avatar: "https://i.pravatar.cc/200?img=47",
+      role: "TREKKER",
+      verified: false,
+      badge: "Mountain Explorer",
+    },
+    content:
+      "Hoàn thành cung Tà Năng – Phan Dũng lần đầu tiên! Cảm ơn mọi người đã chia sẻ checklist nước và đồ chống nắng. View cuối ngày thật sự xứng đáng.",
+    imageUrl:
+      "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=1200&q=80",
+    location: "Tà Năng – Phan Dũng",
+    trailName: "Tà Năng – Phan Dũng",
+    tags: ["Review chuyến đi", "Tà Năng", "Tân binh"],
+    createdAt: "2 giờ trước",
+    likesCount: 84,
+    commentsCount: 1,
+    isLiked: true,
+    isSaved: false,
+    comments: [
+      {
+        id: "comment-ta-nang-1",
+        postId: "community-post-ta-nang",
+        author: {
+          id: "leader-hoang-nam",
+          name: "Hoàng Nam",
+          avatar: "https://i.pravatar.cc/200?img=12",
+          role: "LEADER",
+          verified: true,
+          badge: "Verified Leader",
+        },
+        content: "Chúc mừng bạn đã hoàn thành cung đầu tiên nhé!",
+        createdAt: "1 giờ trước",
+      },
+    ],
+  },
+  {
+    id: "community-post-gear",
+    author: {
+      id: "leader-khanh-linh",
+      name: "Khánh Linh",
+      avatar: "https://i.pravatar.cc/200?img=32",
+      role: "LEADER",
+      verified: true,
+      badge: "Top Organizer",
+    },
+    content:
+      "Checklist nhanh cho chuyến 2 ngày 1 đêm: áo mưa nhẹ, đèn pin đội đầu, túi ngủ phù hợp nhiệt độ và tối thiểu 2 lít nước/người. Đừng mang balo quá 20% cân nặng cơ thể.",
+    location: "Cộng đồng TrekGo",
+    tags: ["Kinh nghiệm", "Trang bị", "Checklist"],
+    createdAt: "Hôm qua",
+    likesCount: 206,
+    commentsCount: 0,
+    isLiked: false,
+    isSaved: false,
+    comments: [],
+  },
+];
+
+const initialCommunityProfiles: CommunityProfile[] = [
+  {
+    id: mockUserProfile.id,
+    name: mockUserProfile.name,
+    avatar: mockUserProfile.avatar,
+    coverImage:
+      "https://images.unsplash.com/photo-1464278533981-50106e6176b1?auto=format&fit=crop&w=1200&q=80",
+    role: mockUserProfile.role,
+    verified: mockUserProfile.role === "LEADER",
+    badge: mockUserProfile.role === "LEADER" ? "Verified Leader" : "Trail Explorer",
+    bio: "Yêu những cung đường nhiều cây xanh, thích ghi lại checklist và kinh nghiệm cho người mới.",
+    location: "TP. Hồ Chí Minh",
+    joinedAt: "Tham gia từ 08/2026",
+    followersCount: 126,
+    followingCount: 48,
+    completedTripsCount: mockUserProfile.completedTripsCount,
+    totalDistanceKm: mockUserProfile.totalDistanceKm,
+    specialties: ["Trekking cuối tuần", "Checklist", "Ảnh hành trình"],
+    isFollowing: false,
+  },
+  {
+    id: "leader-hoang-nam",
+    name: "Hoàng Nam",
+    avatar: "https://i.pravatar.cc/200?img=12",
+    coverImage:
+      "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=1200&q=80",
+    role: "LEADER",
+    verified: true,
+    badge: "Verified Leader",
+    bio: "Leader chuyên tuyến Tây Nguyên, ưu tiên an toàn đoàn và kỹ năng xử lý thời tiết xấu.",
+    location: "Đà Lạt, Lâm Đồng",
+    joinedAt: "Tham gia từ 04/2025",
+    followersCount: 2840,
+    followingCount: 119,
+    completedTripsCount: 68,
+    totalDistanceKm: 1246,
+    specialties: ["Tây Nguyên", "An toàn tuyến", "Sơ cứu"],
+    isFollowing: true,
+  },
+  {
+    id: "trekker-minh-anh",
+    name: "Minh Anh",
+    avatar: "https://i.pravatar.cc/200?img=47",
+    coverImage:
+      "https://images.unsplash.com/photo-1551632811-561732d1e306?auto=format&fit=crop&w=1200&q=80",
+    role: "TREKKER",
+    verified: false,
+    badge: "Mountain Explorer",
+    bio: "Tân binh mê săn mây, đang chinh phục từng cung đường đẹp của Việt Nam.",
+    location: "Biên Hòa, Đồng Nai",
+    joinedAt: "Tham gia từ 09/2026",
+    followersCount: 318,
+    followingCount: 92,
+    completedTripsCount: 7,
+    totalDistanceKm: 86,
+    specialties: ["Săn mây", "Review chuyến đi", "Người mới"],
+    isFollowing: false,
+  },
+  {
+    id: "leader-khanh-linh",
+    name: "Khánh Linh",
+    avatar: "https://i.pravatar.cc/200?img=32",
+    coverImage:
+      "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1200&q=80",
+    role: "LEADER",
+    verified: true,
+    badge: "Top Organizer",
+    bio: "Leader tuyến dài ngày, thích chia sẻ cách chuẩn bị hành lý gọn và đủ.",
+    location: "Hà Nội",
+    joinedAt: "Tham gia từ 11/2024",
+    followersCount: 4210,
+    followingCount: 204,
+    completedTripsCount: 94,
+    totalDistanceKm: 2084,
+    specialties: ["Tuyến dài ngày", "Trang bị", "Điều phối đoàn"],
+    isFollowing: true,
+  },
+];
+
+const initialCommunityNotifications: CommunityNotification[] = [
+  {
+    id: "community-notification-safety",
+    type: "SAFETY",
+    title: "Cảnh báo tuyến Pinhatt",
+    message: "Gió mạnh và mây thấp tại đoạn sống núi. Kiểm tra bài cập nhật trước khi khởi hành.",
+    createdAt: "20 phút trước",
+    isRead: false,
+    postId: "community-post-pinhatt",
+  },
+  {
+    id: "community-notification-comment",
+    type: "COMMENT",
+    title: "Khánh Linh đã bình luận",
+    message: "Checklist này rất phù hợp cho đoàn đi cuối tuần.",
+    createdAt: "1 giờ trước",
+    isRead: false,
+    actor: {
+      id: "leader-khanh-linh",
+      name: "Khánh Linh",
+      avatar: "https://i.pravatar.cc/200?img=32",
+      role: "LEADER",
+      verified: true,
+      badge: "Top Organizer",
+    },
+    profileId: "leader-khanh-linh",
+  },
+  {
+    id: "community-notification-follow",
+    type: "FOLLOW",
+    title: "Minh Anh đã theo dõi bạn",
+    message: "Bạn có thêm một người đồng hành mới trong Community.",
+    createdAt: "Hôm qua",
+    isRead: true,
+    actor: {
+      id: "trekker-minh-anh",
+      name: "Minh Anh",
+      avatar: "https://i.pravatar.cc/200?img=47",
+      role: "TREKKER",
+      verified: false,
+      badge: "Mountain Explorer",
+    },
+    profileId: "trekker-minh-anh",
+  },
+];
+
 export const AppProvider: React.FC<{
   children: React.ReactNode;
 }> = ({ children }) => {
@@ -191,6 +454,18 @@ export const AppProvider: React.FC<{
 
   const [personalTrails, setPersonalTrails] = useState<PersonalTrail[]>(
     initialPersonalTrails,
+  );
+  const [communityPosts, setCommunityPosts] = useState<CommunityPost[]>(
+    initialCommunityPosts,
+  );
+  const [communityProfiles, setCommunityProfiles] = useState<CommunityProfile[]>(
+    initialCommunityProfiles,
+  );
+  const [communityNotifications, setCommunityNotifications] = useState<
+    CommunityNotification[]
+  >(initialCommunityNotifications);
+  const [communityReports, setCommunityReports] = useState<CommunityReport[]>(
+    [],
   );
   const [equipment] = useState<EquipmentItem[]>(mockEquipment);
   const [rentalOrders, setRentalOrders] =
@@ -580,7 +855,9 @@ export const AppProvider: React.FC<{
           terrainType: input.terrainType.trim(),
           description: input.description.trim(),
           visibility: "PRIVATE",
-          verificationStatus: input.submitForVerification ? "PENDING" : "DRAFT",
+          verificationStatus: input.submitForVerification
+            ? "PENDING"
+            : "DRAFT",
           rejectionReason: undefined,
           routePreset: input.routePreset,
           routePoints: input.routePoints,
@@ -616,6 +893,152 @@ export const AppProvider: React.FC<{
     );
   };
 
+  const createCommunityPost = (input: CreateCommunityPostInput) => {
+    const newPost: CommunityPost = {
+      id: `community-post-${Date.now()}`,
+      author: {
+        id: user.id,
+        name: user.name,
+        avatar: user.avatar,
+        role: user.role,
+        verified: user.role === "LEADER",
+        badge: user.role === "LEADER" ? "Verified Leader" : "Trekker",
+      },
+      content: input.content.trim(),
+      imageUrl: input.imageUrl?.trim() || undefined,
+      location: input.location?.trim() || undefined,
+      trailName: input.trailName?.trim() || undefined,
+      tags: input.tags,
+      createdAt: "Vừa xong",
+      likesCount: 0,
+      commentsCount: 0,
+      isLiked: false,
+      isSaved: false,
+      comments: [],
+    };
+
+    setCommunityPosts((current) => [newPost, ...current]);
+
+    return newPost;
+  };
+
+  const toggleCommunityPostLike = (postId: string) => {
+    setCommunityPosts((current) =>
+      current.map((post) =>
+        post.id === postId
+          ? {
+              ...post,
+              isLiked: !post.isLiked,
+              likesCount: Math.max(
+                0,
+                post.likesCount + (post.isLiked ? -1 : 1),
+              ),
+            }
+          : post,
+      ),
+    );
+  };
+
+  const toggleCommunityPostSaved = (postId: string) => {
+    setCommunityPosts((current) =>
+      current.map((post) =>
+        post.id === postId ? { ...post, isSaved: !post.isSaved } : post,
+      ),
+    );
+  };
+
+  const addCommunityComment = (postId: string, content: string) => {
+    const normalizedContent = content.trim();
+
+    if (!normalizedContent) {
+      return;
+    }
+
+    setCommunityPosts((current) =>
+      current.map((post) => {
+        if (post.id !== postId) {
+          return post;
+        }
+
+        return {
+          ...post,
+          commentsCount: post.commentsCount + 1,
+          comments: [
+            ...post.comments,
+            {
+              id: `community-comment-${Date.now()}`,
+              postId,
+              author: {
+                id: user.id,
+                name: user.name,
+                avatar: user.avatar,
+                role: user.role,
+                verified: user.role === "LEADER",
+                badge:
+                  user.role === "LEADER" ? "Verified Leader" : "Trekker",
+              },
+              content: normalizedContent,
+              createdAt: "Vừa xong",
+            },
+          ],
+        };
+      }),
+    );
+  };
+
+  const toggleCommunityFollow = (profileId: string) => {
+    setCommunityProfiles((current) =>
+      current.map((profile) => {
+        if (profile.id !== profileId || profile.id === user.id) {
+          return profile;
+        }
+
+        return {
+          ...profile,
+          isFollowing: !profile.isFollowing,
+          followersCount: Math.max(
+            0,
+            profile.followersCount + (profile.isFollowing ? -1 : 1),
+          ),
+        };
+      }),
+    );
+  };
+
+  const markCommunityNotificationRead = (notificationId: string) => {
+    setCommunityNotifications((current) =>
+      current.map((notification) =>
+        notification.id === notificationId
+          ? { ...notification, isRead: true }
+          : notification,
+      ),
+    );
+  };
+
+  const markAllCommunityNotificationsRead = () => {
+    setCommunityNotifications((current) =>
+      current.map((notification) => ({ ...notification, isRead: true })),
+    );
+  };
+
+  const reportCommunityPost = (
+    postId: string,
+    reason: CommunityReportReason,
+    detail?: string,
+  ) => {
+    const newReport: CommunityReport = {
+      id: `community-report-${Date.now()}`,
+      postId,
+      reporterId: user.id,
+      reason,
+      detail: detail?.trim() || undefined,
+      createdAt: formatNow(),
+      status: "SUBMITTED",
+    };
+
+    setCommunityReports((current) => [newReport, ...current]);
+  };
+
   const addToCart = (item: EquipmentItem, quantity: number) => {
     setCart((current) => {
       const existing = current.find((entry) => entry.item.id === item.id);
@@ -642,7 +1065,8 @@ export const AppProvider: React.FC<{
     }
 
     const totalRentalFee = cart.reduce(
-      (total, entry) => total + entry.item.dailyRate * entry.quantity * days,
+      (total, entry) =>
+        total + entry.item.dailyRate * entry.quantity * days,
       0,
     );
 
@@ -736,7 +1160,9 @@ export const AppProvider: React.FC<{
   const confirmRentalDepositRefund = (orderId: string) => {
     setRentalOrders((current) =>
       current.map((entry) =>
-        entry.id === orderId ? { ...entry, status: "DEPOSIT_REFUNDED" } : entry,
+        entry.id === orderId
+          ? { ...entry, status: "DEPOSIT_REFUNDED" }
+          : entry,
       ),
     );
 
@@ -860,6 +1286,18 @@ export const AppProvider: React.FC<{
         updatePersonalTrail,
         submitPersonalTrail,
         deletePersonalTrail,
+        communityPosts,
+        communityProfiles,
+        communityNotifications,
+        communityReports,
+        createCommunityPost,
+        toggleCommunityPostLike,
+        toggleCommunityPostSaved,
+        addCommunityComment,
+        toggleCommunityFollow,
+        markCommunityNotificationRead,
+        markAllCommunityNotificationsRead,
+        reportCommunityPost,
         equipment,
         rentalOrders,
         rentalSettlements,
