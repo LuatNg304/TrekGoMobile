@@ -30,6 +30,12 @@ export interface RentalSettlement {
   refundedAt?: string;
 }
 
+export interface PrivateTripActionResult {
+  ok: boolean;
+  message: string;
+  trip?: Trip;
+}
+
 interface AppContextType {
   user: UserProfile;
   setUser: React.Dispatch<React.SetStateAction<UserProfile>>;
@@ -37,7 +43,10 @@ interface AppContextType {
 
   trips: Trip[];
   activeTrip: Trip;
-  createPrivateTrip: (tripData: Partial<Trip>) => void;
+  createPrivateTrip: (tripData: Partial<Trip>) => Trip;
+  joinPrivateTrip: (inviteCode: string) => PrivateTripActionResult;
+  leavePrivateTrip: (tripId: string) => PrivateTripActionResult;
+  cancelPrivateTrip: (tripId: string) => PrivateTripActionResult;
   bookPublicTrip: (tripId: string, participantsCount: number) => void;
 
   trails: Trail[];
@@ -50,19 +59,12 @@ interface AppContextType {
     item: EquipmentItem;
     quantity: number;
   }[];
-
   addToCart: (item: EquipmentItem, quantity: number) => void;
-
   removeFromCart: (itemId: string) => void;
-
   checkoutRental: (tripId: string, days: number) => void;
-
   confirmRentalPickup: (orderId: string) => void;
-
   requestRentalReturn: (orderId: string, returnMethod: string) => void;
-
   completeRentalInspection: (orderId: string) => void;
-
   confirmRentalDepositRefund: (orderId: string) => void;
 
   telemetry: LiveNavTelemetry;
@@ -80,35 +82,38 @@ function formatNow() {
   return new Date().toLocaleString("vi-VN");
 }
 
+function normalizeInviteCode(value: string) {
+  return value.trim().toUpperCase();
+}
+
 export const AppProvider: React.FC<{
   children: React.ReactNode;
 }> = ({ children }) => {
   const [user, setUser] = useState<UserProfile>(mockUserProfile);
-
   const [trips, setTrips] = useState<Trip[]>(mockTrips);
-
   const [trails, setTrails] = useState<Trail[]>(mockTrails);
-
   const [equipment] = useState<EquipmentItem[]>(mockEquipment);
-
   const [rentalOrders, setRentalOrders] =
     useState<RentalOrder[]>(mockRentalOrders);
-
   const [rentalSettlements, setRentalSettlements] = useState<
     Record<string, RentalSettlement>
   >({});
-
   const [cart, setCart] = useState<
     {
       item: EquipmentItem;
       quantity: number;
     }[]
   >([]);
-
   const [telemetry, setTelemetry] =
     useState<LiveNavTelemetry>(initialLiveTelemetry);
 
-  const activeTrip = trips[0];
+  const activeTrip =
+    trips.find(
+      (trip) =>
+        trip.type === "PUBLIC" &&
+        trip.status === "UPCOMING" &&
+        Boolean(trip.bookingCode),
+    ) || trips[0];
   const activeTrail = trails[0];
 
   const toggleUserRole = () => {
@@ -120,16 +125,17 @@ export const AppProvider: React.FC<{
 
   const createPrivateTrip = (tripData: Partial<Trip>) => {
     const inviteCode =
-      "TG-" + Math.random().toString(36).substring(2, 7).toUpperCase();
+      tripData.inviteCode ||
+      `TG-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
 
     const newTrip: Trip = {
       id: `trip-private-${Date.now()}`,
       type: "PRIVATE",
-      name: tripData.name || "Private Trekking Expedition",
+      name: tripData.name?.trim() || "Private Trekking Expedition",
       trailId: tripData.trailId || "trail-pinhatt",
       destination: tripData.destination || "Đà Lạt",
       startDate: tripData.startDate || "15 Tháng 11, 2026",
-      endDate: tripData.endDate || "17 Tháng 11, 2026",
+      endDate: tripData.endDate || tripData.startDate || "17 Tháng 11, 2026",
       durationDays: tripData.durationDays || 2,
       status: "UPCOMING",
       leader: {
@@ -141,7 +147,7 @@ export const AppProvider: React.FC<{
       },
       capacity: tripData.capacity || 8,
       enrolledCount: 1,
-      inviteCode,
+      inviteCode: normalizeInviteCode(inviteCode),
       weather: {
         tempC: 19,
         condition: "Mây rải rác",
@@ -160,7 +166,240 @@ export const AppProvider: React.FC<{
       ],
     };
 
-    setTrips((current) => [newTrip, ...current]);
+    // Giữ Public Trip đã xác nhận ở đầu danh sách để không làm sai
+    // card chính, QR và flow check-in hiện tại trong tab Trips.
+    setTrips((current) => [...current, newTrip]);
+
+    return newTrip;
+  };
+
+  const joinPrivateTrip = (rawInviteCode: string): PrivateTripActionResult => {
+    const inviteCode = normalizeInviteCode(rawInviteCode);
+
+    if (!inviteCode) {
+      return {
+        ok: false,
+        message: "Vui lòng nhập mã mời.",
+      };
+    }
+
+    let selectedTrip = trips.find(
+      (trip) =>
+        trip.type === "PRIVATE" &&
+        normalizeInviteCode(trip.inviteCode || "") === inviteCode,
+    );
+
+    if (!selectedTrip && inviteCode === "TG-DEMO") {
+      const demoTrip: Trip = {
+        id: `trip-private-demo-${Date.now()}`,
+        type: "PRIVATE",
+        name: "Cắm trại Núi Chứa Chan cùng hội bạn",
+        trailId: "trail-pinhatt",
+        destination: "Xuân Lộc, Đồng Nai",
+        startDate: "08 Tháng 11, 2026",
+        endDate: "09 Tháng 11, 2026",
+        durationDays: 2,
+        status: "UPCOMING",
+        leader: {
+          name: "Minh Quân (Host)",
+          avatar:
+            "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=200&q=80",
+          phone: "0903 456 789",
+          rating: 4.9,
+          badge: "Private Trip Host",
+        },
+        capacity: 8,
+        enrolledCount: 3,
+        inviteCode: "TG-DEMO",
+        weather: {
+          tempC: 24,
+          condition: "Nắng nhẹ",
+          rainRisk: false,
+          rainChancePercent: 15,
+          humidityPercent: 70,
+          windSpeedKmh: 10,
+        },
+        participants: [
+          {
+            id: "demo-host",
+            name: "Minh Quân (Host)",
+            avatar:
+              "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=200&q=80",
+            role: "HOST",
+          },
+          {
+            id: "demo-member-1",
+            name: "Bảo Ngọc",
+            avatar:
+              "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=200&q=80",
+            role: "MEMBER",
+          },
+          {
+            id: "demo-member-2",
+            name: "Hoàng Nam",
+            avatar:
+              "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=200&q=80",
+            role: "MEMBER",
+          },
+        ],
+      };
+
+      selectedTrip = demoTrip;
+      setTrips((current) => [...current, demoTrip]);
+    }
+
+    if (!selectedTrip) {
+      return {
+        ok: false,
+        message: "Không tìm thấy Private Trip với mã mời này.",
+      };
+    }
+
+    if (selectedTrip.status === "CANCELLED") {
+      return {
+        ok: false,
+        message: "Chuyến đi này đã bị Host hủy.",
+      };
+    }
+
+    const alreadyJoined = selectedTrip.participants.some(
+      (participant) =>
+        participant.id === user.id ||
+        participant.name.replace(" (Host)", "") === user.name,
+    );
+
+    if (alreadyJoined) {
+      return {
+        ok: true,
+        message: "Bạn đã có mặt trong chuyến đi này.",
+        trip: selectedTrip,
+      };
+    }
+
+    if (selectedTrip.enrolledCount >= selectedTrip.capacity) {
+      return {
+        ok: false,
+        message: "Chuyến đi đã đủ số lượng thành viên.",
+      };
+    }
+
+    const joinedTrip: Trip = {
+      ...selectedTrip,
+      enrolledCount: selectedTrip.enrolledCount + 1,
+      participants: [
+        ...selectedTrip.participants,
+        {
+          id: user.id,
+          name: user.name,
+          avatar: user.avatar,
+          role: "MEMBER",
+        },
+      ],
+    };
+
+    setTrips((current) =>
+      current.map((trip) => (trip.id === joinedTrip.id ? joinedTrip : trip)),
+    );
+
+    return {
+      ok: true,
+      message: "Tham gia Private Trip thành công.",
+      trip: joinedTrip,
+    };
+  };
+
+  const leavePrivateTrip = (tripId: string): PrivateTripActionResult => {
+    const selectedTrip = trips.find((trip) => trip.id === tripId);
+
+    if (!selectedTrip || selectedTrip.type !== "PRIVATE") {
+      return {
+        ok: false,
+        message: "Không tìm thấy Private Trip.",
+      };
+    }
+
+    const isHost = selectedTrip.participants.some(
+      (participant) =>
+        participant.role === "HOST" &&
+        (participant.id === user.id ||
+          participant.name.replace(" (Host)", "") === user.name),
+    );
+
+    if (isHost) {
+      return {
+        ok: false,
+        message: "Host không thể rời chuyến. Hãy hủy chuyến nếu cần.",
+      };
+    }
+
+    const isMember = selectedTrip.participants.some(
+      (participant) => participant.id === user.id,
+    );
+
+    if (!isMember) {
+      return {
+        ok: false,
+        message: "Bạn chưa tham gia chuyến đi này.",
+      };
+    }
+
+    const updatedTrip: Trip = {
+      ...selectedTrip,
+      enrolledCount: Math.max(1, selectedTrip.enrolledCount - 1),
+      participants: selectedTrip.participants.filter(
+        (participant) => participant.id !== user.id,
+      ),
+    };
+
+    setTrips((current) =>
+      current.map((trip) => (trip.id === tripId ? updatedTrip : trip)),
+    );
+
+    return {
+      ok: true,
+      message: "Bạn đã rời khỏi chuyến đi.",
+      trip: updatedTrip,
+    };
+  };
+
+  const cancelPrivateTrip = (tripId: string): PrivateTripActionResult => {
+    const selectedTrip = trips.find((trip) => trip.id === tripId);
+
+    if (!selectedTrip || selectedTrip.type !== "PRIVATE") {
+      return {
+        ok: false,
+        message: "Không tìm thấy Private Trip.",
+      };
+    }
+
+    const isHost = selectedTrip.participants.some(
+      (participant) =>
+        participant.role === "HOST" &&
+        (participant.id === user.id ||
+          participant.name.replace(" (Host)", "") === user.name),
+    );
+
+    if (!isHost) {
+      return {
+        ok: false,
+        message: "Chỉ Host mới có thể hủy chuyến đi này.",
+      };
+    }
+
+    const cancelledTrip: Trip = {
+      ...selectedTrip,
+      status: "CANCELLED",
+    };
+
+    setTrips((current) =>
+      current.map((trip) => (trip.id === tripId ? cancelledTrip : trip)),
+    );
+
+    return {
+      ok: true,
+      message: "Private Trip đã được hủy.",
+      trip: cancelledTrip,
+    };
   };
 
   const bookPublicTrip = (tripId: string, participantsCount: number) => {
@@ -187,12 +426,7 @@ export const AppProvider: React.FC<{
   const unlockTrail = (trailId: string) => {
     setTrails((current) =>
       current.map((trail) =>
-        trail.id === trailId
-          ? {
-              ...trail,
-              isUnlocked: true,
-            }
-          : trail,
+        trail.id === trailId ? { ...trail, isUnlocked: true } : trail,
       ),
     );
   };
@@ -204,21 +438,12 @@ export const AppProvider: React.FC<{
       if (existing) {
         return current.map((entry) =>
           entry.item.id === item.id
-            ? {
-                ...entry,
-                quantity: entry.quantity + quantity,
-              }
+            ? { ...entry, quantity: entry.quantity + quantity }
             : entry,
         );
       }
 
-      return [
-        ...current,
-        {
-          item,
-          quantity,
-        },
-      ];
+      return [...current, { item, quantity }];
     });
   };
 
@@ -256,19 +481,13 @@ export const AppProvider: React.FC<{
     };
 
     setRentalOrders((current) => [newOrder, ...current]);
-
     setCart([]);
   };
 
   const confirmRentalPickup = (orderId: string) => {
     setRentalOrders((current) =>
       current.map((order) =>
-        order.id === orderId
-          ? {
-              ...order,
-              status: "IN_USE",
-            }
-          : order,
+        order.id === orderId ? { ...order, status: "IN_USE" } : order,
       ),
     );
   };
@@ -282,12 +501,7 @@ export const AppProvider: React.FC<{
 
     setRentalOrders((current) =>
       current.map((entry) =>
-        entry.id === orderId
-          ? {
-              ...entry,
-              status: "RETURN_PENDING",
-            }
-          : entry,
+        entry.id === orderId ? { ...entry, status: "RETURN_PENDING" } : entry,
       ),
     );
 
@@ -310,19 +524,11 @@ export const AppProvider: React.FC<{
       return;
     }
 
-    // Kết quả kiểm định demo:
-    // thiết bị hoạt động bình thường,
-    // chỉ phát sinh phí vệ sinh 80.000đ.
     const deductionAmount = Math.min(80000, order.totalDeposit);
 
     setRentalOrders((current) =>
       current.map((entry) =>
-        entry.id === orderId
-          ? {
-              ...entry,
-              status: "RETURNED",
-            }
-          : entry,
+        entry.id === orderId ? { ...entry, status: "RETURNED" } : entry,
       ),
     );
 
@@ -345,12 +551,7 @@ export const AppProvider: React.FC<{
   const confirmRentalDepositRefund = (orderId: string) => {
     setRentalOrders((current) =>
       current.map((entry) =>
-        entry.id === orderId
-          ? {
-              ...entry,
-              status: "DEPOSIT_REFUNDED",
-            }
-          : entry,
+        entry.id === orderId ? { ...entry, status: "DEPOSIT_REFUNDED" } : entry,
       ),
     );
 
@@ -407,27 +608,19 @@ export const AppProvider: React.FC<{
           return trail;
         }
 
-        const checkpoints = trail.checkpoints.map((checkpoint) => {
-          if (checkpoint.id !== checkpointId) {
-            return checkpoint;
-          }
+        const checkpoints = trail.checkpoints.map((checkpoint) =>
+          checkpoint.id === checkpointId
+            ? {
+                ...checkpoint,
+                status: "COMPLETED" as const,
+                mission: checkpoint.mission
+                  ? { ...checkpoint.mission, isDone: true }
+                  : undefined,
+              }
+            : checkpoint,
+        );
 
-          return {
-            ...checkpoint,
-            status: "COMPLETED" as const,
-            mission: checkpoint.mission
-              ? {
-                  ...checkpoint.mission,
-                  isDone: true,
-                }
-              : undefined,
-          };
-        });
-
-        return {
-          ...trail,
-          checkpoints,
-        };
+        return { ...trail, checkpoints };
       }),
     );
 
@@ -471,6 +664,9 @@ export const AppProvider: React.FC<{
         trips,
         activeTrip,
         createPrivateTrip,
+        joinPrivateTrip,
+        leavePrivateTrip,
+        cancelPrivateTrip,
         bookPublicTrip,
         trails,
         unlockTrail,
