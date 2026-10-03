@@ -1,26 +1,34 @@
-export type DifficultyLevel = 'Dễ' | 'Trung bình' | 'Khó' | 'Thách thức';
+export type DifficultyLevel = "Dễ" | "Trung bình" | "Khó" | "Thách thức";
 
-export type TripType = 'PUBLIC' | 'PRIVATE';
+export type TripType = "PUBLIC" | "PRIVATE";
 
-export type TripStatus = 'UPCOMING' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+export type TripStatus = "UPCOMING" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED";
 
-export type CheckpointStatus = 'PENDING' | 'REACHED' | 'COMPLETED';
+export type CheckpointStatus = "PENDING" | "REACHED" | "COMPLETED";
 
-export type RentalStatus = 
-  | 'PAYMENT_CONFIRMED'
-  | 'PREPARING'
-  | 'READY_FOR_DELIVERY'
-  | 'DELIVERED_AT_PICKUP'
-  | 'IN_USE'
-  | 'RETURN_PENDING'
-  | 'RETURNED'
-  | 'DEPOSIT_REFUNDED';
+export type RentalStatus =
+  | "PAYMENT_CONFIRMED"
+  | "PREPARING"
+  | "READY_FOR_DELIVERY"
+  | "DELIVERED_AT_PICKUP"
+  | "IN_USE"
+  | "RETURN_PENDING"
+  | "RETURNED"
+  | "DEPOSIT_REFUNDED";
+
+export type PersonalTrailVisibility = "PRIVATE" | "PUBLIC";
+
+export type PersonalTrailVerificationStatus =
+  | "DRAFT"
+  | "PENDING"
+  | "VERIFIED"
+  | "REJECTED";
 
 export interface CheckpointMission {
   id: string;
   title: string;
   description: string;
-  type: 'PHOTO' | 'QUIZ' | 'QR';
+  type: "PHOTO" | "QUIZ" | "QR";
   instruction: string;
   isDone: boolean;
   rewardPoints: number;
@@ -34,8 +42,16 @@ export interface Checkpoint {
   distanceFromStartKm: number;
   status: CheckpointStatus;
   mission?: CheckpointMission;
-  coords: { x: number; y: number }; // Relative to map canvas SVG 0-400, 0-360
-  realCoords?: { lat: number; lon: number };
+
+  coords: {
+    x: number;
+    y: number;
+  };
+
+  realCoords?: {
+    lat: number;
+    lon: number;
+  };
 }
 
 export interface Trail {
@@ -46,7 +62,7 @@ export interface Trail {
   distanceKm: number;
   elevationGainM: number;
   duration: string;
-  price: number; // 0 if free, > 0 for premium/unlocked system trail
+  price: number;
   isUnlocked: boolean;
   rating: number;
   reviewCount: number;
@@ -57,12 +73,58 @@ export interface Trail {
   terrainType: string;
 }
 
+export interface PersonalTrailRoutePoint {
+  id: string;
+  x: number;
+  y: number;
+}
+
+export interface PersonalTrail {
+  id: string;
+  ownerId: string;
+  name: string;
+  region: string;
+  difficulty: DifficultyLevel;
+  distanceKm: number;
+  elevationGainM: number;
+  duration: string;
+  terrainType: string;
+  description: string;
+  visibility: PersonalTrailVisibility;
+  verificationStatus: PersonalTrailVerificationStatus;
+  rejectionReason?: string;
+
+  routePreset: "RIDGE" | "FOREST" | "WATERFALL";
+
+  routePoints: PersonalTrailRoutePoint[];
+  checkpoints: Checkpoint[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreatePersonalTrailInput {
+  name: string;
+  region: string;
+  difficulty: DifficultyLevel;
+  distanceKm: number;
+  elevationGainM: number;
+  duration: string;
+  terrainType: string;
+  description: string;
+  routePreset: PersonalTrail["routePreset"];
+  routePoints: PersonalTrailRoutePoint[];
+  checkpoints: Checkpoint[];
+  submitForVerification: boolean;
+}
+
 export interface TripParticipant {
   id: string;
   name: string;
   avatar: string;
   phone?: string;
-  role: 'LEADER' | 'MEMBER' | 'HOST';
+
+  role: "LEADER" | "MEMBER" | "HOST";
+
   isOffRoute?: boolean;
   deviationMeters?: number;
   lastKnownLocation?: string;
@@ -98,6 +160,7 @@ export interface Trip {
   endDate: string;
   durationDays: number;
   status: TripStatus;
+
   leader: {
     name: string;
     avatar: string;
@@ -105,24 +168,25 @@ export interface Trip {
     rating: number;
     badge: string;
   };
+
   capacity: number;
   enrolledCount: number;
   pricePerPerson?: number;
-  bookingCode?: string; // For confirmed Public Trips (#BK-8842)
-  inviteCode?: string;  // For Private Trips (TG-8F92A)
+  bookingCode?: string;
+  inviteCode?: string;
   logistics?: TripLogistics;
   weather: TripWeather;
   participants: TripParticipant[];
   rentedItemsCount?: number;
 }
 
-export type EquipmentCategory = 
-  | 'Tất cả'
-  | 'Tent'
-  | 'Backpack'
-  | 'Trekking Pole'
-  | 'Sleeping Bag'
-  | 'Accessories';
+export type EquipmentCategory =
+  | "Tất cả"
+  | "Tent"
+  | "Backpack"
+  | "Trekking Pole"
+  | "Sleeping Bag"
+  | "Accessories";
 
 export interface EquipmentItem {
   id: string;
@@ -160,7 +224,9 @@ export interface UserProfile {
   name: string;
   email: string;
   avatar: string;
-  role: 'TREKKER' | 'LEADER';
+
+  role: "TREKKER" | "LEADER";
+
   completedTripsCount: number;
   totalDistanceKm: number;
   unlockedTrailsCount: number;

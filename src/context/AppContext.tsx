@@ -1,8 +1,10 @@
 import React, { createContext, useContext, useState } from "react";
 
 import {
+  CreatePersonalTrailInput,
   EquipmentItem,
   LiveNavTelemetry,
+  PersonalTrail,
   RentalOrder,
   Trail,
   Trip,
@@ -52,6 +54,15 @@ interface AppContextType {
   trails: Trail[];
   unlockTrail: (trailId: string) => void;
 
+  personalTrails: PersonalTrail[];
+  createPersonalTrail: (input: CreatePersonalTrailInput) => PersonalTrail;
+  updatePersonalTrail: (
+    trailId: string,
+    input: CreatePersonalTrailInput,
+  ) => void;
+  submitPersonalTrail: (trailId: string) => void;
+  deletePersonalTrail: (trailId: string) => void;
+
   equipment: EquipmentItem[];
   rentalOrders: RentalOrder[];
   rentalSettlements: Record<string, RentalSettlement>;
@@ -86,12 +97,101 @@ function normalizeInviteCode(value: string) {
   return value.trim().toUpperCase();
 }
 
+const initialPersonalTrails: PersonalTrail[] = [
+  {
+    id: "personal-trail-dinh-pinhatt",
+    ownerId: mockUserProfile.id,
+    name: "Đường mòn săn hoàng hôn Pinhatt",
+    region: "Đà Lạt, Lâm Đồng",
+    difficulty: "Trung bình",
+    distanceKm: 8.6,
+    elevationGainM: 420,
+    duration: "1 ngày",
+    terrainType: "Rừng thông & Sống núi",
+    description:
+      "Route cá nhân xuyên rừng thông lên điểm ngắm hồ Tuyền Lâm và đỉnh Pinhatt.",
+    visibility: "PRIVATE",
+    verificationStatus: "DRAFT",
+    routePreset: "RIDGE",
+    routePoints: [
+      { id: "route-1", x: 42, y: 304 },
+      { id: "route-2", x: 112, y: 252 },
+      { id: "route-3", x: 208, y: 196 },
+      { id: "route-4", x: 294, y: 116 },
+      { id: "route-5", x: 356, y: 62 },
+    ],
+    checkpoints: [
+      {
+        id: "personal-cp-1",
+        order: 1,
+        name: "Bìa rừng thông",
+        elevation: 1450,
+        distanceFromStartKm: 0,
+        status: "PENDING",
+        coords: { x: 42, y: 304 },
+      },
+      {
+        id: "personal-cp-2",
+        order: 2,
+        name: "Điểm ngắm hồ Tuyền Lâm",
+        elevation: 1620,
+        distanceFromStartKm: 4.2,
+        status: "PENDING",
+        coords: { x: 208, y: 196 },
+      },
+    ],
+    createdAt: "01/10/2026",
+    updatedAt: "01/10/2026",
+  },
+  {
+    id: "personal-trail-suoi-vang",
+    ownerId: mockUserProfile.id,
+    name: "Suối Vàng – Đồi cỏ hồng",
+    region: "Lạc Dương, Lâm Đồng",
+    difficulty: "Dễ",
+    distanceKm: 5.4,
+    elevationGainM: 180,
+    duration: "Nửa ngày",
+    terrainType: "Đồi cỏ & Đường đất",
+    description:
+      "Cung đường ngắn dành cho nhóm mới bắt đầu, có nhiều điểm dừng chụp ảnh.",
+    visibility: "PRIVATE",
+    verificationStatus: "REJECTED",
+    rejectionReason:
+      "Cần bổ sung checkpoint nguồn nước và mô tả lối thoát khẩn cấp.",
+    routePreset: "FOREST",
+    routePoints: [
+      { id: "route-a", x: 38, y: 292 },
+      { id: "route-b", x: 126, y: 238 },
+      { id: "route-c", x: 230, y: 172 },
+      { id: "route-d", x: 346, y: 86 },
+    ],
+    checkpoints: [
+      {
+        id: "personal-cp-a",
+        order: 1,
+        name: "Bãi gửi xe Suối Vàng",
+        elevation: 1380,
+        distanceFromStartKm: 0,
+        status: "PENDING",
+        coords: { x: 38, y: 292 },
+      },
+    ],
+    createdAt: "29/09/2026",
+    updatedAt: "30/09/2026",
+  },
+];
+
 export const AppProvider: React.FC<{
   children: React.ReactNode;
 }> = ({ children }) => {
   const [user, setUser] = useState<UserProfile>(mockUserProfile);
   const [trips, setTrips] = useState<Trip[]>(mockTrips);
   const [trails, setTrails] = useState<Trail[]>(mockTrails);
+
+  const [personalTrails, setPersonalTrails] = useState<PersonalTrail[]>(
+    initialPersonalTrails,
+  );
   const [equipment] = useState<EquipmentItem[]>(mockEquipment);
   const [rentalOrders, setRentalOrders] =
     useState<RentalOrder[]>(mockRentalOrders);
@@ -431,6 +531,91 @@ export const AppProvider: React.FC<{
     );
   };
 
+  const createPersonalTrail = (input: CreatePersonalTrailInput) => {
+    const now = new Date().toLocaleDateString("vi-VN");
+
+    const newTrail: PersonalTrail = {
+      id: `personal-trail-${Date.now()}`,
+      ownerId: user.id,
+      name: input.name.trim(),
+      region: input.region.trim(),
+      difficulty: input.difficulty,
+      distanceKm: input.distanceKm,
+      elevationGainM: input.elevationGainM,
+      duration: input.duration.trim(),
+      terrainType: input.terrainType.trim(),
+      description: input.description.trim(),
+      visibility: "PRIVATE",
+      verificationStatus: input.submitForVerification ? "PENDING" : "DRAFT",
+      routePreset: input.routePreset,
+      routePoints: input.routePoints,
+      checkpoints: input.checkpoints,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    setPersonalTrails((current) => [newTrail, ...current]);
+
+    return newTrail;
+  };
+
+  const updatePersonalTrail = (
+    trailId: string,
+    input: CreatePersonalTrailInput,
+  ) => {
+    setPersonalTrails((current) =>
+      current.map((trail) => {
+        if (trail.id !== trailId) {
+          return trail;
+        }
+
+        return {
+          ...trail,
+          name: input.name.trim(),
+          region: input.region.trim(),
+          difficulty: input.difficulty,
+          distanceKm: input.distanceKm,
+          elevationGainM: input.elevationGainM,
+          duration: input.duration.trim(),
+          terrainType: input.terrainType.trim(),
+          description: input.description.trim(),
+          visibility: "PRIVATE",
+          verificationStatus: input.submitForVerification ? "PENDING" : "DRAFT",
+          rejectionReason: undefined,
+          routePreset: input.routePreset,
+          routePoints: input.routePoints,
+          checkpoints: input.checkpoints.map((checkpoint, index) => ({
+            ...checkpoint,
+            order: index + 1,
+          })),
+          updatedAt: new Date().toLocaleDateString("vi-VN"),
+        };
+      }),
+    );
+  };
+
+  const submitPersonalTrail = (trailId: string) => {
+    setPersonalTrails((current) =>
+      current.map((trail) =>
+        trail.id === trailId
+          ? {
+              ...trail,
+              visibility: "PRIVATE",
+              verificationStatus: "PENDING",
+              rejectionReason: undefined,
+              updatedAt: new Date().toLocaleDateString("vi-VN"),
+            }
+          : trail,
+      ),
+    );
+  };
+
+  const deletePersonalTrail = (trailId: string) => {
+    setPersonalTrails((current) =>
+      current.filter((trail) => trail.id !== trailId),
+    );
+  };
+
   const addToCart = (item: EquipmentItem, quantity: number) => {
     setCart((current) => {
       const existing = current.find((entry) => entry.item.id === item.id);
@@ -670,6 +855,11 @@ export const AppProvider: React.FC<{
         bookPublicTrip,
         trails,
         unlockTrail,
+        personalTrails,
+        createPersonalTrail,
+        updatePersonalTrail,
+        submitPersonalTrail,
+        deletePersonalTrail,
         equipment,
         rentalOrders,
         rentalSettlements,
