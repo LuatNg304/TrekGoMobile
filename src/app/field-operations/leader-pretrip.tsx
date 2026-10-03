@@ -1,16 +1,18 @@
-import React, { useState } from 'react';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { Colors, Radius, Shadows } from '@/constants/theme';
-import { leaderMembers, leaderTrip } from '@/data/fieldOpsMock';
 import { FieldModal } from '@/components/FieldModal';
+import { Colors, Radius, Shadows } from '@/constants/theme';
+import { useApp } from '@/context/AppContext';
+import { leaderMembers, leaderTrip } from '@/data/fieldOpsMock';
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import { useState } from 'react';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 const checks = ['Đã đối soát đủ thiết bị với Staff Delivery', 'Đã kiểm tra y tế và thông tin liên hệ khẩn cấp', 'GPS vệ tinh đã khóa vị trí tuyến', 'Tất cả thành viên đã đọc quy tắc an toàn'];
 
 export default function LeaderPretripScreen() {
   const router = useRouter();
+  const { approveLeaderPretrip, fieldWorkflow } = useApp();
   const [done, setDone] = useState(checks.map(() => false));
   const [members, setMembers] = useState(leaderMembers.map(member => member.status !== 'Chờ check-in'));
   const [modal, setModal] = useState(false);
@@ -20,7 +22,7 @@ export default function LeaderPretripScreen() {
     <View style={[styles.status, ready && styles.statusReady]}><Ionicons name={ready ? 'lock-open' : 'lock-closed'} size={23} color={ready ? Colors.primaryDark : '#9b6700'} /><View style={{ flex: 1 }}><Text style={styles.statusTitle}>{ready ? 'Đã đủ điều kiện điều hành' : 'Chưa đủ điều kiện bắt đầu'}</Text><Text style={styles.statusText}>{ready ? 'Access lock đã mở, GPS session có thể khởi tạo.' : 'Hoàn tất checklist và quân số để mở khóa.'}</Text></View></View>
     <Text style={styles.section}>CHECKLIST BẮT BUỘC</Text><View style={styles.card}>{checks.map((label, index) => <CheckRow key={label} label={label} checked={done[index]} onPress={() => setDone(current => current.map((value, currentIndex) => currentIndex === index ? !value : value))} />)}</View>
     <Text style={styles.section}>QUÂN SỐ CHECK-IN · {members.filter(Boolean).length}/{members.length}</Text><View style={styles.card}>{leaderMembers.map((member, index) => <View style={styles.member} key={member.name}><View style={[styles.dot, !members[index] && styles.wait]} /><Text style={styles.memberName}>{member.name}</Text><Text style={styles.memberStatus}>{members[index] ? 'Đã check-in' : 'Chờ QR'}</Text>{!members[index] && <TouchableOpacity onPress={() => setMembers(current => current.map((value, currentIndex) => currentIndex === index ? true : value))}><Ionicons name="qr-code-outline" size={21} color={Colors.primaryDark} /></TouchableOpacity>}</View>)}</View>
-    <TouchableOpacity disabled={!ready} style={[styles.primary, !ready && styles.disabled]} onPress={() => setModal(true)}><Ionicons name="play" size={17} color="#fff" /><Text style={styles.primaryText}>MỞ KHÓA & BẮT ĐẦU ĐIỀU HÀNH</Text></TouchableOpacity>
+    <TouchableOpacity disabled={!ready} style={[styles.primary, !ready && styles.disabled]} onPress={() => { approveLeaderPretrip(); setModal(true); }}><Ionicons name="play" size={17} color="#fff" /><Text style={styles.primaryText}>{fieldWorkflow.leaderPretripApproved ? 'ĐÃ MỞ KHÓA & TIẾP TỤC ĐIỀU HÀNH' : 'MỞ KHÓA & BẮT ĐẦU ĐIỀU HÀNH'}</Text></TouchableOpacity>
   </ScrollView><FieldModal visible={modal} title="Đã mở khóa chuyến đi" message="Bảng điều hành GPS và quyền xác nhận checkpoint đã được kích hoạt cho Mountain Leader." icon="lock-open" actionLabel="Mở bản đồ GPS" onAction={() => { setModal(false); router.push('/field-operations/leader-map'); }} onClose={() => setModal(false)} /></SafeAreaView>;
 }
 function Header({ onBack }: { onBack: () => void }) { return <View style={styles.header}><TouchableOpacity onPress={onBack}><Ionicons name="arrow-back" size={23} color={Colors.ink} /></TouchableOpacity><Text style={styles.headerTitle}>Pre-trip access lock</Text><View style={{ width: 23 }} /></View>; }

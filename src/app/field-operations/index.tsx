@@ -1,5 +1,5 @@
-import { Colors, Radius, Shadows } from '@/constants/theme';
 import { FieldModal } from '@/components/FieldModal';
+import { Colors, Radius, Shadows } from '@/constants/theme';
 import { useApp } from '@/context/AppContext';
 import { deliveryTasks, leaderMembers, leaderTrip } from '@/data/fieldOpsMock';
 import { Ionicons } from '@expo/vector-icons';
@@ -17,7 +17,7 @@ const Action = ({ icon, label, onPress, tone = 'green' }: { icon: keyof typeof I
 
 export default function FieldOperationsHome() {
     const router = useRouter();
-    const { user, authRole, signOut } = useApp();
+    const { user, authRole, signOut, fieldWorkflow } = useApp();
     const isStaff = authRole === 'STAFF_DELIVERY';
     const [modalVisible, setModalVisible] = useState(false);
     const logout = () => { signOut(); router.replace('/'); };
@@ -33,7 +33,7 @@ export default function FieldOperationsHome() {
                 {isStaff ? <>
                     <View style={styles.statsRow}><Stat value="02" label="Task hôm nay" /><Stat value="01" label="Đang xử lý" /><Stat value="04" label="Đã hoàn tất" /></View>
                     <Text style={styles.sectionTitle}>NHIỆM VỤ CẦN XỬ LÝ</Text>
-                    {deliveryTasks.map(task => <TouchableOpacity key={task.id} style={styles.taskCard} onPress={() => router.push({ pathname: '/field-operations/staff-task', params: { taskId: task.id } })} activeOpacity={0.84}><View style={styles.taskTop}><Text style={styles.taskId}>{task.id}</Text><Text style={styles.taskStatus}>{task.status}</Text></View><Text style={styles.taskTitle}>{task.title}</Text><Text style={styles.taskMeta}><Ionicons name="person-outline" size={13} /> {task.customer}</Text><Text style={styles.taskMeta}><Ionicons name="location-outline" size={13} /> {task.location} · {task.time}</Text><View style={styles.taskItems}><Ionicons name="briefcase-outline" size={15} color={Colors.primaryDark} /><Text style={styles.taskItemsText}>{task.items}</Text><Ionicons name="arrow-forward" size={17} color={Colors.primaryDark} /></View></TouchableOpacity>)}
+                    {deliveryTasks.map(task => <TouchableOpacity key={task.id} style={styles.taskCard} onPress={() => { if (task.type === 'THU_HOI') router.push({ pathname: '/field-operations/staff-return' as never, params: { taskId: task.id } }); else router.push({ pathname: '/field-operations/staff-task', params: { taskId: task.id } }); }} activeOpacity={0.84}><View style={styles.taskTop}><Text style={styles.taskId}>{task.id}</Text><Text style={styles.taskStatus}>{task.type === 'THU_HOI' && !fieldWorkflow.handoverRequested ? 'Chờ Leader hoàn tất' : task.status}</Text></View><Text style={styles.taskTitle}>{task.title}</Text><Text style={styles.taskMeta}><Ionicons name="person-outline" size={13} /> {task.customer}</Text><Text style={styles.taskMeta}><Ionicons name="location-outline" size={13} /> {task.location} · {task.time}</Text><View style={styles.taskItems}><Ionicons name="briefcase-outline" size={15} color={Colors.primaryDark} /><Text style={styles.taskItemsText}>{task.items}</Text><Ionicons name="arrow-forward" size={17} color={Colors.primaryDark} /></View></TouchableOpacity>)}
                     <Text style={styles.sectionTitle}>LỐI TẮT</Text><Action icon="time-outline" label="Lịch sử nhiệm vụ" onPress={() => router.push('/field-operations/staff-history')} /><Action icon="qr-code-outline" label="Mở máy quét QR / OTP" onPress={() => router.push({ pathname: '/field-operations/staff-task', params: { taskId: deliveryTasks[0].id } })} />
                 </> : <>
                     <View style={styles.tripCard}><View style={styles.tripCardTop}><View><Text style={styles.tripCode}>{leaderTrip.code}</Text><Text style={styles.tripName}>{leaderTrip.name}</Text></View><View style={styles.tripPill}><Text style={styles.tripPillText}>LIVE OPS</Text></View></View><View style={styles.tripMetaRow}><TripMeta value={leaderTrip.date} label="Lịch trình" /><TripMeta value={leaderTrip.altitude} label="Cao độ cơ sở" /><TripMeta value={`${leaderTrip.checkedIn}/${leaderTrip.members}`} label="Check-in" /></View><TouchableOpacity style={styles.primaryButton} onPress={() => router.push('/field-operations/leader-trip')}><Text style={styles.primaryButtonText}>Mở bảng điều khiển chuyến</Text><Ionicons name="arrow-forward" size={18} color="#fff" /></TouchableOpacity></View>

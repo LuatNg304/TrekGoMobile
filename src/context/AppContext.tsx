@@ -14,7 +14,52 @@ import {
   Trip,
   UserProfile
 } from '@/types';
-import React, { createContext, useContext, useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import React, { createContext, useContext, useEffect, useState } from 'react';
+
+export type FieldWorkflowStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED';
+
+export interface FieldWorkflowState {
+  leaderTripStatus: 'PREPARING' | 'IN_PROGRESS' | 'COMPLETED';
+  leaderPretripApproved: boolean;
+  leaderReportSent: boolean;
+  handoverRequested: boolean;
+  deliveryStatus: FieldWorkflowStatus;
+  deliveryVerified: boolean;
+  deliveryItems: boolean[];
+  deliveryPhotoUri: string | null;
+  deliverySigned: boolean;
+  returnStatus: FieldWorkflowStatus;
+  returnArrived: boolean;
+  returnVerified: boolean;
+  returnItems: boolean[];
+  returnConditionRecorded: boolean;
+  returnSigned: boolean;
+  depositStatus: 'HELD' | 'PENDING_INSPECTION' | 'REFUNDED';
+  lastUpdated: string;
+}
+
+const FIELD_WORKFLOW_STORAGE_KEY = 'trekgo.field-workflow.v1';
+
+const initialFieldWorkflow: FieldWorkflowState = {
+  leaderTripStatus: 'PREPARING',
+  leaderPretripApproved: false,
+  leaderReportSent: false,
+  handoverRequested: false,
+  deliveryStatus: 'PENDING',
+  deliveryVerified: false,
+  deliveryItems: [false, false, false, false],
+  deliveryPhotoUri: null,
+  deliverySigned: false,
+  returnStatus: 'PENDING',
+  returnArrived: false,
+  returnVerified: false,
+  returnItems: [false, false, false, false],
+  returnConditionRecorded: false,
+  returnSigned: false,
+  depositStatus: 'HELD',
+  lastUpdated: new Date().toISOString(),
+};
 
 interface AppContextType {
   user: UserProfile;
@@ -47,6 +92,24 @@ interface AppContextType {
   reconnectToRoute: () => void;
   completeCheckpointMission: (checkpointId: string) => void;
   resolveMemberAlert: (memberId: string) => void;
+
+  fieldWorkflow: FieldWorkflowState;
+  approveLeaderPretrip: () => void;
+  startLeaderTrip: () => void;
+  completeLeaderTrip: () => void;
+  sendLeaderReport: () => void;
+  setDeliveryVerified: (verified: boolean) => void;
+  toggleDeliveryItem: (index: number) => void;
+  setDeliveryPhoto: (uri: string | null) => void;
+  setDeliverySigned: (signed: boolean) => void;
+  completeDelivery: () => void;
+  markReturnArrived: () => void;
+  setReturnVerified: (verified: boolean) => void;
+  toggleReturnItem: (index: number) => void;
+  setReturnConditionRecorded: (recorded: boolean) => void;
+  setReturnSigned: (signed: boolean) => void;
+  completeReturn: () => void;
+  resetFieldWorkflow: () => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -60,9 +123,48 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [rentalOrders, setRentalOrders] = useState<RentalOrder[]>(mockRentalOrders);
   const [cart, setCart] = useState<{ item: EquipmentItem; quantity: number }[]>([]);
   const [telemetry, setTelemetry] = useState<LiveNavTelemetry>(initialLiveTelemetry);
+  const [fieldWorkflow, setFieldWorkflow] = useState<FieldWorkflowState>(initialFieldWorkflow);
+  const [workflowHydrated, setWorkflowHydrated] = useState(false);
 
   const activeTrip = trips[0]; // Tà Năng – Phan Dũng
   const activeTrail = trails[0];
+
+  useEffect(() => {
+    AsyncStorage.getItem(FIELD_WORKFLOW_STORAGE_KEY)
+      .then(value => {
+        if (value) {
+          setFieldWorkflow({ ...initialFieldWorkflow, ...JSON.parse(value) });
+        }
+      })
+      .catch(() => undefined)
+      .finally(() => setWorkflowHydrated(true));
+  }, []);
+
+  useEffect(() => {
+    if (!workflowHydrated) return;
+    AsyncStorage.setItem(FIELD_WORKFLOW_STORAGE_KEY, JSON.stringify(fieldWorkflow)).catch(() => undefined);
+  }, [fieldWorkflow, workflowHydrated]);
+
+  const updateFieldWorkflow = (update: Partial<FieldWorkflowState>) => {
+    setFieldWorkflow(prev => ({ ...prev, ...update, lastUpdated: new Date().toISOString() }));
+  };
+
+  const approveLeaderPretrip = () => updateFieldWorkflow({ leaderPretripApproved: true });
+  const startLeaderTrip = () => updateFieldWorkflow({ leaderTripStatus: 'IN_PROGRESS' });
+  const completeLeaderTrip = () => updateFieldWorkflow({ leaderTripStatus: 'COMPLETED', handoverRequested: true });
+  const sendLeaderReport = () => updateFieldWorkflow({ leaderReportSent: true, handoverRequested: true });
+  const setDeliveryVerified = (verified: boolean) => updateFieldWorkflow({ deliveryVerified: verified });
+  const toggleDeliveryItem = (index: number) => updateFieldWorkflow({ deliveryItems: fieldWorkflow.deliveryItems.map((value, itemIndex) => itemIndex === index ? !value : value) });
+  const setDeliveryPhoto = (uri: string | null) => updateFieldWorkflow({ deliveryPhotoUri: uri });
+  const setDeliverySigned = (signed: boolean) => updateFieldWorkflow({ deliverySigned: signed });
+  const completeDelivery = () => updateFieldWorkflow({ deliveryStatus: 'COMPLETED', returnStatus: 'PENDING', depositStatus: 'HELD' });
+  const markReturnArrived = () => updateFieldWorkflow({ returnArrived: true, returnStatus: 'IN_PROGRESS' });
+  const setReturnVerified = (verified: boolean) => updateFieldWorkflow({ returnVerified: verified });
+  const toggleReturnItem = (index: number) => updateFieldWorkflow({ returnItems: fieldWorkflow.returnItems.map((value, itemIndex) => itemIndex === index ? !value : value) });
+  const setReturnConditionRecorded = (recorded: boolean) => updateFieldWorkflow({ returnConditionRecorded: recorded });
+  const setReturnSigned = (signed: boolean) => updateFieldWorkflow({ returnSigned: signed });
+  const completeReturn = () => updateFieldWorkflow({ returnStatus: 'COMPLETED', depositStatus: 'PENDING_INSPECTION' });
+  const resetFieldWorkflow = () => setFieldWorkflow({ ...initialFieldWorkflow, lastUpdated: new Date().toISOString() });
 
   const toggleUserRole = () => {
     setUser(prev => ({
@@ -272,6 +374,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         reconnectToRoute,
         completeCheckpointMission,
         resolveMemberAlert,
+        fieldWorkflow,
+        approveLeaderPretrip,
+        startLeaderTrip,
+        completeLeaderTrip,
+        sendLeaderReport,
+        setDeliveryVerified,
+        toggleDeliveryItem,
+        setDeliveryPhoto,
+        setDeliverySigned,
+        completeDelivery,
+        markReturnArrived,
+        setReturnVerified,
+        toggleReturnItem,
+        setReturnConditionRecorded,
+        setReturnSigned,
+        completeReturn,
+        resetFieldWorkflow,
       }}>
       {children}
     </AppContext.Provider>

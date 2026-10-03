@@ -1,17 +1,19 @@
-import React, { useState } from 'react';
-import * as ImagePicker from 'expo-image-picker';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { Colors, Radius, Shadows } from '@/constants/theme';
-import { deliveryTasks } from '@/data/fieldOpsMock';
 import { FieldModal } from '@/components/FieldModal';
+import { Colors, Radius, Shadows } from '@/constants/theme';
+import { useApp } from '@/context/AppContext';
+import { deliveryTasks } from '@/data/fieldOpsMock';
+import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useState } from 'react';
+import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 const equipment = ['Balo trekking 45L', 'Gậy trekking carbon', 'Bộ áo mưa chống nước', 'Đèn đội đầu'];
 
 export default function StaffTaskScreen() {
   const router = useRouter();
+  const { setDeliveryVerified, toggleDeliveryItem, setDeliveryPhoto, setDeliverySigned, completeDelivery } = useApp();
   const { taskId } = useLocalSearchParams<{ taskId?: string }>();
   const task = deliveryTasks.find(item => item.id === taskId) ?? deliveryTasks[0];
   const [step, setStep] = useState(0);
@@ -32,13 +34,13 @@ export default function StaffTaskScreen() {
     const result = source === 'camera'
       ? await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [4, 3], quality: 0.8 })
       : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [4, 3], quality: 0.8 });
-    if (!result.canceled && result.assets[0]) setPhotoUri(result.assets[0].uri);
+    if (!result.canceled && result.assets[0]) { setPhotoUri(result.assets[0].uri); setDeliveryPhoto(result.assets[0].uri); }
   };
 
   const next = () => {
     if (step === 0 && !verified) { setFeedback({ title: 'Chưa xác minh', message: 'Quét QR hoặc nhập OTP 123456 trước khi tiếp tục.' }); return; }
     if (step === 1 && !allChecked) { setFeedback({ title: 'Thiếu thiết bị', message: 'Hãy kiểm tra đủ 4 món trong checklist.' }); return; }
-    if (step === 2) { if (!photoUri || !signed) { setFeedback({ title: 'Thiếu bằng chứng', message: 'Cần ảnh bàn giao và chữ ký người nhận.' }); return; } setComplete(true); return; }
+    if (step === 2) { if (!photoUri || !signed) { setFeedback({ title: 'Thiếu bằng chứng', message: 'Cần ảnh bàn giao và chữ ký người nhận.' }); return; } completeDelivery(); setComplete(true); return; }
     setStep(current => current + 1);
   };
 
@@ -46,14 +48,14 @@ export default function StaffTaskScreen() {
     <View style={styles.header}><TouchableOpacity onPress={() => router.back()}><Ionicons name="arrow-back" size={23} color={Colors.ink} /></TouchableOpacity><Text style={styles.headerTitle}>Chi tiết nhiệm vụ</Text><View style={{ width: 23 }} /></View>
     <View style={styles.taskHeader}><Text style={styles.taskId}>{task.id}</Text><Text style={styles.title}>{task.title}</Text><Text style={styles.meta}>{task.customer} · {task.location}</Text></View>
     <View style={styles.steps}>{['Xác minh đơn', 'Kiểm tra thiết bị', 'Bằng chứng bàn giao'].map((label, index) => <View key={label} style={styles.step}><View style={[styles.stepCircle, index <= step && styles.stepDone]}>{index < step ? <Ionicons name="checkmark" size={14} color="#fff" /> : <Text style={[styles.stepNumber, index <= step && styles.stepNumberDone]}>{index + 1}</Text>}</View><Text style={[styles.stepLabel, index === step && styles.stepLabelActive]}>{label}</Text></View>)}</View>
-    {step === 0 && <><Text style={styles.section}>XÁC THỰC NGƯỜI NHẬN</Text><View style={styles.card}><InfoRow icon="person-outline" label="Người nhận" value={task.customer} /><InfoRow icon="location-outline" label="Điểm giao" value={task.location} /><TouchableOpacity style={[styles.qrBox, verified && styles.verified]} onPress={() => setVerified(true)}><Ionicons name={verified ? 'checkmark-circle' : 'qr-code'} size={52} color={verified ? Colors.primaryDark : Colors.ink} /><Text style={styles.qrTitle}>{verified ? 'Đã xác minh QR' : 'Quét QR đơn hàng'}</Text><Text style={styles.muted}>{verified ? 'Người nhận hợp lệ' : 'Chạm để mô phỏng quét QR hoặc nhập OTP'}</Text></TouchableOpacity><View style={styles.otpRow}><TextInput value={otp} onChangeText={setOtp} keyboardType="number-pad" placeholder="OTP 123456" placeholderTextColor={Colors.onSurfaceMuted} style={styles.input} /><TouchableOpacity style={styles.verifyButton} onPress={() => { if (otp === '123456') setVerified(true); else setFeedback({ title: 'OTP chưa đúng', message: 'Dùng mã mock 123456 để tiếp tục.' }); }}><Text style={styles.verifyText}>XÁC MINH</Text></TouchableOpacity></View></View></>}
-    {step === 1 && <><Text style={styles.section}>DANH SÁCH THIẾT BỊ BÀN GIAO</Text><View style={styles.card}>{equipment.map((item, index) => <CheckRow key={item} label={item} checked={checked[index]} onPress={() => setChecked(current => current.map((value, currentIndex) => currentIndex === index ? !value : value))} />)}<Text style={styles.notice}>Đã kiểm {checked.filter(Boolean).length}/{equipment.length} món thiết bị.</Text></View></>}
-    {step === 2 && <><Text style={styles.section}>BẰNG CHỨNG GIAO HÀNG</Text><View style={styles.card}><TouchableOpacity style={[styles.upload, photoUri && styles.verified]} onPress={() => setPhotoMenu(true)}><Ionicons name={photoUri ? 'checkmark-circle' : 'camera-outline'} size={28} color={Colors.primaryDark} />{photoUri && <Image source={{ uri: photoUri }} style={styles.photo} />}<Text style={styles.uploadTitle}>{photoUri ? 'Đã có ảnh bàn giao' : 'Chụp ảnh bàn giao'}</Text><Text style={styles.muted}>Camera hoặc thư viện ảnh</Text></TouchableOpacity><TouchableOpacity style={[styles.signature, signed && styles.verified]} onPress={() => setSigned(value => !value)}><Text style={styles.signatureTitle}>Chữ ký người nhận</Text><Text style={styles.signatureLine}>{signed ? 'Nguyễn Tuấn Anh · Đã xác nhận' : 'Chạm để xác nhận chữ ký mock'}</Text></TouchableOpacity><CheckRow label="Người nhận đã kiểm đủ thiết bị" checked={signed} onPress={() => setSigned(value => !value)} /></View></>}
+    {step === 0 && <><Text style={styles.section}>XÁC THỰC NGƯỜI NHẬN</Text><View style={styles.card}><InfoRow icon="person-outline" label="Người nhận" value={task.customer} /><InfoRow icon="location-outline" label="Điểm giao" value={task.location} /><TouchableOpacity style={[styles.qrBox, verified && styles.verified]} onPress={() => { setVerified(true); setDeliveryVerified(true); }}><Ionicons name={verified ? 'checkmark-circle' : 'qr-code'} size={52} color={verified ? Colors.primaryDark : Colors.ink} /><Text style={styles.qrTitle}>{verified ? 'Đã xác minh QR' : 'Quét QR đơn hàng'}</Text><Text style={styles.muted}>{verified ? 'Người nhận hợp lệ' : 'Chạm để mô phỏng quét QR hoặc nhập OTP'}</Text></TouchableOpacity><View style={styles.otpRow}><TextInput value={otp} onChangeText={setOtp} keyboardType="number-pad" placeholder="OTP 123456" placeholderTextColor={Colors.onSurfaceMuted} style={styles.input} /><TouchableOpacity style={styles.verifyButton} onPress={() => { if (otp === '123456') { setVerified(true); setDeliveryVerified(true); } else setFeedback({ title: 'OTP chưa đúng', message: 'Dùng mã mock 123456 để tiếp tục.' }); }}><Text style={styles.verifyText}>XÁC MINH</Text></TouchableOpacity></View></View></>}
+    {step === 1 && <><Text style={styles.section}>DANH SÁCH THIẾT BỊ BÀN GIAO</Text><View style={styles.card}>{equipment.map((item, index) => <CheckRow key={item} label={item} checked={checked[index]} onPress={() => { setChecked(current => current.map((value, currentIndex) => currentIndex === index ? !value : value)); toggleDeliveryItem(index); }} />)}<Text style={styles.notice}>Đã kiểm {checked.filter(Boolean).length}/{equipment.length} món thiết bị.</Text></View></>}
+    {step === 2 && <><Text style={styles.section}>BẰNG CHỨNG GIAO HÀNG</Text><View style={styles.card}><TouchableOpacity style={[styles.upload, photoUri && styles.verified]} onPress={() => setPhotoMenu(true)}><Ionicons name={photoUri ? 'checkmark-circle' : 'camera-outline'} size={28} color={Colors.primaryDark} />{photoUri && <Image source={{ uri: photoUri }} style={styles.photo} />}<Text style={styles.uploadTitle}>{photoUri ? 'Đã có ảnh bàn giao' : 'Chụp ảnh bàn giao'}</Text><Text style={styles.muted}>Camera hoặc thư viện ảnh</Text></TouchableOpacity><TouchableOpacity style={[styles.signature, signed && styles.verified]} onPress={() => { const nextSigned = !signed; setSigned(nextSigned); setDeliverySigned(nextSigned); }}><Text style={styles.signatureTitle}>Chữ ký người nhận</Text><Text style={styles.signatureLine}>{signed ? 'Nguyễn Tuấn Anh · Đã xác nhận' : 'Chạm để xác nhận chữ ký mock'}</Text></TouchableOpacity><CheckRow label="Người nhận đã kiểm đủ thiết bị" checked={signed} onPress={() => { const nextSigned = !signed; setSigned(nextSigned); setDeliverySigned(nextSigned); }} /></View></>}
     <TouchableOpacity style={styles.primary} onPress={next}><Text style={styles.primaryText}>{step === 2 ? 'XÁC NHẬN HOÀN TẤT' : 'TIẾP TỤC'}</Text><Ionicons name="arrow-forward" size={18} color="#fff" /></TouchableOpacity>
   </ScrollView>
-  <Modal visible={photoMenu} transparent animationType="slide" onRequestClose={() => setPhotoMenu(false)}><Pressable style={styles.backdrop} onPress={() => setPhotoMenu(false)}><View style={styles.menu}><Text style={styles.menuTitle}>Thêm ảnh bằng chứng</Text><TouchableOpacity style={styles.menuAction} onPress={() => capture('camera')}><Ionicons name="camera" size={22} color={Colors.primaryDark} /><Text style={styles.menuText}>Mở camera và chụp ảnh</Text></TouchableOpacity><TouchableOpacity style={styles.menuAction} onPress={() => capture('library')}><Ionicons name="images" size={22} color={Colors.primaryDark} /><Text style={styles.menuText}>Chọn từ thư viện ảnh</Text></TouchableOpacity></View></Pressable></Modal>
-  <FieldModal visible={complete} title="Bàn giao thành công" message={`Task ${task.id} đã có đủ QR/OTP, checklist, ảnh và chữ ký. Dữ liệu mock đã được đồng bộ.`} icon="checkmark-circle" actionLabel="Về dashboard" onAction={() => { setComplete(false); router.replace('/field-operations'); }} onClose={() => setComplete(false)} />
-  <FieldModal visible={feedback !== null} title={feedback?.title ?? ''} message={feedback?.message ?? ''} icon="information-circle" tone="warning" actionLabel="Đã hiểu" onAction={() => setFeedback(null)} onClose={() => setFeedback(null)} />
+    <Modal visible={photoMenu} transparent animationType="slide" onRequestClose={() => setPhotoMenu(false)}><Pressable style={styles.backdrop} onPress={() => setPhotoMenu(false)}><View style={styles.menu}><Text style={styles.menuTitle}>Thêm ảnh bằng chứng</Text><TouchableOpacity style={styles.menuAction} onPress={() => capture('camera')}><Ionicons name="camera" size={22} color={Colors.primaryDark} /><Text style={styles.menuText}>Mở camera và chụp ảnh</Text></TouchableOpacity><TouchableOpacity style={styles.menuAction} onPress={() => capture('library')}><Ionicons name="images" size={22} color={Colors.primaryDark} /><Text style={styles.menuText}>Chọn từ thư viện ảnh</Text></TouchableOpacity></View></Pressable></Modal>
+    <FieldModal visible={complete} title="Bàn giao thành công" message={`Task ${task.id} đã có đủ QR/OTP, checklist, ảnh và chữ ký. Dữ liệu mock đã được đồng bộ.`} icon="checkmark-circle" actionLabel="Về dashboard" onAction={() => { setComplete(false); router.replace('/field-operations'); }} onClose={() => setComplete(false)} />
+    <FieldModal visible={feedback !== null} title={feedback?.title ?? ''} message={feedback?.message ?? ''} icon="information-circle" tone="warning" actionLabel="Đã hiểu" onAction={() => setFeedback(null)} onClose={() => setFeedback(null)} />
   </SafeAreaView>;
 }
 
