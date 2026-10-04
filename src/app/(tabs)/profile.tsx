@@ -34,6 +34,8 @@ export default function ProfileScreen() {
     rentalOrders,
     communityPosts,
     groupTrips,
+    userNotifications,
+    savedTrailIds,
   } = useApp();
 
   const completedTrips = trips.filter((trip) => trip.status === "COMPLETED").length;
@@ -83,6 +85,34 @@ export default function ProfileScreen() {
       title: "Cài đặt tài khoản",
       subtitle: "Thông báo, quyền riêng tư và bảo mật",
       route: "/profile/settings" as Href,
+    },
+    {
+      icon: "notifications-outline",
+      title: "Thông báo",
+      subtitle: "Booking, rental, ghép đoàn và xác minh Trail",
+      route: "/notifications" as Href,
+      badge: String(userNotifications.filter((item) => !item.isRead).length),
+      accent: "ORANGE",
+    },
+    {
+      icon: "bookmark-outline",
+      title: "Cung đường đã lưu",
+      subtitle: "Bộ sưu tập Trail muốn trải nghiệm",
+      route: "/saved-trails" as Href,
+      badge: String(savedTrailIds.length),
+      accent: "GREEN",
+    },
+    {
+      icon: "trophy-outline",
+      title: "Thành tích & Cấp độ",
+      subtitle: "Huy hiệu, điểm và tiến độ Trekker",
+      route: "/achievements" as Href,
+    },
+    {
+      icon: "help-circle-outline",
+      title: "Trợ giúp & Hỗ trợ",
+      subtitle: "FAQ, chính sách và gửi yêu cầu",
+      route: "/help" as Href,
     },
   ];
 

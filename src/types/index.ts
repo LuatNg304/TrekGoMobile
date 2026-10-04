@@ -391,6 +391,39 @@ export interface TrekkerAccount {
   privacy: TrekkerPrivacySettings;
 }
 
+export type UserNotificationCategory =
+  | "BOOKING"
+  | "RENTAL"
+  | "GROUP_TRIP"
+  | "PERSONAL_TRAIL"
+  | "SYSTEM";
+
+export interface UserNotification {
+  id: string;
+  category: UserNotificationCategory;
+  title: string;
+  message: string;
+  createdAt: string;
+  isRead: boolean;
+  route: string;
+}
+
+export type SupportTicketCategory =
+  | "BOOKING"
+  | "RENTAL"
+  | "ACCOUNT"
+  | "TECHNICAL"
+  | "OTHER";
+
+export interface SupportTicket {
+  id: string;
+  category: SupportTicketCategory;
+  subject: string;
+  description: string;
+  createdAt: string;
+  status: "SUBMITTED";
+}
+
 export interface LiveNavTelemetry {
   distanceCompletedKm: number;
   totalDistanceKm: number;

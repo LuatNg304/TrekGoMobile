@@ -13,9 +13,12 @@ import {
   LiveNavTelemetry,
   PersonalTrail,
   RentalOrder,
+  SupportTicket,
+  SupportTicketCategory,
   Trail,
   TrekkerAccount,
   Trip,
+  UserNotification,
   UserProfile,
 } from "@/types";
 
@@ -72,6 +75,21 @@ interface AppContextType {
   joinGroupTrip: (groupTripId: string) => GroupTripActionResult;
   cancelGroupTripRequest: (groupTripId: string) => GroupTripActionResult;
   leaveGroupTrip: (groupTripId: string) => GroupTripActionResult;
+
+  userNotifications: UserNotification[];
+  markUserNotificationRead: (notificationId: string) => void;
+  markAllUserNotificationsRead: () => void;
+  deleteUserNotification: (notificationId: string) => void;
+
+  savedTrailIds: string[];
+  toggleSavedTrail: (trailId: string) => void;
+
+  supportTickets: SupportTicket[];
+  createSupportTicket: (input: {
+    category: SupportTicketCategory;
+    subject: string;
+    description: string;
+  }) => SupportTicket;
 
   trails: Trail[];
   unlockTrail: (trailId: string) => void;
@@ -251,6 +269,54 @@ const initialGroupTrips: GroupTrip[] = [
     members: [
       { id: "community-user-thao", name: "Nguyễn Thanh Thảo", avatar: "https://images.unsplash.com/photo-1527980965255-d3b416303d12?auto=format&fit=crop&w=240&q=80", fitnessLevel: "INTERMEDIATE", role: "ORGANIZER" },
     ],
+  },
+];
+
+const initialUserNotifications: UserNotification[] = [
+  {
+    id: "notification-booking-1",
+    category: "BOOKING",
+    title: "Booking đã được xác nhận",
+    message: "Vé QR cho chuyến trekking sắp tới đã sẵn sàng trong My Trips.",
+    createdAt: "10 phút trước",
+    isRead: false,
+    route: "/(tabs)/trips",
+  },
+  {
+    id: "notification-rental-1",
+    category: "RENTAL",
+    title: "Đơn thuê đang được chuẩn bị",
+    message: "Kho đã tiếp nhận đơn và đang chuẩn bị thiết bị cho chuyến đi của bạn.",
+    createdAt: "1 giờ trước",
+    isRead: false,
+    route: "/(tabs)/rental",
+  },
+  {
+    id: "notification-group-1",
+    category: "GROUP_TRIP",
+    title: "Yêu cầu ghép đoàn đang chờ duyệt",
+    message: "Trưởng nhóm Bidoup sẽ phản hồi yêu cầu tham gia của bạn.",
+    createdAt: "Hôm qua",
+    isRead: false,
+    route: "/group-trips",
+  },
+  {
+    id: "notification-trail-1",
+    category: "PERSONAL_TRAIL",
+    title: "Cung đường đã được xác minh",
+    message: "Cung đường cá nhân của bạn đã đạt trạng thái VERIFIED.",
+    createdAt: "2 ngày trước",
+    isRead: true,
+    route: "/personal-trails",
+  },
+  {
+    id: "notification-trail-2",
+    category: "PERSONAL_TRAIL",
+    title: "Cần chỉnh sửa cung đường",
+    message: "Admin yêu cầu bổ sung checkpoint và mô tả an toàn trước khi duyệt lại.",
+    createdAt: "3 ngày trước",
+    isRead: true,
+    route: "/personal-trails",
   },
 ];
 
@@ -595,6 +661,13 @@ export const AppProvider: React.FC<{
     initialTrekkerAccount,
   );
   const [groupTrips, setGroupTrips] = useState<GroupTrip[]>(initialGroupTrips);
+  const [userNotifications, setUserNotifications] = useState<UserNotification[]>(
+    initialUserNotifications,
+  );
+  const [savedTrailIds, setSavedTrailIds] = useState<string[]>([
+    "trail-pinhatt",
+  ]);
+  const [supportTickets, setSupportTickets] = useState<SupportTicket[]>([]);
   const [trips, setTrips] = useState<Trip[]>(mockTrips);
   const [trails, setTrails] = useState<Trail[]>(mockTrails);
 
@@ -733,6 +806,54 @@ export const AppProvider: React.FC<{
       ),
     );
     return { ok: true, message: "Bạn đã rời chuyến ghép đoàn.", status: "NONE" };
+  };
+
+  const markUserNotificationRead = (notificationId: string) => {
+    setUserNotifications((current) =>
+      current.map((notification) =>
+        notification.id === notificationId
+          ? { ...notification, isRead: true }
+          : notification,
+      ),
+    );
+  };
+
+  const markAllUserNotificationsRead = () => {
+    setUserNotifications((current) =>
+      current.map((notification) => ({ ...notification, isRead: true })),
+    );
+  };
+
+  const deleteUserNotification = (notificationId: string) => {
+    setUserNotifications((current) =>
+      current.filter((notification) => notification.id !== notificationId),
+    );
+  };
+
+  const toggleSavedTrail = (trailId: string) => {
+    setSavedTrailIds((current) =>
+      current.includes(trailId)
+        ? current.filter((id) => id !== trailId)
+        : [trailId, ...current],
+    );
+  };
+
+  const createSupportTicket = (input: {
+    category: SupportTicketCategory;
+    subject: string;
+    description: string;
+  }) => {
+    const ticket: SupportTicket = {
+      id: `SUP-${Date.now().toString().slice(-6)}`,
+      category: input.category,
+      subject: input.subject.trim(),
+      description: input.description.trim(),
+      createdAt: new Date().toLocaleString("vi-VN"),
+      status: "SUBMITTED",
+    };
+
+    setSupportTickets((current) => [ticket, ...current]);
+    return ticket;
   };
 
   const createPrivateTrip = (tripData: Partial<Trip>) => {
@@ -1523,6 +1644,14 @@ export const AppProvider: React.FC<{
         joinGroupTrip,
         cancelGroupTripRequest,
         leaveGroupTrip,
+        userNotifications,
+        markUserNotificationRead,
+        markAllUserNotificationsRead,
+        deleteUserNotification,
+        savedTrailIds,
+        toggleSavedTrail,
+        supportTickets,
+        createSupportTicket,
         trails,
         unlockTrail,
         personalTrails,
