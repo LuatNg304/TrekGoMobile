@@ -2,7 +2,7 @@ export type FieldRole = 'STAFF_DELIVERY' | 'LEADER';
 
 export const fieldAccounts = {
   STAFF_DELIVERY: { name: 'Hoàng Văn Tuấn', email: 'delivery.mock@trekgo.vn', label: 'Staff Delivery' },
-  LEADER: { name: 'Minh Khoa', email: 'leader.mock@trekgo.vn', label: 'Mountain Leader' },
+  LEADER: { name: 'Minh Khoa', email: 'leader.mock@trekgo.vn', label: 'Mountain Leader', canCreatePublicTrip: true },
 } as const;
 
 export const deliveryTasks = [

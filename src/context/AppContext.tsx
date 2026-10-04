@@ -6,6 +6,7 @@ import {
   mockTrips,
   mockUserProfile
 } from '@/data/mockData';
+import { leaderMembers } from '@/data/fieldOpsMock';
 import {
   EquipmentItem,
   LiveNavTelemetry,
@@ -18,21 +19,44 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useContext, useEffect, useState } from 'react';
 
 export type FieldWorkflowStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED';
+export type LeaderMemberAttendance = 'CHECKED_IN' | 'PENDING' | 'NO_SHOW';
+export type LeaderGpsStatus = 'OK' | 'LOST';
+export type DeliveryItemStatus = 'PENDING' | 'OK' | 'MISSING' | 'DAMAGED';
+export interface DeliveryItemState {
+  status: DeliveryItemStatus;
+  note: string;
+}
+export interface ReturnItemState {
+  status: DeliveryItemStatus;
+  note: string;
+}
 
 export interface FieldWorkflowState {
   leaderTripStatus: 'PREPARING' | 'IN_PROGRESS' | 'COMPLETED';
   leaderPretripApproved: boolean;
+  leaderAttendance: { memberName: string; status: LeaderMemberAttendance }[];
+  requiredCheckpointIds: string[];
+  completedCheckpointIds: string[];
+  leaderSafetyAlert: {
+    status: 'ACTIVE' | 'RESOLVED';
+    selectedOption: string | null;
+  };
+  gpsStatus: LeaderGpsStatus;
+  isOnline: boolean;
+  pendingSyncCount: number;
   leaderReportSent: boolean;
   handoverRequested: boolean;
   deliveryStatus: FieldWorkflowStatus;
+  packageReceived: boolean;
+  arrivedAtPickup: boolean;
   deliveryVerified: boolean;
-  deliveryItems: boolean[];
+  deliveryItems: DeliveryItemState[];
   deliveryPhotoUri: string | null;
   deliverySigned: boolean;
   returnStatus: FieldWorkflowStatus;
   returnArrived: boolean;
   returnVerified: boolean;
-  returnItems: boolean[];
+  returnItems: ReturnItemState[];
   returnConditionRecorded: boolean;
   returnSigned: boolean;
   depositStatus: 'HELD' | 'PENDING_INSPECTION' | 'REFUNDED';
@@ -44,17 +68,39 @@ const FIELD_WORKFLOW_STORAGE_KEY = 'trekgo.field-workflow.v1';
 const initialFieldWorkflow: FieldWorkflowState = {
   leaderTripStatus: 'PREPARING',
   leaderPretripApproved: false,
+  leaderAttendance: leaderMembers.map(member => ({
+    memberName: member.name,
+    status: member.status === 'Đã check-in' ? 'CHECKED_IN' : 'PENDING',
+  })),
+  requiredCheckpointIds: mockTrails[0].checkpoints.map(checkpoint => checkpoint.id),
+  completedCheckpointIds: [],
+  leaderSafetyAlert: { status: 'ACTIVE', selectedOption: null },
+  gpsStatus: 'OK',
+  isOnline: true,
+  pendingSyncCount: 0,
   leaderReportSent: false,
   handoverRequested: false,
   deliveryStatus: 'PENDING',
+  packageReceived: false,
+  arrivedAtPickup: false,
   deliveryVerified: false,
-  deliveryItems: [false, false, false, false],
+  deliveryItems: [
+    { status: 'PENDING', note: '' },
+    { status: 'PENDING', note: '' },
+    { status: 'PENDING', note: '' },
+    { status: 'PENDING', note: '' },
+  ],
   deliveryPhotoUri: null,
   deliverySigned: false,
   returnStatus: 'PENDING',
   returnArrived: false,
   returnVerified: false,
-  returnItems: [false, false, false, false],
+  returnItems: [
+    { status: 'PENDING', note: '' },
+    { status: 'PENDING', note: '' },
+    { status: 'PENDING', note: '' },
+    { status: 'PENDING', note: '' },
+  ],
   returnConditionRecorded: false,
   returnSigned: false,
   depositStatus: 'HELD',
@@ -72,6 +118,7 @@ interface AppContextType {
   trips: Trip[];
   activeTrip: Trip;
   createPrivateTrip: (tripData: Partial<Trip>) => void;
+  publishPublicTrip: (draft: { name: string; startDate: string; endDate: string; slots: number; trailId: string; checkpointIds: string[] }) => void;
   bookPublicTrip: (tripId: string, participantsCount: number) => void;
 
   trails: Trail[];
@@ -94,21 +141,29 @@ interface AppContextType {
   resolveMemberAlert: (memberId: string) => void;
 
   fieldWorkflow: FieldWorkflowState;
+  setLeaderMemberAttendance: (memberName: string, status: LeaderMemberAttendance) => void;
+  completeLeaderCheckpoint: (checkpointId: string) => void;
+  resolveLeaderSafetyAlert: (selectedOption: string) => void;
+  toggleLeaderGpsStatus: () => void;
+  toggleLeaderOnlineStatus: () => void;
   approveLeaderPretrip: () => void;
   startLeaderTrip: () => void;
   completeLeaderTrip: () => void;
   sendLeaderReport: () => void;
+  receiveDeliveryPackage: (packageCode: string) => boolean;
+  markArrivedAtPickup: () => void;
   setDeliveryVerified: (verified: boolean) => void;
-  toggleDeliveryItem: (index: number) => void;
+  setDeliveryItem: (index: number, status: DeliveryItemStatus, note: string) => void;
   setDeliveryPhoto: (uri: string | null) => void;
   setDeliverySigned: (signed: boolean) => void;
   completeDelivery: () => void;
   markReturnArrived: () => void;
   setReturnVerified: (verified: boolean) => void;
-  toggleReturnItem: (index: number) => void;
+  setReturnItem: (index: number, status: DeliveryItemStatus, note: string) => void;
   setReturnConditionRecorded: (recorded: boolean) => void;
   setReturnSigned: (signed: boolean) => void;
   completeReturn: () => void;
+  enableReturnDemo: () => void;
   resetFieldWorkflow: () => void;
 }
 
@@ -133,7 +188,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     AsyncStorage.getItem(FIELD_WORKFLOW_STORAGE_KEY)
       .then(value => {
         if (value) {
-          setFieldWorkflow({ ...initialFieldWorkflow, ...JSON.parse(value) });
+          const stored = JSON.parse(value) as Partial<FieldWorkflowState> & { deliveryItems?: (boolean | DeliveryItemState)[]; returnItems?: (boolean | ReturnItemState)[] };
+          const deliveryItems = stored.deliveryItems?.map(item => typeof item === 'boolean'
+            ? { status: item ? 'OK' : 'PENDING', note: '' } as DeliveryItemState
+            : item) ?? initialFieldWorkflow.deliveryItems;
+          const returnItems = stored.returnItems?.map(item => typeof item === 'boolean'
+            ? { status: item ? 'OK' : 'PENDING', note: '' } as ReturnItemState
+            : item) ?? initialFieldWorkflow.returnItems;
+          setFieldWorkflow({ ...initialFieldWorkflow, ...stored, deliveryItems, returnItems });
         }
       })
       .catch(() => undefined)
@@ -150,20 +212,141 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const approveLeaderPretrip = () => updateFieldWorkflow({ leaderPretripApproved: true });
-  const startLeaderTrip = () => updateFieldWorkflow({ leaderTripStatus: 'IN_PROGRESS' });
-  const completeLeaderTrip = () => updateFieldWorkflow({ leaderTripStatus: 'COMPLETED', handoverRequested: true });
-  const sendLeaderReport = () => updateFieldWorkflow({ leaderReportSent: true, handoverRequested: true });
+  const publishPublicTrip = (draft: { name: string; startDate: string; endDate: string; slots: number; trailId: string; checkpointIds: string[] }) => {
+    const trail = trails.find(item => item.id === draft.trailId);
+    if (!trail) return;
+    const newTrip: Trip = {
+      id: `trip-public-${Date.now()}`,
+      type: 'PUBLIC',
+      name: draft.name,
+      trailId: trail.id,
+      destination: trail.region,
+      startDate: draft.startDate,
+      endDate: draft.endDate,
+      durationDays: 1,
+      status: 'UPCOMING',
+      leader: {
+        name: 'Minh Khoa',
+        avatar: '',
+        phone: '',
+        rating: 5,
+        badge: 'Mountain Leader',
+      },
+      capacity: draft.slots,
+      enrolledCount: 0,
+      pricePerPerson: 0,
+      bookingCode: `TG-${Date.now().toString().slice(-6)}`,
+      weather: {
+        tempC: 0,
+        condition: 'Chưa cập nhật',
+        rainRisk: false,
+        rainChancePercent: 0,
+        humidityPercent: 0,
+        windSpeedKmh: 0,
+      },
+      participants: [],
+    };
+    setTrips(prev => [newTrip, ...prev]);
+  };
+  const setLeaderMemberAttendance = (memberName: string, status: LeaderMemberAttendance) => {
+    setFieldWorkflow(prev => ({
+      ...prev,
+      leaderAttendance: prev.leaderAttendance.map(member =>
+        member.memberName === memberName ? { ...member, status } : member
+      ),
+      lastUpdated: new Date().toISOString(),
+    }));
+  };
+  const startLeaderTrip = () => {
+    setFieldWorkflow(prev => {
+      const hasPendingAttendance = prev.leaderAttendance.some(member => member.status === 'PENDING');
+      const hasCheckedInMember = prev.leaderAttendance.some(member => member.status === 'CHECKED_IN');
+      if (!prev.leaderPretripApproved || hasPendingAttendance || !hasCheckedInMember) return prev;
+      return { ...prev, leaderTripStatus: 'IN_PROGRESS', lastUpdated: new Date().toISOString() };
+    });
+  };
+  const completeLeaderCheckpoint = (checkpointId: string) => {
+    setFieldWorkflow(prev => prev.leaderTripStatus !== 'IN_PROGRESS'
+      || !prev.requiredCheckpointIds.includes(checkpointId)
+      || prev.completedCheckpointIds.includes(checkpointId)
+      ? prev
+      : {
+          ...prev,
+          completedCheckpointIds: [...prev.completedCheckpointIds, checkpointId],
+          lastUpdated: new Date().toISOString(),
+        });
+  };
+  const resolveLeaderSafetyAlert = (selectedOption: string) => {
+    updateFieldWorkflow({
+      leaderSafetyAlert: { status: 'RESOLVED', selectedOption },
+    });
+  };
+  const toggleLeaderGpsStatus = () => {
+    setFieldWorkflow(prev => ({
+      ...prev,
+      gpsStatus: prev.gpsStatus === 'OK' ? 'LOST' : 'OK',
+      pendingSyncCount: prev.gpsStatus === 'OK' ? prev.pendingSyncCount + 1 : prev.pendingSyncCount,
+      lastUpdated: new Date().toISOString(),
+    }));
+  };
+  const toggleLeaderOnlineStatus = () => {
+    setFieldWorkflow(prev => {
+      if (!prev.isOnline) {
+        setTimeout(() => {
+          setFieldWorkflow(current => ({
+            ...current,
+            pendingSyncCount: 0,
+            lastUpdated: new Date().toISOString(),
+          }));
+        }, 1000);
+      }
+      return {
+        ...prev,
+        isOnline: !prev.isOnline,
+        pendingSyncCount: prev.isOnline ? prev.pendingSyncCount + 1 : prev.pendingSyncCount,
+        lastUpdated: new Date().toISOString(),
+      };
+    });
+  };
+  const completeLeaderTrip = () => {
+    setFieldWorkflow(prev => {
+      const hasMissingCheckpoint = prev.requiredCheckpointIds.some(id => !prev.completedCheckpointIds.includes(id));
+      if (prev.leaderTripStatus !== 'IN_PROGRESS' || hasMissingCheckpoint) return prev;
+      return { ...prev, leaderTripStatus: 'COMPLETED', lastUpdated: new Date().toISOString() };
+    });
+  };
+  const sendLeaderReport = () => updateFieldWorkflow({
+    leaderReportSent: true,
+    handoverRequested: true,
+    returnStatus: 'IN_PROGRESS',
+  });
+  const receiveDeliveryPackage = (packageCode: string) => {
+    const readyOrder = rentalOrders.find(order => order.status === 'READY_FOR_DELIVERY');
+    if (!readyOrder || packageCode !== 'PKG-7892-A') return false;
+    updateFieldWorkflow({ packageReceived: true });
+    return true;
+  };
+  const markArrivedAtPickup = () => updateFieldWorkflow({ arrivedAtPickup: true });
   const setDeliveryVerified = (verified: boolean) => updateFieldWorkflow({ deliveryVerified: verified });
-  const toggleDeliveryItem = (index: number) => updateFieldWorkflow({ deliveryItems: fieldWorkflow.deliveryItems.map((value, itemIndex) => itemIndex === index ? !value : value) });
+  const setDeliveryItem = (index: number, status: DeliveryItemStatus, note: string) => updateFieldWorkflow({
+    deliveryItems: fieldWorkflow.deliveryItems.map((item, itemIndex) => itemIndex === index ? { status, note } : item),
+  });
   const setDeliveryPhoto = (uri: string | null) => updateFieldWorkflow({ deliveryPhotoUri: uri });
   const setDeliverySigned = (signed: boolean) => updateFieldWorkflow({ deliverySigned: signed });
   const completeDelivery = () => updateFieldWorkflow({ deliveryStatus: 'COMPLETED', returnStatus: 'PENDING', depositStatus: 'HELD' });
   const markReturnArrived = () => updateFieldWorkflow({ returnArrived: true, returnStatus: 'IN_PROGRESS' });
   const setReturnVerified = (verified: boolean) => updateFieldWorkflow({ returnVerified: verified });
-  const toggleReturnItem = (index: number) => updateFieldWorkflow({ returnItems: fieldWorkflow.returnItems.map((value, itemIndex) => itemIndex === index ? !value : value) });
+  const setReturnItem = (index: number, status: DeliveryItemStatus, note: string) => updateFieldWorkflow({
+    returnItems: fieldWorkflow.returnItems.map((item, itemIndex) => itemIndex === index ? { status, note } : item),
+  });
   const setReturnConditionRecorded = (recorded: boolean) => updateFieldWorkflow({ returnConditionRecorded: recorded });
   const setReturnSigned = (signed: boolean) => updateFieldWorkflow({ returnSigned: signed });
   const completeReturn = () => updateFieldWorkflow({ returnStatus: 'COMPLETED', depositStatus: 'PENDING_INSPECTION' });
+  const enableReturnDemo = () => updateFieldWorkflow({
+    handoverRequested: true,
+    leaderReportSent: true,
+    returnStatus: 'IN_PROGRESS',
+  });
   const resetFieldWorkflow = () => setFieldWorkflow({ ...initialFieldWorkflow, lastUpdated: new Date().toISOString() });
 
   const toggleUserRole = () => {
@@ -358,6 +541,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         trips,
         activeTrip,
         createPrivateTrip,
+        publishPublicTrip,
         bookPublicTrip,
         trails,
         unlockTrail,
@@ -375,21 +559,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         completeCheckpointMission,
         resolveMemberAlert,
         fieldWorkflow,
+        setLeaderMemberAttendance,
+        completeLeaderCheckpoint,
+        resolveLeaderSafetyAlert,
+        toggleLeaderGpsStatus,
+        toggleLeaderOnlineStatus,
         approveLeaderPretrip,
         startLeaderTrip,
         completeLeaderTrip,
         sendLeaderReport,
+        receiveDeliveryPackage,
+        markArrivedAtPickup,
         setDeliveryVerified,
-        toggleDeliveryItem,
+        setDeliveryItem,
         setDeliveryPhoto,
         setDeliverySigned,
         completeDelivery,
         markReturnArrived,
         setReturnVerified,
-        toggleReturnItem,
+        setReturnItem,
         setReturnConditionRecorded,
         setReturnSigned,
         completeReturn,
+        enableReturnDemo,
         resetFieldWorkflow,
       }}>
       {children}
