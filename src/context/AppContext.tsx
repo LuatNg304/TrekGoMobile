@@ -9,6 +9,7 @@ import {
   CreateCommunityPostInput,
   CreatePersonalTrailInput,
   EquipmentItem,
+  GroupTrip,
   LiveNavTelemetry,
   PersonalTrail,
   RentalOrder,
@@ -45,6 +46,12 @@ export interface PrivateTripActionResult {
   trip?: Trip;
 }
 
+export interface GroupTripActionResult {
+  ok: boolean;
+  message: string;
+  status?: GroupTrip["joinStatus"];
+}
+
 interface AppContextType {
   user: UserProfile;
   setUser: React.Dispatch<React.SetStateAction<UserProfile>>;
@@ -60,6 +67,11 @@ interface AppContextType {
   leavePrivateTrip: (tripId: string) => PrivateTripActionResult;
   cancelPrivateTrip: (tripId: string) => PrivateTripActionResult;
   bookPublicTrip: (tripId: string, participantsCount: number) => void;
+
+  groupTrips: GroupTrip[];
+  joinGroupTrip: (groupTripId: string) => GroupTripActionResult;
+  cancelGroupTripRequest: (groupTripId: string) => GroupTripActionResult;
+  leaveGroupTrip: (groupTripId: string) => GroupTripActionResult;
 
   trails: Trail[];
   unlockTrail: (trailId: string) => void;
@@ -144,6 +156,103 @@ const initialTrekkerAccount: TrekkerAccount = {
     allowFollowRequests: true,
   },
 };
+
+const initialGroupTrips: GroupTrip[] = [
+  {
+    id: "group-ta-nang-01",
+    title: "Ghép đoàn săn mây Tà Năng – Phan Dũng",
+    destination: "Tà Năng – Phan Dũng",
+    province: "Lâm Đồng",
+    startDate: "16/10/2026",
+    endDate: "18/10/2026",
+    duration: "3 ngày 2 đêm",
+    difficulty: "Trung bình",
+    imageUrl: "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=1200&q=80",
+    description: "Nhóm nhỏ ưu tiên trải nghiệm chậm, săn mây bình minh và cắm trại trên sống lưng đồi cỏ.",
+    organizer: {
+      id: "community-leader-linh",
+      name: "Trần Gia Linh",
+      avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=240&q=80",
+      role: "LEADER",
+      verified: true,
+      badge: "Verified Leader",
+    },
+    maxMembers: 10,
+    currentMembers: 7,
+    priceEstimate: 1850000,
+    meetingPoint: "Bến xe Miền Đông mới, TP.HCM",
+    joinMode: "APPROVAL",
+    joinStatus: "NONE",
+    tags: ["Săn mây", "Cắm trại", "Chụp ảnh"],
+    requirements: ["Thể lực trung bình", "Có giày trekking", "Không bệnh tim mạch nặng"],
+    members: [
+      { id: "community-leader-linh", name: "Trần Gia Linh", avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=240&q=80", fitnessLevel: "ADVANCED", role: "ORGANIZER" },
+      { id: "group-member-1", name: "Hoàng Nam", avatar: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=240&q=80", fitnessLevel: "INTERMEDIATE", role: "MEMBER" },
+      { id: "group-member-2", name: "Bảo Ngọc", avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=240&q=80", fitnessLevel: "INTERMEDIATE", role: "MEMBER" },
+    ],
+  },
+  {
+    id: "group-bidoup-02",
+    title: "Cuối tuần chinh phục Bidoup",
+    destination: "Vườn quốc gia Bidoup – Núi Bà",
+    province: "Lâm Đồng",
+    startDate: "24/10/2026",
+    endDate: "25/10/2026",
+    duration: "2 ngày 1 đêm",
+    difficulty: "Khó",
+    imageUrl: "https://images.unsplash.com/photo-1551632811-561732d1e306?auto=format&fit=crop&w=1200&q=80",
+    description: "Đoàn dành cho trekker đã có kinh nghiệm, tốc độ ổn định và ưu tiên an toàn rừng già.",
+    organizer: {
+      id: "community-leader-minh",
+      name: "Lê Nhật Minh",
+      avatar: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=240&q=80",
+      role: "LEADER",
+      verified: true,
+      badge: "Top Organizer",
+    },
+    maxMembers: 8,
+    currentMembers: 5,
+    priceEstimate: 2250000,
+    meetingPoint: "Quảng trường Lâm Viên, Đà Lạt",
+    joinMode: "APPROVAL",
+    joinStatus: "PENDING",
+    tags: ["Rừng già", "Đỉnh cao", "Thử thách"],
+    requirements: ["Đã hoàn thành ít nhất 2 cung", "Thể lực khá", "Mang áo mưa cá nhân"],
+    members: [
+      { id: "community-leader-minh", name: "Lê Nhật Minh", avatar: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=240&q=80", fitnessLevel: "ADVANCED", role: "ORGANIZER" },
+    ],
+  },
+  {
+    id: "group-chua-chan-03",
+    title: "Trekking Núi Chứa Chan cho người mới",
+    destination: "Núi Chứa Chan",
+    province: "Đồng Nai",
+    startDate: "01/11/2026",
+    endDate: "01/11/2026",
+    duration: "Trong ngày",
+    difficulty: "Dễ",
+    imageUrl: "https://images.unsplash.com/photo-1486911278844-a81c5267e227?auto=format&fit=crop&w=1200&q=80",
+    description: "Chuyến làm quen trekking với nhịp độ nhẹ, phù hợp người mới và nhóm bạn nhỏ.",
+    organizer: {
+      id: "community-user-thao",
+      name: "Nguyễn Thanh Thảo",
+      avatar: "https://images.unsplash.com/photo-1527980965255-d3b416303d12?auto=format&fit=crop&w=240&q=80",
+      role: "TREKKER",
+      verified: false,
+    },
+    maxMembers: 12,
+    currentMembers: 9,
+    priceEstimate: 650000,
+    meetingPoint: "Bưu điện trung tâm TP.HCM",
+    joinMode: "INSTANT",
+    joinStatus: "NONE",
+    tags: ["Người mới", "Trong ngày", "Kết bạn"],
+    requirements: ["Sức khỏe ổn định", "Mang tối thiểu 1.5L nước", "Có mặt đúng giờ"],
+    members: [
+      { id: "community-user-thao", name: "Nguyễn Thanh Thảo", avatar: "https://images.unsplash.com/photo-1527980965255-d3b416303d12?auto=format&fit=crop&w=240&q=80", fitnessLevel: "INTERMEDIATE", role: "ORGANIZER" },
+    ],
+  },
+];
 
 function formatNow() {
   return new Date().toLocaleString("vi-VN");
@@ -485,6 +594,7 @@ export const AppProvider: React.FC<{
   const [trekkerAccount, setTrekkerAccount] = useState<TrekkerAccount>(
     initialTrekkerAccount,
   );
+  const [groupTrips, setGroupTrips] = useState<GroupTrip[]>(initialGroupTrips);
   const [trips, setTrips] = useState<Trip[]>(mockTrips);
   const [trails, setTrails] = useState<Trail[]>(mockTrails);
 
@@ -552,6 +662,77 @@ export const AppProvider: React.FC<{
 
   const updateTrekkerAccount = (input: Partial<TrekkerAccount>) => {
     setTrekkerAccount((current) => ({ ...current, ...input }));
+  };
+
+  const joinGroupTrip = (groupTripId: string): GroupTripActionResult => {
+    const selected = groupTrips.find((trip) => trip.id === groupTripId);
+
+    if (!selected) return { ok: false, message: "Không tìm thấy chuyến ghép đoàn." };
+    if (selected.joinStatus === "JOINED") return { ok: true, message: "Bạn đã tham gia chuyến này.", status: "JOINED" };
+    if (selected.joinStatus === "PENDING") return { ok: true, message: "Yêu cầu của bạn đang chờ duyệt.", status: "PENDING" };
+    if (selected.currentMembers >= selected.maxMembers) return { ok: false, message: "Chuyến đi đã đủ thành viên." };
+
+    const nextStatus = selected.joinMode === "INSTANT" ? "JOINED" : "PENDING";
+    setGroupTrips((current) =>
+      current.map((trip) =>
+        trip.id !== groupTripId
+          ? trip
+          : {
+              ...trip,
+              joinStatus: nextStatus,
+              currentMembers: nextStatus === "JOINED" ? trip.currentMembers + 1 : trip.currentMembers,
+              members:
+                nextStatus === "JOINED"
+                  ? [
+                      ...trip.members,
+                      {
+                        id: user.id,
+                        name: user.name,
+                        avatar: user.avatar,
+                        fitnessLevel: trekkerAccount.fitnessLevel,
+                        role: "MEMBER" as const,
+                      },
+                    ]
+                  : trip.members,
+            },
+      ),
+    );
+
+    return {
+      ok: true,
+      status: nextStatus,
+      message:
+        nextStatus === "JOINED"
+          ? "Bạn đã tham gia nhóm thành công."
+          : "Đã gửi yêu cầu. Trưởng nhóm sẽ duyệt hồ sơ của bạn.",
+    };
+  };
+
+  const cancelGroupTripRequest = (groupTripId: string): GroupTripActionResult => {
+    setGroupTrips((current) =>
+      current.map((trip) =>
+        trip.id === groupTripId && trip.joinStatus === "PENDING"
+          ? { ...trip, joinStatus: "NONE" }
+          : trip,
+      ),
+    );
+    return { ok: true, message: "Đã rút yêu cầu tham gia.", status: "NONE" };
+  };
+
+  const leaveGroupTrip = (groupTripId: string): GroupTripActionResult => {
+    setGroupTrips((current) =>
+      current.map((trip) =>
+        trip.id === groupTripId && trip.joinStatus === "JOINED"
+          ? {
+              ...trip,
+              joinStatus: "NONE",
+              currentMembers: Math.max(0, trip.currentMembers - 1),
+              members: trip.members.filter((member) => member.id !== user.id),
+            }
+          : trip,
+      ),
+    );
+    return { ok: true, message: "Bạn đã rời chuyến ghép đoàn.", status: "NONE" };
   };
 
   const createPrivateTrip = (tripData: Partial<Trip>) => {
@@ -1338,6 +1519,10 @@ export const AppProvider: React.FC<{
         leavePrivateTrip,
         cancelPrivateTrip,
         bookPublicTrip,
+        groupTrips,
+        joinGroupTrip,
+        cancelGroupTripRequest,
+        leaveGroupTrip,
         trails,
         unlockTrail,
         personalTrails,

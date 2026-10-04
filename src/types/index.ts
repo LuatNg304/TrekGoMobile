@@ -268,6 +268,40 @@ export interface Trip {
   rentedItemsCount?: number;
 }
 
+export type GroupTripJoinMode = "INSTANT" | "APPROVAL";
+export type GroupTripJoinStatus = "NONE" | "PENDING" | "JOINED";
+
+export interface GroupTripMember {
+  id: string;
+  name: string;
+  avatar: string;
+  fitnessLevel: TrekkerFitnessLevel;
+  role: "ORGANIZER" | "MEMBER";
+}
+
+export interface GroupTrip {
+  id: string;
+  title: string;
+  destination: string;
+  province: string;
+  startDate: string;
+  endDate: string;
+  duration: string;
+  difficulty: DifficultyLevel;
+  imageUrl: string;
+  description: string;
+  organizer: CommunityAuthor;
+  maxMembers: number;
+  currentMembers: number;
+  priceEstimate: number;
+  meetingPoint: string;
+  joinMode: GroupTripJoinMode;
+  joinStatus: GroupTripJoinStatus;
+  tags: string[];
+  requirements: string[];
+  members: GroupTripMember[];
+}
+
 export type EquipmentCategory =
   | "Tất cả"
   | "Tent"

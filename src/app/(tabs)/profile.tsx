@@ -33,6 +33,7 @@ export default function ProfileScreen() {
     personalTrails,
     rentalOrders,
     communityPosts,
+    groupTrips,
   } = useApp();
 
   const completedTrips = trips.filter((trip) => trip.status === "COMPLETED").length;
@@ -262,6 +263,12 @@ export default function ProfileScreen() {
             title="Đơn thuê"
             detail={`${rentalOrders.length} đơn`}
             onPress={() => router.push("/(tabs)/rental" as Href)}
+          />
+          <ActivityButton
+            icon="person-add-outline"
+            title="Ghép đoàn"
+            detail={`${groupTrips.filter((trip) => trip.joinStatus !== "NONE").length} đang theo dõi`}
+            onPress={() => router.push("/group-trips" as Href)}
           />
           <ActivityButton
             icon="people-outline"
