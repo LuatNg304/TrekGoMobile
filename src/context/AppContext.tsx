@@ -13,6 +13,7 @@ import {
   PersonalTrail,
   RentalOrder,
   Trail,
+  TrekkerAccount,
   Trip,
   UserProfile,
 } from "@/types";
@@ -48,6 +49,9 @@ interface AppContextType {
   user: UserProfile;
   setUser: React.Dispatch<React.SetStateAction<UserProfile>>;
   toggleUserRole: () => void;
+  trekkerAccount: TrekkerAccount;
+  updateUserProfile: (input: Partial<UserProfile>) => void;
+  updateTrekkerAccount: (input: Partial<TrekkerAccount>) => void;
 
   trips: Trip[];
   activeTrip: Trip;
@@ -111,6 +115,35 @@ interface AppContextType {
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
+
+const initialTrekkerAccount: TrekkerAccount = {
+  phone: "0903 456 789",
+  dateOfBirth: "18/09/2003",
+  gender: "MALE",
+  address: "Thành phố Hồ Chí Minh",
+  bio: "Trekker cuối tuần, yêu rừng thông và những cung đường săn mây.",
+  bloodType: "O+",
+  allergies: "Không ghi nhận",
+  medicalConditions: "Không có bệnh nền",
+  medications: "Không sử dụng thuốc định kỳ",
+  fitnessLevel: "INTERMEDIATE",
+  emergencyContact: {
+    name: "Nguyễn Minh Tâm",
+    relationship: "Người thân",
+    phone: "0912 345 678",
+  },
+  notifications: {
+    tripUpdates: true,
+    safetyAlerts: true,
+    communityActivities: true,
+    promotions: false,
+  },
+  privacy: {
+    profileVisibility: "PUBLIC",
+    activityVisibility: "FOLLOWERS",
+    allowFollowRequests: true,
+  },
+};
 
 function formatNow() {
   return new Date().toLocaleString("vi-VN");
@@ -449,6 +482,9 @@ export const AppProvider: React.FC<{
   children: React.ReactNode;
 }> = ({ children }) => {
   const [user, setUser] = useState<UserProfile>(mockUserProfile);
+  const [trekkerAccount, setTrekkerAccount] = useState<TrekkerAccount>(
+    initialTrekkerAccount,
+  );
   const [trips, setTrips] = useState<Trip[]>(mockTrips);
   const [trails, setTrails] = useState<Trail[]>(mockTrails);
 
@@ -496,6 +532,26 @@ export const AppProvider: React.FC<{
       ...current,
       role: current.role === "TREKKER" ? "LEADER" : "TREKKER",
     }));
+  };
+
+  const updateUserProfile = (input: Partial<UserProfile>) => {
+    setUser((current) => ({ ...current, ...input }));
+
+    setCommunityProfiles((current) =>
+      current.map((profile) =>
+        profile.id === user.id
+          ? {
+              ...profile,
+              name: input.name ?? profile.name,
+              avatar: input.avatar ?? profile.avatar,
+            }
+          : profile,
+      ),
+    );
+  };
+
+  const updateTrekkerAccount = (input: Partial<TrekkerAccount>) => {
+    setTrekkerAccount((current) => ({ ...current, ...input }));
   };
 
   const createPrivateTrip = (tripData: Partial<Trip>) => {
@@ -1272,6 +1328,9 @@ export const AppProvider: React.FC<{
         user,
         setUser,
         toggleUserRole,
+        trekkerAccount,
+        updateUserProfile,
+        updateTrekkerAccount,
         trips,
         activeTrip,
         createPrivateTrip,

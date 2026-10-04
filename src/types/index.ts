@@ -319,6 +319,44 @@ export interface UserProfile {
   savedPoints: number;
 }
 
+export type TrekkerFitnessLevel = "BEGINNER" | "INTERMEDIATE" | "ADVANCED";
+export type ProfileVisibility = "PUBLIC" | "FOLLOWERS" | "PRIVATE";
+
+export interface TrekkerEmergencyContact {
+  name: string;
+  relationship: string;
+  phone: string;
+}
+
+export interface TrekkerNotificationSettings {
+  tripUpdates: boolean;
+  safetyAlerts: boolean;
+  communityActivities: boolean;
+  promotions: boolean;
+}
+
+export interface TrekkerPrivacySettings {
+  profileVisibility: ProfileVisibility;
+  activityVisibility: ProfileVisibility;
+  allowFollowRequests: boolean;
+}
+
+export interface TrekkerAccount {
+  phone: string;
+  dateOfBirth: string;
+  gender: "MALE" | "FEMALE" | "OTHER";
+  address: string;
+  bio: string;
+  bloodType: string;
+  allergies: string;
+  medicalConditions: string;
+  medications: string;
+  fitnessLevel: TrekkerFitnessLevel;
+  emergencyContact: TrekkerEmergencyContact;
+  notifications: TrekkerNotificationSettings;
+  privacy: TrekkerPrivacySettings;
+}
+
 export interface LiveNavTelemetry {
   distanceCompletedKm: number;
   totalDistanceKm: number;
