@@ -30,6 +30,7 @@ import {
   mockTrips,
   mockUserProfile,
 } from "@/data/mockData";
+import { useAuth } from "@/features/auth/AuthContext";
 
 export interface RentalSettlement {
   orderId: string;
@@ -656,7 +657,24 @@ const initialCommunityNotifications: CommunityNotification[] = [
 export const AppProvider: React.FC<{
   children: React.ReactNode;
 }> = ({ children }) => {
-  const [user, setUser] = useState<UserProfile>(mockUserProfile);
+  const { user: authenticatedUser } = useAuth();
+  const [localUser, setUser] = useState<UserProfile>(mockUserProfile);
+  const user: UserProfile = authenticatedUser
+    ? {
+        ...localUser,
+        id: authenticatedUser.id,
+        name:
+          authenticatedUser.fullName ||
+          authenticatedUser.name ||
+          authenticatedUser.email.split("@")[0],
+        email: authenticatedUser.email,
+        avatar:
+          authenticatedUser.avatarUrl ||
+          authenticatedUser.avatar ||
+          localUser.avatar,
+        role: authenticatedUser.role === "LEADER" ? "LEADER" : "TREKKER",
+      }
+    : localUser;
   const [trekkerAccount, setTrekkerAccount] = useState<TrekkerAccount>(
     initialTrekkerAccount,
   );

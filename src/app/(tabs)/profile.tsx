@@ -14,6 +14,7 @@ import {
 import { TopHeader } from "@/components/TopHeader";
 import { Colors, Radius, Shadows } from "@/constants/theme";
 import { useApp } from "@/context/AppContext";
+import { useAuth } from "@/features/auth/AuthContext";
 
 type MenuItem = {
   icon: keyof typeof Ionicons.glyphMap;
@@ -26,6 +27,7 @@ type MenuItem = {
 
 export default function ProfileScreen() {
   const router = useRouter();
+  const { signOut } = useAuth();
   const {
     user,
     trekkerAccount,
@@ -126,10 +128,14 @@ export default function ProfileScreen() {
   function confirmLogout() {
     Alert.alert(
       "Đăng xuất tài khoản",
-      "Đây là thao tác demo. Phiên đăng nhập mock sẽ được giữ để bạn tiếp tục kiểm thử.",
+      "Phiên đăng nhập trên thiết bị sẽ được xóa. Bạn có chắc muốn đăng xuất?",
       [
         { text: "Ở lại", style: "cancel" },
-        { text: "Đăng xuất mock", style: "destructive" },
+        {
+          text: "Đăng xuất",
+          style: "destructive",
+          onPress: () => void signOut(),
+        },
       ],
     );
   }

@@ -11,7 +11,7 @@ interface TopHeaderProps {
 }
 
 export const TopHeader: React.FC<TopHeaderProps> = ({ subtitle = 'Home', onNotificationPress }) => {
-  const { user, toggleUserRole } = useApp();
+  const { user } = useApp();
 
   return (
     <View style={styles.headerContainer}>
@@ -23,11 +23,9 @@ export const TopHeader: React.FC<TopHeaderProps> = ({ subtitle = 'Home', onNotif
       </View>
 
       <View style={styles.rightGroup}>
-        {/* Role Switcher Pill (Trekker vs Leader mode) */}
-        <TouchableOpacity 
+        {/* Role is supplied by the authenticated API profile. */}
+        <View
           style={[styles.rolePill, user.role === 'LEADER' && styles.rolePillLeader]} 
-          onPress={toggleUserRole}
-          activeOpacity={0.8}
         >
           <Ionicons 
             name={user.role === 'LEADER' ? 'shield-checkmark' : 'walk'} 
@@ -37,7 +35,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({ subtitle = 'Home', onNotif
           <Text style={[styles.roleText, user.role === 'LEADER' && styles.roleTextLeader]}>
             {user.role === 'LEADER' ? 'LEADER' : 'TREKKER'}
           </Text>
-        </TouchableOpacity>
+        </View>
 
         {/* Notifications button */}
         <TouchableOpacity 
