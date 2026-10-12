@@ -1,42 +1,45 @@
-import React, { useState } from 'react';
+import { CreatePrivateTripModal } from "@/components/CreatePrivateTripModal";
+import { TacticalMap } from "@/components/TacticalMap";
+import { TopHeader } from "@/components/TopHeader";
+import { Colors, Radius, Shadows } from "@/constants/theme";
+import { useApp } from "@/context/AppContext";
+import { Trail } from "@/types";
+import { Ionicons } from "@expo/vector-icons";
+import { Href, useRouter } from "expo-router";
+import { useState } from "react";
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
   Image,
-  TextInput,
   SafeAreaView,
-} from 'react-native';
-import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { Colors, Radius, Shadows } from '@/constants/theme';
-import { TopHeader } from '@/components/TopHeader';
-import { TacticalMap } from '@/components/TacticalMap';
-import { useApp } from '@/context/AppContext';
-import { Trail } from '@/types';
-import { CreatePrivateTripModal } from '@/components/CreatePrivateTripModal';
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
 
 export default function ExploreScreen() {
   const router = useRouter();
   const { trails, unlockTrail } = useApp();
 
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedFilter, setSelectedFilter] = useState<string>('Tất cả');
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedFilter, setSelectedFilter] = useState<string>("Tất cả");
   const [selectedTrail, setSelectedTrail] = useState<Trail>(trails[0]);
-  const [createPrivateModalVisible, setCreatePrivateModalVisible] = useState(false);
+  const [createPrivateModalVisible, setCreatePrivateModalVisible] =
+    useState(false);
 
-  const filters = ['Tất cả', 'Gần bạn', 'Dễ', 'Trung bình', 'Khó', 'Đã sở hữu'];
+  const filters = ["Tất cả", "Gần bạn", "Dễ", "Trung bình", "Khó", "Đã sở hữu"];
 
-  const filteredTrails = trails.filter(trail => {
-    if (selectedFilter === 'Đã sở hữu') return trail.isUnlocked;
-    if (selectedFilter !== 'Tất cả' && selectedFilter !== 'Gần bạn') {
+  const filteredTrails = trails.filter((trail) => {
+    if (selectedFilter === "Đã sở hữu") return trail.isUnlocked;
+    if (selectedFilter !== "Tất cả" && selectedFilter !== "Gần bạn") {
       return trail.difficulty === selectedFilter;
     }
     if (searchQuery.trim()) {
-      return trail.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-             trail.region.toLowerCase().includes(searchQuery.toLowerCase());
+      return (
+        trail.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        trail.region.toLowerCase().includes(searchQuery.toLowerCase())
+      );
     }
     return true;
   });
@@ -49,11 +52,19 @@ export default function ExploreScreen() {
     <SafeAreaView style={styles.safeArea}>
       <TopHeader subtitle="Explore" />
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+      >
         {/* 1. Tactical Search & Filter Pills */}
         <View style={styles.searchSection}>
           <View style={styles.searchBar}>
-            <Ionicons name="search" size={18} color={Colors.onSurfaceVariant} style={styles.searchIcon} />
+            <Ionicons
+              name="search"
+              size={18}
+              color={Colors.onSurfaceVariant}
+              style={styles.searchIcon}
+            />
             <TextInput
               style={styles.searchInput}
               placeholder="Tìm kiếm cung đường, địa danh..."
@@ -61,14 +72,26 @@ export default function ExploreScreen() {
               onChangeText={setSearchQuery}
               placeholderTextColor={Colors.onSurfaceMuted}
             />
-            <TouchableOpacity style={styles.filterIconButton}>
-              <Ionicons name="options-outline" size={16} color={Colors.onSurface} />
+            <TouchableOpacity
+              style={styles.filterIconButton}
+              onPress={() => router.push("/personal-trails" as Href)}
+              activeOpacity={0.85}
+            >
+              <Ionicons
+                name="folder-open-outline"
+                size={16}
+                color={Colors.onSurface}
+              />
             </TouchableOpacity>
           </View>
 
           {/* Filter Pills Scroll */}
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterPillsRow}>
-            {filters.map(filter => (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.filterPillsRow}
+          >
+            {filters.map((filter) => (
               <TouchableOpacity
                 key={filter}
                 style={[
@@ -95,7 +118,10 @@ export default function ExploreScreen() {
         <View style={styles.mainTrailCard}>
           {/* Hero Image */}
           <View style={styles.trailHeroWrapper}>
-            <Image source={{ uri: selectedTrail.imageUrl }} style={styles.trailHeroImage} />
+            <Image
+              source={{ uri: selectedTrail.imageUrl }}
+              style={styles.trailHeroImage}
+            />
             <View style={styles.heroOverlay} />
 
             {/* Top Badges */}
@@ -115,10 +141,14 @@ export default function ExploreScreen() {
             <View style={styles.heroInfoBottom}>
               <View style={styles.categoryTagsRow}>
                 <View style={styles.categoryTag}>
-                  <Text style={styles.categoryTagText}>{selectedTrail.terrainType}</Text>
+                  <Text style={styles.categoryTagText}>
+                    {selectedTrail.terrainType}
+                  </Text>
                 </View>
-                <View style={[styles.categoryTag, { backgroundColor: '#fed018' }]}>
-                  <Text style={[styles.categoryTagText, { color: '#4a3b1c' }]}>
+                <View
+                  style={[styles.categoryTag, { backgroundColor: "#fed018" }]}
+                >
+                  <Text style={[styles.categoryTagText, { color: "#4a3b1c" }]}>
                     {selectedTrail.difficulty}
                   </Text>
                 </View>
@@ -135,11 +165,17 @@ export default function ExploreScreen() {
           <View style={styles.bentoGrid}>
             <View style={styles.bentoTile}>
               <View style={styles.bentoIconBg}>
-                <Ionicons name="git-commit" size={16} color={Colors.primaryDark} />
+                <Ionicons
+                  name="git-commit"
+                  size={16}
+                  color={Colors.primaryDark}
+                />
               </View>
               <View>
                 <Text style={styles.bentoLabel}>KHOẢNG CÁCH</Text>
-                <Text style={styles.bentoValue}>{selectedTrail.distanceKm} km</Text>
+                <Text style={styles.bentoValue}>
+                  {selectedTrail.distanceKm} km
+                </Text>
               </View>
             </View>
 
@@ -159,7 +195,9 @@ export default function ExploreScreen() {
               </View>
               <View>
                 <Text style={styles.bentoLabel}>ĐỘ CAO LŨY KẾ</Text>
-                <Text style={styles.bentoValue}>+{selectedTrail.elevationGainM}m</Text>
+                <Text style={styles.bentoValue}>
+                  +{selectedTrail.elevationGainM}m
+                </Text>
               </View>
             </View>
 
@@ -177,9 +215,13 @@ export default function ExploreScreen() {
           {/* Interactive Topo Route Map Preview */}
           <View style={styles.mapSectionCard}>
             <View style={styles.mapHeaderRow}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <View
+                style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+              >
                 <Ionicons name="map" size={16} color={Colors.primaryDark} />
-                <Text style={styles.mapHeaderTitle}>Bản đồ địa hình & Tuyến GPS</Text>
+                <Text style={styles.mapHeaderTitle}>
+                  Bản đồ địa hình & Tuyến GPS
+                </Text>
               </View>
               <View style={styles.contourBadge}>
                 <Text style={styles.contourText}>Contour 25m</Text>
@@ -206,11 +248,17 @@ export default function ExploreScreen() {
               <>
                 <TouchableOpacity
                   style={styles.primaryCta}
-                  onPress={() => router.push('/navigation')}
+                  onPress={() => router.push("/navigation")}
                   activeOpacity={0.85}
                 >
-                  <Ionicons name="navigate" size={18} color={Colors.onPrimary} />
-                  <Text style={styles.primaryCtaText}>Vào Chế Độ GPS Trekking</Text>
+                  <Ionicons
+                    name="navigate"
+                    size={18}
+                    color={Colors.onPrimary}
+                  />
+                  <Text style={styles.primaryCtaText}>
+                    Vào Chế Độ GPS Trekking
+                  </Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -230,7 +278,8 @@ export default function ExploreScreen() {
               >
                 <Ionicons name="lock-open" size={20} color={Colors.onPrimary} />
                 <Text style={styles.unlockCtaText}>
-                  Mở Khóa Bản Đồ GPS Toàn Tuyến ({selectedTrail.price.toLocaleString('vi-VN')} đ)
+                  Mở Khóa Bản Đồ GPS Toàn Tuyến (
+                  {selectedTrail.price.toLocaleString("vi-VN")} đ)
                 </Text>
               </TouchableOpacity>
             )}
@@ -239,9 +288,11 @@ export default function ExploreScreen() {
 
         {/* 3. Other Trails List */}
         <View style={styles.otherTrailsSection}>
-          <Text style={styles.otherTrailsTitle}>Các Cung Đường Khác ({filteredTrails.length})</Text>
+          <Text style={styles.otherTrailsTitle}>
+            Các Cung Đường Khác ({filteredTrails.length})
+          </Text>
           <View style={styles.otherTrailsList}>
-            {filteredTrails.map(t => (
+            {filteredTrails.map((t) => (
               <TouchableOpacity
                 key={t.id}
                 style={[
@@ -251,24 +302,35 @@ export default function ExploreScreen() {
                 onPress={() => setSelectedTrail(t)}
                 activeOpacity={0.8}
               >
-                <Image source={{ uri: t.imageUrl }} style={styles.otherTrailThumb} />
+                <Image
+                  source={{ uri: t.imageUrl }}
+                  style={styles.otherTrailThumb}
+                />
                 <View style={styles.otherTrailInfo}>
                   <Text style={styles.otherTrailName}>{t.name}</Text>
                   <Text style={styles.otherTrailRegion}>{t.region}</Text>
                   <View style={styles.otherTrailMetaRow}>
                     <Text style={styles.otherTrailMeta}>{t.distanceKm} km</Text>
                     <Text style={styles.otherTrailMeta}>•</Text>
-                    <Text style={styles.otherTrailMeta}>+{t.elevationGainM}m</Text>
+                    <Text style={styles.otherTrailMeta}>
+                      +{t.elevationGainM}m
+                    </Text>
                     <Text style={styles.otherTrailMeta}>•</Text>
-                    <Text style={styles.otherTrailDifficulty}>{t.difficulty}</Text>
+                    <Text style={styles.otherTrailDifficulty}>
+                      {t.difficulty}
+                    </Text>
                   </View>
                 </View>
                 <View style={styles.trailStatusCol}>
                   <Text style={styles.trailPrice}>
-                    {t.isUnlocked ? 'Đã mở' : `${(t.price / 1000)}k`}
+                    {t.isUnlocked ? "Đã mở" : `${t.price / 1000}k`}
                   </Text>
                   <Ionicons
-                    name={selectedTrail.id === t.id ? 'chevron-down' : 'chevron-forward'}
+                    name={
+                      selectedTrail.id === t.id
+                        ? "chevron-down"
+                        : "chevron-forward"
+                    }
                     size={16}
                     color={Colors.onSurfaceVariant}
                   />
@@ -304,8 +366,8 @@ const styles = StyleSheet.create({
     height: 48,
     borderRadius: Radius.full,
     backgroundColor: Colors.surfaceContainerLowest,
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     paddingHorizontal: 14,
     marginBottom: 10,
     ...Shadows.card,
@@ -323,8 +385,8 @@ const styles = StyleSheet.create({
     height: 32,
     borderRadius: Radius.full,
     backgroundColor: Colors.surfaceContainerLow,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   filterPillsRow: {
     gap: 8,
@@ -341,7 +403,7 @@ const styles = StyleSheet.create({
   },
   filterPillText: {
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: "700",
     color: Colors.onSurfaceVariant,
   },
   filterPillTextActive: {
@@ -351,31 +413,31 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     backgroundColor: Colors.surfaceContainerLowest,
     borderRadius: Radius.xl, // 24px signature rounded card
-    overflow: 'hidden',
+    overflow: "hidden",
     ...Shadows.hover,
     marginBottom: 24,
   },
   trailHeroWrapper: {
     height: 220,
-    width: '100%',
-    position: 'relative',
+    width: "100%",
+    position: "relative",
   },
   trailHeroImage: {
-    width: '100%',
-    height: '100%',
+    width: "100%",
+    height: "100%",
   },
   heroOverlay: {
     ...StyleSheet.absoluteFill,
-    backgroundColor: 'rgba(20, 25, 18, 0.45)',
+    backgroundColor: "rgba(20, 25, 18, 0.45)",
   },
   offlineGpsBadge: {
-    position: 'absolute',
+    position: "absolute",
     top: 12,
     left: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 6,
-    backgroundColor: 'rgba(251, 249, 243, 0.92)',
+    backgroundColor: "rgba(251, 249, 243, 0.92)",
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: Radius.full,
@@ -388,35 +450,35 @@ const styles = StyleSheet.create({
   },
   offlineGpsText: {
     fontSize: 10,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Colors.onSurface,
-    textTransform: 'uppercase',
+    textTransform: "uppercase",
   },
   ratingBadge: {
-    position: 'absolute',
+    position: "absolute",
     top: 12,
     right: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 4,
-    backgroundColor: 'rgba(30, 35, 28, 0.85)',
+    backgroundColor: "rgba(30, 35, 28, 0.85)",
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: Radius.full,
   },
   ratingText: {
     fontSize: 11,
-    fontWeight: '700',
-    color: '#ffffff',
+    fontWeight: "700",
+    color: "#ffffff",
   },
   heroInfoBottom: {
-    position: 'absolute',
+    position: "absolute",
     bottom: 14,
     left: 14,
     right: 14,
   },
   categoryTagsRow: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 6,
     marginBottom: 4,
   },
@@ -428,33 +490,33 @@ const styles = StyleSheet.create({
   },
   categoryTagText: {
     fontSize: 9,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Colors.onPrimaryContainer,
-    textTransform: 'uppercase',
+    textTransform: "uppercase",
   },
   trailTitle: {
     fontSize: 22,
-    fontWeight: '900',
-    color: '#ffffff',
+    fontWeight: "900",
+    color: "#ffffff",
   },
   trailSubtitle: {
     fontSize: 12,
-    color: '#e4e2dd',
+    color: "#e4e2dd",
     marginTop: 2,
   },
   bentoGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexDirection: "row",
+    flexWrap: "wrap",
     padding: 14,
     gap: 10,
   },
   bentoTile: {
-    width: '48%',
+    width: "48%",
     backgroundColor: Colors.surfaceContainerLow,
     borderRadius: Radius.md,
     padding: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 10,
   },
   bentoIconBg: {
@@ -462,18 +524,18 @@ const styles = StyleSheet.create({
     height: 32,
     borderRadius: Radius.full,
     backgroundColor: Colors.surfaceContainerHighest,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   bentoLabel: {
     fontSize: 8,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Colors.onSurfaceVariant,
     letterSpacing: 0.5,
   },
   bentoValue: {
     fontSize: 14,
-    fontWeight: '900',
+    fontWeight: "900",
     color: Colors.onSurface,
     marginTop: 1,
   },
@@ -482,18 +544,18 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     backgroundColor: Colors.surfaceContainerLow,
     borderRadius: Radius.lg,
-    overflow: 'hidden',
+    overflow: "hidden",
   },
   mapHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     padding: 10,
     backgroundColor: Colors.surfaceContainerLow,
   },
   mapHeaderTitle: {
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Colors.onSurface,
   },
   contourBadge: {
@@ -505,7 +567,7 @@ const styles = StyleSheet.create({
   contourText: {
     fontSize: 9,
     color: Colors.onSurfaceVariant,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   descSection: {
     paddingHorizontal: 14,
@@ -513,7 +575,7 @@ const styles = StyleSheet.create({
   },
   descTitle: {
     fontSize: 13,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Colors.onSurface,
     marginBottom: 4,
   },
@@ -531,52 +593,52 @@ const styles = StyleSheet.create({
     height: 48,
     borderRadius: Radius.full,
     backgroundColor: Colors.primaryContainer,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: 8,
     ...Shadows.card,
   },
   primaryCtaText: {
     fontSize: 14,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Colors.onPrimary,
   },
   secondaryCta: {
     height: 44,
     borderRadius: Radius.full,
     backgroundColor: Colors.surfaceContainerHigh,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: 8,
   },
   secondaryCtaText: {
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: "700",
     color: Colors.onSurface,
   },
   unlockCta: {
     height: 50,
     borderRadius: Radius.full,
     backgroundColor: Colors.primaryDark,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: 8,
     ...Shadows.hover,
   },
   unlockCtaText: {
     fontSize: 13,
-    fontWeight: '800',
-    color: '#ffffff',
+    fontWeight: "800",
+    color: "#ffffff",
   },
   otherTrailsSection: {
     paddingHorizontal: 16,
   },
   otherTrailsTitle: {
     fontSize: 16,
-    fontWeight: '900',
+    fontWeight: "900",
     color: Colors.onSurface,
     marginBottom: 12,
   },
@@ -584,14 +646,14 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   otherTrailItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     backgroundColor: Colors.surfaceContainerLowest,
     padding: 10,
     borderRadius: Radius.lg,
     gap: 12,
     borderWidth: 1,
-    borderColor: 'transparent',
+    borderColor: "transparent",
     ...Shadows.card,
   },
   otherTrailItemSelected: {
@@ -608,7 +670,7 @@ const styles = StyleSheet.create({
   },
   otherTrailName: {
     fontSize: 13,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Colors.onSurface,
   },
   otherTrailRegion: {
@@ -617,8 +679,8 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   otherTrailMetaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 4,
     marginTop: 4,
   },
@@ -628,16 +690,16 @@ const styles = StyleSheet.create({
   },
   otherTrailDifficulty: {
     fontSize: 10,
-    fontWeight: '700',
+    fontWeight: "700",
     color: Colors.primaryDark,
   },
   trailStatusCol: {
-    alignItems: 'flex-end',
+    alignItems: "flex-end",
     gap: 4,
   },
   trailPrice: {
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: "700",
     color: Colors.onSurface,
   },
 });

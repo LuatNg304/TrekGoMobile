@@ -1,25 +1,23 @@
-import React, { useState } from 'react';
+import { CreatePrivateTripModal } from "@/components/CreatePrivateTripModal";
+import { TopHeader } from "@/components/TopHeader";
+import { TripPrepModal } from "@/components/TripPrepModal";
+import { Colors, Radius, Shadows } from "@/constants/theme";
+import { useApp } from "@/context/AppContext";
+import { Ionicons } from "@expo/vector-icons";
+import { type Href, useRouter } from "expo-router";
+import { useState } from "react";
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  Image,
   Dimensions,
+  Image,
   SafeAreaView,
-} from 'react-native';
-import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { Colors, Radius, Shadows } from '@/constants/theme';
-import { TopHeader } from '@/components/TopHeader';
-import { useApp } from '@/context/AppContext';
-import { TripPrepModal } from '@/components/TripPrepModal';
-import { CreatePrivateTripModal } from '@/components/CreatePrivateTripModal';
-import { BookingModal } from '@/components/BookingModal';
-import { Trail } from '@/types';
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 
-const { width } = Dimensions.get('window');
+const { width } = Dimensions.get("window");
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -27,8 +25,6 @@ export default function HomeScreen() {
 
   const [tripPrepVisible, setTripPrepVisible] = useState(false);
   const [createPrivateVisible, setCreatePrivateVisible] = useState(false);
-  const [bookingVisible, setBookingVisible] = useState(false);
-  const [selectedTrailForBooking, setSelectedTrailForBooking] = useState<Trail | null>(null);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -43,7 +39,9 @@ export default function HomeScreen() {
           <View style={styles.statusChipsRow}>
             <View style={styles.weatherChip}>
               <Ionicons name="partly-sunny" size={14} color="#725c00" />
-              <Text style={styles.weatherChipText}>Lâm Đồng · 22°C Nắng nhẹ</Text>
+              <Text style={styles.weatherChipText}>
+                Lâm Đồng · 22°C Nắng nhẹ
+              </Text>
             </View>
 
             <View style={styles.gpsChip}>
@@ -64,7 +62,7 @@ export default function HomeScreen() {
           <View style={styles.heroImageContainer}>
             <Image
               source={{
-                uri: 'https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=800&q=80',
+                uri: "https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=800&q=80",
               }}
               style={styles.heroImage}
             />
@@ -72,14 +70,24 @@ export default function HomeScreen() {
 
             {/* Countdown Badge */}
             <View style={styles.countdownBadge}>
-              <Ionicons name="time" size={13} color={Colors.onPrimaryContainer} />
+              <Ionicons
+                name="time"
+                size={13}
+                color={Colors.onPrimaryContainer}
+              />
               <Text style={styles.countdownText}>BẮT ĐẦU TRONG 11 NGÀY</Text>
             </View>
 
             {/* Verified Booking Code */}
             <View style={styles.bookingBadge}>
-              <Ionicons name="shield-checkmark" size={13} color={Colors.primary} />
-              <Text style={styles.bookingText}>{activeTrip.bookingCode || '#BK-8842'}</Text>
+              <Ionicons
+                name="shield-checkmark"
+                size={13}
+                color={Colors.primary}
+              />
+              <Text style={styles.bookingText}>
+                {activeTrip.bookingCode || "#BK-8842"}
+              </Text>
             </View>
 
             {/* Title on Image */}
@@ -95,7 +103,11 @@ export default function HomeScreen() {
             <View style={styles.telemetryGrid}>
               <View style={styles.telemetryTile}>
                 <View style={styles.telemetryHeader}>
-                  <Ionicons name="git-commit" size={12} color={Colors.primaryDark} />
+                  <Ionicons
+                    name="git-commit"
+                    size={12}
+                    color={Colors.primaryDark}
+                  />
                   <Text style={styles.telemetryLabel}>Cự ly</Text>
                 </View>
                 <Text style={styles.telemetryValue}>
@@ -118,7 +130,9 @@ export default function HomeScreen() {
                   <Ionicons name="speedometer" size={12} color="#ba1a1a" />
                   <Text style={styles.telemetryLabel}>Độ khó</Text>
                 </View>
-                <Text style={[styles.telemetryValue, { color: '#ba1a1a' }]}>Khó</Text>
+                <Text style={[styles.telemetryValue, { color: "#ba1a1a" }]}>
+                  Khó
+                </Text>
               </View>
             </View>
 
@@ -126,18 +140,25 @@ export default function HomeScreen() {
             <View style={styles.progressContainer}>
               <View style={styles.progressHeader}>
                 <View style={styles.dateRow}>
-                  <Ionicons name="calendar-outline" size={14} color={Colors.secondary} />
+                  <Ionicons
+                    name="calendar-outline"
+                    size={14}
+                    color={Colors.secondary}
+                  />
                   <Text style={styles.dateText}>{activeTrip.startDate}</Text>
                 </View>
                 <Text style={styles.slotsText}>
-                  Đã chốt {activeTrip.enrolledCount}/{activeTrip.capacity} thành viên
+                  Đã chốt {activeTrip.enrolledCount}/{activeTrip.capacity} thành
+                  viên
                 </Text>
               </View>
               <View style={styles.progressBarBg}>
                 <View
                   style={[
                     styles.progressBarFill,
-                    { width: `${(activeTrip.enrolledCount / activeTrip.capacity) * 100}%` },
+                    {
+                      width: `${(activeTrip.enrolledCount / activeTrip.capacity) * 100}%`,
+                    },
                   ]}
                 />
               </View>
@@ -151,15 +172,23 @@ export default function HomeScreen() {
                 activeOpacity={0.85}
               >
                 <Text style={styles.detailsBtnText}>Chi tiết chuyến đi</Text>
-                <Ionicons name="arrow-forward" size={16} color={Colors.onPrimary} />
+                <Ionicons
+                  name="arrow-forward"
+                  size={16}
+                  color={Colors.onPrimary}
+                />
               </TouchableOpacity>
 
               <TouchableOpacity
                 style={styles.navLiveBtn}
-                onPress={() => router.push('/navigation')}
+                onPress={() => router.push("/navigation")}
                 activeOpacity={0.85}
               >
-                <Ionicons name="navigate" size={16} color={Colors.primaryDark} />
+                <Ionicons
+                  name="navigate"
+                  size={16}
+                  color={Colors.primaryDark}
+                />
                 <Text style={styles.navLiveBtnText}>Vào GPS</Text>
               </TouchableOpacity>
             </View>
@@ -170,10 +199,15 @@ export default function HomeScreen() {
         <View style={styles.shortcutsRow}>
           <TouchableOpacity
             style={styles.shortcutItem}
-            onPress={() => router.push('/(tabs)/explore')}
+            onPress={() => router.push("/(tabs)/explore")}
             activeOpacity={0.8}
           >
-            <View style={[styles.shortcutIconBox, { backgroundColor: Colors.primaryContainer }]}>
+            <View
+              style={[
+                styles.shortcutIconBox,
+                { backgroundColor: Colors.primaryContainer },
+              ]}
+            >
               <Ionicons name="compass" size={24} color={Colors.onPrimary} />
             </View>
             <Text style={styles.shortcutLabel}>Khám phá Trails</Text>
@@ -181,15 +215,25 @@ export default function HomeScreen() {
 
           <TouchableOpacity
             style={styles.shortcutItem}
-            onPress={() => {
-              setSelectedTrailForBooking(trails[0]);
-              setBookingVisible(true);
-            }}
+            onPress={() =>
+              router.push({
+                pathname: "/trips/[id]",
+                params: {
+                  id: "trip-langbiang-public",
+                },
+              } as unknown as Href)
+            }
             activeOpacity={0.8}
           >
-            <View style={[styles.shortcutIconBox, { backgroundColor: Colors.secondaryContainer }]}>
+            <View
+              style={[
+                styles.shortcutIconBox,
+                { backgroundColor: Colors.secondaryContainer },
+              ]}
+            >
               <Ionicons name="flag" size={24} color="#0c2000" />
             </View>
+
             <Text style={styles.shortcutLabel}>Public Tours</Text>
           </TouchableOpacity>
 
@@ -198,7 +242,12 @@ export default function HomeScreen() {
             onPress={() => setCreatePrivateVisible(true)}
             activeOpacity={0.8}
           >
-            <View style={[styles.shortcutIconBox, { backgroundColor: Colors.tertiaryFixed }]}>
+            <View
+              style={[
+                styles.shortcutIconBox,
+                { backgroundColor: Colors.tertiaryFixed },
+              ]}
+            >
               <Ionicons name="people" size={24} color="#564500" />
             </View>
             <Text style={styles.shortcutLabel}>Tạo Private Trip</Text>
@@ -206,10 +255,15 @@ export default function HomeScreen() {
 
           <TouchableOpacity
             style={styles.shortcutItem}
-            onPress={() => router.push('/(tabs)/rental')}
+            onPress={() => router.push("/(tabs)/rental")}
             activeOpacity={0.8}
           >
-            <View style={[styles.shortcutIconBox, { backgroundColor: Colors.surfaceContainerHighest }]}>
+            <View
+              style={[
+                styles.shortcutIconBox,
+                { backgroundColor: Colors.surfaceContainerHighest },
+              ]}
+            >
               <Ionicons name="basket" size={24} color={Colors.onSurface} />
             </View>
             <Text style={styles.shortcutLabel}>Thuê đồ Trek</Text>
@@ -221,43 +275,67 @@ export default function HomeScreen() {
           <View style={styles.sectionHeaderRow}>
             <View>
               <Text style={styles.sectionTitle}>Cung đường nổi bật</Text>
-              <Text style={styles.sectionSubtitle}>Dữ liệu định vị GPS offline & cao độ chuẩn xác</Text>
+              <Text style={styles.sectionSubtitle}>
+                Dữ liệu định vị GPS offline & cao độ chuẩn xác
+              </Text>
             </View>
-            <TouchableOpacity onPress={() => router.push('/(tabs)/explore')}>
+            <TouchableOpacity onPress={() => router.push("/(tabs)/explore")}>
               <Text style={styles.viewAllText}>Xem tất cả ›</Text>
             </TouchableOpacity>
           </View>
 
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.trailScroll}>
-            {trails.map(trail => (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.trailScroll}
+          >
+            {trails.map((trail) => (
               <TouchableOpacity
                 key={trail.id}
                 style={styles.trailCard}
-                onPress={() => router.push('/(tabs)/explore')}
+                onPress={() => router.push("/(tabs)/explore")}
                 activeOpacity={0.85}
               >
                 <View style={styles.trailImageWrapper}>
-                  <Image source={{ uri: trail.imageUrl }} style={styles.trailCardImage} />
+                  <Image
+                    source={{ uri: trail.imageUrl }}
+                    style={styles.trailCardImage}
+                  />
                   <View style={styles.priceTag}>
                     <Ionicons
-                      name={trail.isUnlocked ? 'checkmark-circle' : 'lock-closed'}
+                      name={
+                        trail.isUnlocked ? "checkmark-circle" : "lock-closed"
+                      }
                       size={11}
                       color="#fed018"
                     />
                     <Text style={styles.priceTagText}>
-                      {trail.isUnlocked ? 'Đã sở hữu' : `${trail.price.toLocaleString('vi-VN')}đ`}
+                      {trail.isUnlocked
+                        ? "Đã sở hữu"
+                        : `${trail.price.toLocaleString("vi-VN")}đ`}
                     </Text>
                   </View>
                 </View>
                 <View style={styles.trailCardBody}>
-                  <Text style={styles.trailCardTitle} numberOfLines={1}>{trail.name}</Text>
+                  <Text style={styles.trailCardTitle} numberOfLines={1}>
+                    {trail.name}
+                  </Text>
                   <Text style={styles.trailCardRegion}>{trail.region}</Text>
                   <View style={styles.trailMetaRow}>
-                    <Text style={styles.trailMetaItem}>{trail.distanceKm} km</Text>
+                    <Text style={styles.trailMetaItem}>
+                      {trail.distanceKm} km
+                    </Text>
                     <Text style={styles.trailMetaDivider}>•</Text>
-                    <Text style={styles.trailMetaItem}>+{trail.elevationGainM}m</Text>
+                    <Text style={styles.trailMetaItem}>
+                      +{trail.elevationGainM}m
+                    </Text>
                     <Text style={styles.trailMetaDivider}>•</Text>
-                    <Text style={[styles.trailMetaItem, { color: Colors.primaryDark, fontWeight: '700' }]}>
+                    <Text
+                      style={[
+                        styles.trailMetaItem,
+                        { color: Colors.primaryDark, fontWeight: "700" },
+                      ]}
+                    >
                       {trail.difficulty}
                     </Text>
                   </View>
@@ -271,10 +349,14 @@ export default function HomeScreen() {
         <View style={styles.advisoryCard}>
           <View style={styles.advisoryHeader}>
             <Ionicons name="shield-half" size={18} color="#725c00" />
-            <Text style={styles.advisoryTitle}>Khuyến nghị an toàn ngoài thực địa</Text>
+            <Text style={styles.advisoryTitle}>
+              Khuyến nghị an toàn ngoài thực địa
+            </Text>
           </View>
           <Text style={styles.advisoryText}>
-            Khu vực đồi lính Tà Năng có gió giật mạnh về chiều tối (14-25 km/h). Luôn sạc đầy pin dự phòng và giữ liên lạc kênh bộ đàm VHF cùng Leader.
+            Khu vực đồi lính Tà Năng có gió giật mạnh về chiều tối (14-25 km/h).
+            Luôn sạc đầy pin dự phòng và giữ liên lạc kênh bộ đàm VHF cùng
+            Leader.
           </Text>
         </View>
       </ScrollView>
@@ -284,21 +366,13 @@ export default function HomeScreen() {
         visible={tripPrepVisible}
         trip={activeTrip}
         onClose={() => setTripPrepVisible(false)}
-        onStartNavigation={() => router.push('/navigation')}
+        onStartNavigation={() => router.push("/navigation")}
       />
 
       <CreatePrivateTripModal
         visible={createPrivateVisible}
         onClose={() => setCreatePrivateVisible(false)}
       />
-
-      {selectedTrailForBooking && (
-        <BookingModal
-          visible={bookingVisible}
-          trip={activeTrip}
-          onClose={() => setBookingVisible(false)}
-        />
-      )}
     </SafeAreaView>
   );
 }
@@ -317,14 +391,14 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
   },
   statusChipsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     marginBottom: 10,
   },
   weatherChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 6,
     backgroundColor: Colors.surfaceContainerLow,
     paddingHorizontal: 10,
@@ -334,14 +408,14 @@ const styles = StyleSheet.create({
   },
   weatherChipText: {
     fontSize: 11,
-    fontWeight: '600',
+    fontWeight: "600",
     color: Colors.onSurface,
   },
   gpsChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 6,
-    backgroundColor: 'rgba(159, 232, 112, 0.25)',
+    backgroundColor: "rgba(159, 232, 112, 0.25)",
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: Radius.full,
@@ -354,13 +428,13 @@ const styles = StyleSheet.create({
   },
   gpsChipText: {
     fontSize: 9,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Colors.onPrimaryContainer,
     letterSpacing: 0.5,
   },
   greetingTitle: {
     fontSize: 24,
-    fontWeight: '900',
+    fontWeight: "900",
     color: Colors.onSurface,
     letterSpacing: -0.5,
   },
@@ -373,29 +447,29 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     backgroundColor: Colors.surfaceContainerLowest,
     borderRadius: Radius.xl, // 24px signature radius
-    overflow: 'hidden',
+    overflow: "hidden",
     ...Shadows.hover,
     marginBottom: 20,
   },
   heroImageContainer: {
     height: 170,
-    width: '100%',
-    position: 'relative',
+    width: "100%",
+    position: "relative",
   },
   heroImage: {
-    width: '100%',
-    height: '100%',
+    width: "100%",
+    height: "100%",
   },
   imageOverlay: {
     ...StyleSheet.absoluteFill,
-    backgroundColor: 'rgba(20, 25, 18, 0.45)',
+    backgroundColor: "rgba(20, 25, 18, 0.45)",
   },
   countdownBadge: {
-    position: 'absolute',
+    position: "absolute",
     top: 12,
     left: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 4,
     backgroundColor: Colors.primaryContainer,
     paddingHorizontal: 10,
@@ -405,44 +479,44 @@ const styles = StyleSheet.create({
   },
   countdownText: {
     fontSize: 9,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Colors.onPrimaryContainer,
     letterSpacing: 0.5,
   },
   bookingBadge: {
-    position: 'absolute',
+    position: "absolute",
     top: 12,
     right: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 4,
-    backgroundColor: 'rgba(251, 249, 243, 0.9)',
+    backgroundColor: "rgba(251, 249, 243, 0.9)",
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: Radius.full,
   },
   bookingText: {
     fontSize: 10,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Colors.onSurface,
   },
   heroTitles: {
-    position: 'absolute',
+    position: "absolute",
     bottom: 12,
     left: 14,
     right: 14,
   },
   trailCategory: {
     fontSize: 10,
-    fontWeight: '700',
-    color: '#acf67c',
-    textTransform: 'uppercase',
+    fontWeight: "700",
+    color: "#acf67c",
+    textTransform: "uppercase",
     letterSpacing: 0.5,
   },
   trailName: {
     fontSize: 18,
-    fontWeight: '900',
-    color: '#ffffff',
+    fontWeight: "900",
+    color: "#ffffff",
     marginTop: 2,
   },
   heroBody: {
@@ -450,7 +524,7 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   telemetryGrid: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 8,
   },
   telemetryTile: {
@@ -460,8 +534,8 @@ const styles = StyleSheet.create({
     borderRadius: Radius.md,
   },
   telemetryHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 4,
     marginBottom: 4,
   },
@@ -471,12 +545,12 @@ const styles = StyleSheet.create({
   },
   telemetryValue: {
     fontSize: 16,
-    fontWeight: '900',
+    fontWeight: "900",
     color: Colors.onSurface,
   },
   telemetryUnit: {
     fontSize: 11,
-    fontWeight: '400',
+    fontWeight: "400",
     color: Colors.onSurfaceVariant,
     marginLeft: 2,
   },
@@ -487,38 +561,38 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   progressHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
   dateRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 4,
   },
   dateText: {
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: "600",
     color: Colors.onSurface,
   },
   slotsText: {
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: "700",
     color: Colors.primaryDark,
   },
   progressBarBg: {
     height: 6,
     backgroundColor: Colors.surfaceContainerHigh,
     borderRadius: Radius.full,
-    overflow: 'hidden',
+    overflow: "hidden",
   },
   progressBarFill: {
-    height: '100%',
+    height: "100%",
     backgroundColor: Colors.primaryDark,
     borderRadius: Radius.full,
   },
   heroActionsRow: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 8,
   },
   detailsBtn: {
@@ -526,15 +600,15 @@ const styles = StyleSheet.create({
     height: 48,
     borderRadius: Radius.full,
     backgroundColor: Colors.primaryContainer,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: 6,
     ...Shadows.card,
   },
   detailsBtnText: {
     fontSize: 13,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Colors.onPrimary,
   },
   navLiveBtn: {
@@ -542,55 +616,55 @@ const styles = StyleSheet.create({
     height: 48,
     borderRadius: Radius.full,
     backgroundColor: Colors.surfaceContainerHigh,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: 6,
   },
   navLiveBtnText: {
     fontSize: 13,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Colors.onSurface,
   },
   shortcutsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    justifyContent: "space-between",
     paddingHorizontal: 16,
     marginBottom: 24,
   },
   shortcutItem: {
-    alignItems: 'center',
+    alignItems: "center",
     width: (width - 32 - 30) / 4,
   },
   shortcutIconBox: {
     width: 52,
     height: 52,
     borderRadius: Radius.xl,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     marginBottom: 6,
     ...Shadows.card,
   },
   shortcutLabel: {
     fontSize: 10,
-    fontWeight: '700',
+    fontWeight: "700",
     color: Colors.onSurface,
-    textAlign: 'center',
+    textAlign: "center",
     lineHeight: 13,
   },
   featuredSection: {
     marginBottom: 20,
   },
   sectionHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-end",
     paddingHorizontal: 16,
     marginBottom: 12,
   },
   sectionTitle: {
     fontSize: 18,
-    fontWeight: '900',
+    fontWeight: "900",
     color: Colors.onSurface,
   },
   sectionSubtitle: {
@@ -600,7 +674,7 @@ const styles = StyleSheet.create({
   },
   viewAllText: {
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: "700",
     color: Colors.primaryDark,
   },
   trailScroll: {
@@ -611,41 +685,41 @@ const styles = StyleSheet.create({
     width: 220,
     backgroundColor: Colors.surfaceContainerLowest,
     borderRadius: Radius.xl,
-    overflow: 'hidden',
+    overflow: "hidden",
     ...Shadows.card,
   },
   trailImageWrapper: {
     height: 120,
-    width: '100%',
-    position: 'relative',
+    width: "100%",
+    position: "relative",
   },
   trailCardImage: {
-    width: '100%',
-    height: '100%',
+    width: "100%",
+    height: "100%",
   },
   priceTag: {
-    position: 'absolute',
+    position: "absolute",
     top: 8,
     left: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 4,
-    backgroundColor: 'rgba(30, 35, 28, 0.85)',
+    backgroundColor: "rgba(30, 35, 28, 0.85)",
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: Radius.full,
   },
   priceTagText: {
     fontSize: 10,
-    fontWeight: '700',
-    color: '#ffffff',
+    fontWeight: "700",
+    color: "#ffffff",
   },
   trailCardBody: {
     padding: 12,
   },
   trailCardTitle: {
     fontSize: 13,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Colors.onSurface,
   },
   trailCardRegion: {
@@ -654,8 +728,8 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   trailMetaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 4,
     marginTop: 8,
   },
@@ -669,26 +743,26 @@ const styles = StyleSheet.create({
   },
   advisoryCard: {
     marginHorizontal: 16,
-    backgroundColor: '#fff9e6',
+    backgroundColor: "#fff9e6",
     borderWidth: 1,
-    borderColor: '#fed018',
+    borderColor: "#fed018",
     borderRadius: Radius.lg,
     padding: 14,
     gap: 6,
   },
   advisoryHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 6,
   },
   advisoryTitle: {
     fontSize: 12,
-    fontWeight: '800',
-    color: '#6f5900',
+    fontWeight: "800",
+    color: "#6f5900",
   },
   advisoryText: {
     fontSize: 11,
-    color: '#4a3b1c',
+    color: "#4a3b1c",
     lineHeight: 16,
   },
 });
