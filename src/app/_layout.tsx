@@ -6,12 +6,15 @@ import { ActivityIndicator, Platform, StyleSheet, Text, View } from "react-nativ
 import { Colors } from "@/constants/theme";
 import { AppProvider } from "@/context/AppContext";
 import { AuthProvider, useAuth } from "@/features/auth/AuthContext";
+import { RentalSelectionProvider } from "@/features/rentals/RentalSelectionContext";
 
 export default function RootLayout() {
   return (
     <AuthProvider>
       <AppProvider>
-        <RootNavigator />
+        <RentalSelectionProvider>
+          <RootNavigator />
+        </RentalSelectionProvider>
       </AppProvider>
     </AuthProvider>
   );

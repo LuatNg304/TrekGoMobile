@@ -129,6 +129,7 @@ interface AppContextType {
     quantity: number;
   }[];
   addToCart: (item: EquipmentItem, quantity: number) => void;
+  setCartQuantity: (item: EquipmentItem, quantity: number) => void;
   removeFromCart: (itemId: string) => void;
   checkoutRental: (tripId: string, days: number) => void;
   confirmRentalPickup: (orderId: string) => void;
@@ -1431,6 +1432,28 @@ export const AppProvider: React.FC<{
     });
   };
 
+  const setCartQuantity = (item: EquipmentItem, quantity: number) => {
+    const normalizedQuantity = Math.max(0, Math.floor(quantity));
+
+    setCart((current) => {
+      const existing = current.some((entry) => entry.item.id === item.id);
+
+      if (normalizedQuantity === 0) {
+        return current.filter((entry) => entry.item.id !== item.id);
+      }
+
+      if (existing) {
+        return current.map((entry) =>
+          entry.item.id === item.id
+            ? { item, quantity: normalizedQuantity }
+            : entry,
+        );
+      }
+
+      return [...current, { item, quantity: normalizedQuantity }];
+    });
+  };
+
   const removeFromCart = (itemId: string) => {
     setCart((current) => current.filter((entry) => entry.item.id !== itemId));
   };
@@ -1694,6 +1717,7 @@ export const AppProvider: React.FC<{
         rentalSettlements,
         cart,
         addToCart,
+        setCartQuantity,
         removeFromCart,
         checkoutRental,
         confirmRentalPickup,
