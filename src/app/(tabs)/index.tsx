@@ -215,14 +215,7 @@ export default function HomeScreen() {
 
           <TouchableOpacity
             style={styles.shortcutItem}
-            onPress={() =>
-              router.push({
-                pathname: "/trips/[id]",
-                params: {
-                  id: "trip-langbiang-public",
-                },
-              } as unknown as Href)
-            }
+            onPress={() => router.push("/public-trips" as Href)}
             activeOpacity={0.8}
           >
             <View

@@ -114,6 +114,26 @@ export default function ExploreScreen() {
           </ScrollView>
         </View>
 
+        {/* Public Trips Entry Banner */}
+        <TouchableOpacity
+          style={styles.publicTripsBanner}
+          onPress={() => router.push("/public-trips" as Href)}
+          activeOpacity={0.88}
+        >
+          <View style={styles.publicTripsBannerLeft}>
+            <View style={styles.publicTripsIconBox}>
+              <Ionicons name="compass" size={20} color={Colors.primaryDark} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.publicTripsBannerTitle}>Chuyến đi công khai</Text>
+              <Text style={styles.publicTripsBannerSub}>
+                Khám phá & tham gia các đoàn trekking đang mở chỗ
+              </Text>
+            </View>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={Colors.primaryDark} />
+        </TouchableOpacity>
+
         {/* 2. Main Trail Canvas Card */}
         <View style={styles.mainTrailCard}>
           {/* Hero Image */}
@@ -702,4 +722,44 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: Colors.onSurface,
   },
+  publicTripsBanner: {
+    marginHorizontal: 16,
+    marginTop: 4,
+    marginBottom: 14,
+    padding: 14,
+    borderRadius: Radius.xl,
+    backgroundColor: Colors.surfaceContainerLowest,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    ...Shadows.card,
+    borderWidth: 1,
+    borderColor: Colors.secondaryContainer,
+  },
+  publicTripsBannerLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    flex: 1,
+    marginRight: 8,
+  },
+  publicTripsIconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.secondaryContainer,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  publicTripsBannerTitle: {
+    fontSize: 14,
+    fontWeight: "900",
+    color: Colors.onSurface,
+  },
+  publicTripsBannerSub: {
+    fontSize: 11,
+    color: Colors.mute,
+    marginTop: 2,
+  },
 });
+

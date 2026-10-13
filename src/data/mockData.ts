@@ -352,58 +352,6 @@ export const mockTrips: Trip[] = [
       },
     ],
   },
-  {
-    id: "trip-langbiang-public",
-    type: "PUBLIC",
-    name: "Chinh Phục Langbiang (2N1Đ)",
-    trailId: "trail-pinhatt",
-    destination: "Lạc Dương – Lâm Đồng",
-    startDate: "07 Tháng 11, 2026",
-    endDate: "08 Tháng 11, 2026",
-    durationDays: 2,
-    status: "UPCOMING",
-    leader: {
-      name: "Leader Minh Trần",
-      avatar:
-        "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=200&q=80",
-      phone: "0903 456 789",
-      rating: 4.9,
-      badge: "Verified Trek Leader",
-    },
-    capacity: 15,
-    enrolledCount: 9,
-    pricePerPerson: 1750000,
-    logistics: {
-      pickupLocation: "Nhà Văn hóa Thanh Niên TP.HCM",
-      pickupTime: "22:00 Thứ Sáu, 06/11/2026",
-      vehicleModel: "Ford Transit 16 chỗ TrekGo Express",
-      vehiclePlate: "51B-742.86",
-      driverName: "Anh Minh",
-      driverPhone: "0906 222 888",
-      notes:
-        "Có mặt trước giờ khởi hành 30 phút để điểm danh và kiểm tra hành lý.",
-    },
-    weather: {
-      tempC: 18,
-      condition: "Trời mát · Có mây",
-      rainRisk: false,
-      rainChancePercent: 20,
-      humidityPercent: 76,
-      windSpeedKmh: 12,
-      riskNotice:
-        "Nhiệt độ ban đêm có thể xuống 13°C. Nên mang áo giữ nhiệt và áo khoác chống gió.",
-    },
-    participants: [
-      {
-        id: "leader-langbiang",
-        name: "Leader Minh Trần",
-        avatar:
-          "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=200&q=80",
-        role: "LEADER",
-      },
-    ],
-    rentedItemsCount: 0,
-  },
 ];
 
 export const mockEquipment: EquipmentItem[] = [
