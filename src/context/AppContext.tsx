@@ -834,8 +834,15 @@ export const AppProvider: React.FC<{
   }) => {
     const trail = trails.find((item) => item.id === draft.trailId);
     if (!trail) return;
+    const nextTripSequence =
+      trips.reduce((highestSequence, item) => {
+        const match = /^trip-public-(\d+)$/.exec(item.id);
+        return match
+          ? Math.max(highestSequence, Number(match[1]))
+          : highestSequence;
+      }, 0) + 1;
     const newTrip: Trip = {
-      id: `trip-public-${Date.now()}`,
+      id: `trip-public-${nextTripSequence}`,
       type: 'PUBLIC',
       name: draft.name,
       trailId: trail.id,
@@ -854,7 +861,7 @@ export const AppProvider: React.FC<{
       capacity: draft.slots,
       enrolledCount: 0,
       pricePerPerson: 0,
-      bookingCode: `TG-${Date.now().toString().slice(-6)}`,
+      bookingCode: `TG-${String(nextTripSequence).padStart(6, "0")}`,
       weather: {
         tempC: 0,
         condition: 'Chưa cập nhật',

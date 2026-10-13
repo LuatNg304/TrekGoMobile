@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import {
   createBooking,
   generateIdempotencyKey,
@@ -13,18 +13,18 @@ export function useCreateBooking() {
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [booking, setBooking] = useState<Booking | null>(null);
 
-  const idempotencyKeyRef = useRef<string>(generateIdempotencyKey());
+  const [idempotencyKey, setIdempotencyKey] = useState(generateIdempotencyKey);
 
   const reset = useCallback(() => {
     setLoading(false);
     setError(null);
     setErrorCode(null);
     setBooking(null);
-    idempotencyKeyRef.current = generateIdempotencyKey();
+    setIdempotencyKey(generateIdempotencyKey());
   }, []);
 
   const regenerateKey = useCallback(() => {
-    idempotencyKeyRef.current = generateIdempotencyKey();
+    setIdempotencyKey(generateIdempotencyKey());
   }, []);
 
   const submitBooking = useCallback(
@@ -42,7 +42,7 @@ export function useCreateBooking() {
           tripId,
           input,
           accessToken,
-          idempotencyKeyRef.current,
+          idempotencyKey,
         );
         setBooking(result);
         return result;
@@ -60,7 +60,7 @@ export function useCreateBooking() {
         setLoading(false);
       }
     },
-    [],
+    [idempotencyKey],
   );
 
   return {
@@ -71,6 +71,6 @@ export function useCreateBooking() {
     booking,
     reset,
     regenerateKey,
-    idempotencyKey: idempotencyKeyRef.current,
+    idempotencyKey,
   };
 }

@@ -1,862 +1,550 @@
 import { Ionicons } from "@expo/vector-icons";
-import { type Href, useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-    Alert,
-    Image,
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  RefreshControl,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 
-import { useApp } from "@/context/AppContext";
-import { RentalStatus } from "@/types";
+import { Colors, Radius, Shadows } from "@/constants/theme";
+import { useAuth } from "@/features/auth/AuthContext";
+import { rentalApi } from "@/features/rentals/api";
+import {
+  RentalDepositStatus,
+  RentalHandoverPreview,
+  RentalOrderDetail,
+  RentalPaymentStatus,
+  RentalPickupCode,
+} from "@/features/rentals/types";
 
-const timeline: {
-  status: RentalStatus;
-  title: string;
-  description: string;
-  icon: keyof typeof Ionicons.glyphMap;
-}[] = [
-  {
-    status: "PAYMENT_CONFIRMED",
-    title: "Thanh toán được xác nhận",
-    description: "Phí thuê và tiền cọc đã được ghi nhận.",
-    icon: "card-outline",
-  },
-  {
-    status: "PREPARING",
-    title: "Kho chuẩn bị thiết bị",
-    description: "Staff kiểm tra và đóng gói thiết bị.",
-    icon: "construct-outline",
-  },
-  {
-    status: "READY_FOR_DELIVERY",
-    title: "Sẵn sàng bàn giao",
-    description: "Thiết bị được chuyển tới điểm tập trung.",
-    icon: "checkmark-circle-outline",
-  },
-  {
-    status: "DELIVERED_AT_PICKUP",
-    title: "Đã bàn giao",
-    description: "Thiết bị đã được giao cho người thuê.",
-    icon: "hand-left-outline",
-  },
-  {
-    status: "IN_USE",
-    title: "Đang sử dụng",
-    description: "Thiết bị đang được sử dụng trong chuyến.",
-    icon: "trail-sign-outline",
-  },
-  {
-    status: "RETURN_PENDING",
-    title: "Chờ hoàn trả",
-    description: "Yêu cầu trả thiết bị đã được ghi nhận.",
-    icon: "return-down-back-outline",
-  },
-  {
-    status: "RETURNED",
-    title: "Đã kiểm định",
-    description: "Kho đã hoàn tất kiểm tra thiết bị.",
-    icon: "clipboard-outline",
-  },
-  {
-    status: "DEPOSIT_REFUNDED",
-    title: "Đã hoàn tiền cọc",
-    description: "Khoản hoàn cọc đã được xử lý.",
-    icon: "wallet-outline",
-  },
+const ORDER_STEPS = [
+  "PENDING_PAYMENT",
+  "PAID",
+  "PREPARING",
+  "READY_FOR_HANDOVER",
+  "ACTIVE",
+  "RETURN_PENDING",
+  "RETURN_PROCESSING",
+  "COMPLETED",
 ];
 
-const statusLabels: Record<RentalStatus, string> = {
-  PAYMENT_CONFIRMED: "ĐÃ THANH TOÁN",
-  PREPARING: "ĐANG SOẠN THIẾT BỊ",
-  READY_FOR_DELIVERY: "SẴN SÀNG BÀN GIAO",
-  DELIVERED_AT_PICKUP: "ĐÃ BÀN GIAO",
-  IN_USE: "ĐANG SỬ DỤNG",
-  RETURN_PENDING: "CHỜ KIỂM ĐỊNH",
-  RETURNED: "ĐÃ CÓ KẾT QUẢ KIỂM ĐỊNH",
-  DEPOSIT_REFUNDED: "ĐÃ HOÀN CỌC",
+const STEP_LABELS: Record<string, string> = {
+  PENDING_PAYMENT: "Chờ thanh toán",
+  PAID: "Đã thanh toán",
+  PREPARING: "Kho đang chuẩn bị",
+  READY_FOR_HANDOVER: "Sẵn sàng bàn giao",
+  ACTIVE: "Đang sử dụng",
+  RETURN_PENDING: "Chờ thu hồi",
+  RETURN_PROCESSING: "Đang xử lý trả",
+  COMPLETED: "Hoàn tất",
+  CANCELLED: "Đã hủy",
+  EXPIRED: "Đã hết hạn",
+};
+
+const money = (value = 0, currency = "VND") =>
+  `${value.toLocaleString("vi-VN")} ${currency === "VND" ? "đ" : currency}`;
+
+const dateTime = (value?: string | null) => {
+  if (!value) return "Chưa cập nhật";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("vi-VN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
 };
 
 export default function RentalOrderDetailScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ id?: string | string[] }>();
+  const orderId = Array.isArray(params.id) ? params.id[0] : params.id;
+  const { accessToken } = useAuth();
+  const [detail, setDetail] = useState<RentalOrderDetail>();
+  const [payment, setPayment] = useState<RentalPaymentStatus>();
+  const [deposit, setDeposit] = useState<RentalDepositStatus>();
+  const [handover, setHandover] = useState<RentalHandoverPreview>();
+  const [pickupCode, setPickupCode] = useState<RentalPickupCode>();
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [codeLoading, setCodeLoading] = useState(false);
+  const [error, setError] = useState<string>();
+  const [codeError, setCodeError] = useState<string>();
 
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const loadOrder = useCallback(
+    async (isRefresh = false) => {
+      if (!accessToken || !orderId) {
+        setError("Thiếu phiên đăng nhập hoặc mã đơn thuê.");
+        setLoading(false);
+        return;
+      }
 
-  const { rentalOrders, confirmRentalPickup } = useApp();
+      if (isRefresh) setRefreshing(true);
+      else setLoading(true);
+      setError(undefined);
 
-  const order = rentalOrders.find((current) => current.id === id)!;
+      try {
+        const orderDetail = await rentalApi.getOrder(orderId, accessToken);
+        setDetail(orderDetail);
 
-  if (!order) {
+        const [paymentResult, depositResult, handoverResult] =
+          await Promise.allSettled([
+            rentalApi.getPaymentStatus(orderId, accessToken),
+            rentalApi.getDepositStatus(orderId, accessToken),
+            rentalApi.getHandoverPreview(orderId, accessToken),
+          ]);
+
+        setPayment(
+          paymentResult.status === "fulfilled"
+            ? paymentResult.value
+            : orderDetail.payment ?? undefined,
+        );
+        setDeposit(
+          depositResult.status === "fulfilled"
+            ? depositResult.value
+            : orderDetail.deposit ?? undefined,
+        );
+        setHandover(
+          handoverResult.status === "fulfilled"
+            ? handoverResult.value
+            : undefined,
+        );
+      } catch (requestError) {
+        setError(
+          requestError instanceof Error
+            ? requestError.message
+            : "Không tải được chi tiết đơn thuê.",
+        );
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [accessToken, orderId],
+  );
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void loadOrder();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [loadOrder]);
+
+  const currentStep = useMemo(() => {
+    if (!detail) return -1;
+    return ORDER_STEPS.indexOf(detail.order.status);
+  }, [detail]);
+
+  async function revealPickupCode() {
+    if (!accessToken || !orderId) return;
+    setCodeLoading(true);
+    setCodeError(undefined);
+    try {
+      setPickupCode(await rentalApi.getPickupCode(orderId, accessToken));
+    } catch (requestError) {
+      setCodeError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Không lấy được mã nhận thiết bị.",
+      );
+    } finally {
+      setCodeLoading(false);
+    }
+  }
+
+  if (loading) {
     return (
       <SafeAreaView style={styles.safeArea}>
-        <View style={styles.emptyContainer}>
-          <Ionicons name="receipt-outline" size={58} color="#64748B" />
+        <View style={styles.centerState}>
+          <ActivityIndicator size="large" color={Colors.primaryDark} />
+          <Text style={styles.mutedText}>Đang tải trạng thái đơn thật...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
-          <Text style={styles.emptyTitle}>Không tìm thấy đơn thuê</Text>
-
-          <Text style={styles.emptyDescription}>
-            Đơn này không còn tồn tại trong dữ liệu hiện tại.
-          </Text>
-
-          <TouchableOpacity
-            style={styles.primaryButton}
-            onPress={() => router.back()}
-          >
-            <Text style={styles.primaryButtonText}>Quay lại</Text>
+  if (!detail || error) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <Header onBack={() => router.back()} />
+        <View style={styles.centerState}>
+          <Ionicons name="cloud-offline-outline" size={52} color={Colors.primaryDark} />
+          <Text style={styles.emptyTitle}>Chưa tải được đơn thuê</Text>
+          <Text style={styles.mutedText}>{error}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={() => void loadOrder()}>
+            <Text style={styles.retryText}>Thử lại</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
   }
 
-  const currentIndex = timeline.findIndex(
-    (step) => step.status === order.status,
-  );
-
-  function handleConfirmPickup() {
-    Alert.alert(
-      "Xác nhận nhận thiết bị",
-      "Bạn đã kiểm tra và nhận đủ thiết bị?",
-      [
-        {
-          text: "Chưa",
-          style: "cancel",
-        },
-        {
-          text: "Đã nhận đủ",
-          onPress: () => confirmRentalPickup(order.id),
-        },
-      ],
-    );
-  }
-
-  function openReturnRequest() {
-    router.push({
-      pathname: "/rental-orders/[id]/return",
-      params: {
-        id: order.id,
-      },
-    } as unknown as Href);
-  }
-
-  function openSettlement() {
-    router.push({
-      pathname: "/rental-orders/[id]/settlement",
-      params: {
-        id: order.id,
-      },
-    } as unknown as Href);
-  }
-
-  function renderOrderAction() {
-    if (
-      order.status === "READY_FOR_DELIVERY" ||
-      order.status === "DELIVERED_AT_PICKUP"
-    ) {
-      return (
-        <View style={styles.actionCard}>
-          <View style={styles.actionHeader}>
-            <View style={styles.actionIcon}>
-              <Ionicons name="hand-left-outline" size={23} color="#1B4332" />
-            </View>
-
-            <View style={styles.flexOne}>
-              <Text style={styles.actionTitle}>Thiết bị đã sẵn sàng</Text>
-
-              <Text style={styles.actionDescription}>
-                Kiểm tra số lượng và tình trạng thiết bị trước khi nhận.
-              </Text>
-            </View>
-          </View>
-
-          <TouchableOpacity
-            style={styles.primaryButton}
-            onPress={handleConfirmPickup}
-          >
-            <Text style={styles.primaryButtonText}>
-              Xác nhận đã nhận thiết bị
-            </Text>
-          </TouchableOpacity>
-        </View>
-      );
-    }
-
-    if (order.status === "IN_USE") {
-      return (
-        <View style={styles.actionCard}>
-          <View style={styles.actionHeader}>
-            <View style={styles.actionIcon}>
-              <Ionicons
-                name="return-down-back-outline"
-                size={23}
-                color="#1B4332"
-              />
-            </View>
-
-            <View style={styles.flexOne}>
-              <Text style={styles.actionTitle}>Hoàn trả thiết bị</Text>
-
-              <Text style={styles.actionDescription}>
-                Gửi yêu cầu trả đồ sau khi kết thúc chuyến đi.
-              </Text>
-            </View>
-          </View>
-
-          <TouchableOpacity
-            style={styles.primaryButton}
-            onPress={openReturnRequest}
-          >
-            <Text style={styles.primaryButtonText}>Yêu cầu trả thiết bị</Text>
-          </TouchableOpacity>
-        </View>
-      );
-    }
-
-    if (order.status === "RETURN_PENDING") {
-      return (
-        <View style={styles.pendingCard}>
-          <Ionicons name="time-outline" size={25} color="#B45309" />
-
-          <View style={styles.flexOne}>
-            <Text style={styles.pendingTitle}>Kho đang kiểm định</Text>
-
-            <Text style={styles.pendingDescription}>
-              Kết quả kiểm định và khoản hoàn cọc sẽ được cập nhật tại đây.
-            </Text>
-          </View>
-        </View>
-      );
-    }
-
-    if (order.status === "RETURNED" || order.status === "DEPOSIT_REFUNDED") {
-      return (
-        <View style={styles.actionCard}>
-          <View style={styles.actionHeader}>
-            <View style={styles.actionIcon}>
-              <Ionicons name="wallet-outline" size={23} color="#1B4332" />
-            </View>
-
-            <View style={styles.flexOne}>
-              <Text style={styles.actionTitle}>Kết quả hoàn cọc</Text>
-
-              <Text style={styles.actionDescription}>
-                Xem phí khấu trừ và số tiền được hoàn sau kiểm định.
-              </Text>
-            </View>
-          </View>
-
-          <TouchableOpacity
-            style={styles.primaryButton}
-            onPress={openSettlement}
-          >
-            <Text style={styles.primaryButtonText}>Xem kết quả kiểm định</Text>
-          </TouchableOpacity>
-        </View>
-      );
-    }
-
-    return null;
-  }
+  const { order, items, assignedUnits = [], timeline = [] } = detail;
+  const canShowPickupCode = order.status === "READY_FOR_HANDOVER";
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => router.back()}
-        >
-          <Ionicons name="arrow-back" size={22} color="#17231B" />
-        </TouchableOpacity>
-
-        <View style={styles.headerContent}>
-          <Text style={styles.headerTitle}>Chi tiết đơn thuê</Text>
-
-          <Text style={styles.headerSubtitle}>{order.id}</Text>
-        </View>
-
-        <View style={styles.headerPlaceholder} />
-      </View>
-
+      <Header onBack={() => router.back()} />
       <ScrollView
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => void loadOrder(true)}
+            tintColor={Colors.primaryDark}
+          />
+        }
         contentContainerStyle={styles.content}
       >
         <View style={styles.heroCard}>
           <View style={styles.heroIcon}>
-            <Ionicons name="checkmark-circle" size={29} color="#FFFFFF" />
+            <Ionicons name="bag-check-outline" size={24} color={Colors.primaryDark} />
           </View>
-
           <View style={styles.flexOne}>
-            <Text style={styles.heroLabel}>{statusLabels[order.status]}</Text>
-
-            <Text style={styles.heroTitle}>{order.tripName}</Text>
-
-            <Text style={styles.heroDescription}>
-              Theo dõi thiết bị và tiền cọc tại đây.
+            <Text style={styles.eyebrow}>RENTAL ORDER</Text>
+            <Text style={styles.orderId}>#{order.id}</Text>
+            <Text style={styles.tripName}>
+              {order.trip?.title || `Chuyến đi ${order.tripId}`}
+            </Text>
+          </View>
+          <View style={styles.statusBadge}>
+            <Text style={styles.statusBadgeText}>
+              {STEP_LABELS[order.status] || order.status.replaceAll("_", " ")}
             </Text>
           </View>
         </View>
 
-        {renderOrderAction()}
+        {order.exceptionStatus && (
+          <InfoBanner
+            tone="warning"
+            icon="warning-outline"
+            title="Đơn cần được xử lý"
+            description={order.exceptionStatus}
+          />
+        )}
 
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Thiết bị đã thuê</Text>
-
-          <View style={styles.itemsList}>
-            {order.items.map(({ item, quantity }) => (
-              <View key={item.id} style={styles.itemRow}>
-                <Image
-                  source={{
-                    uri: item.imageUrl,
-                  }}
-                  style={styles.itemImage}
-                />
-
-                <View style={styles.flexOne}>
-                  <Text style={styles.itemName}>{item.name}</Text>
-
-                  <Text style={styles.itemMeta}>
-                    {item.dailyRate.toLocaleString("vi-VN")}
-                    đ/ngày × {quantity}
-                  </Text>
-
-                  <Text style={styles.itemDeposit}>
-                    Cọc: {(item.deposit * quantity).toLocaleString("vi-VN")}đ
-                  </Text>
+        <Section title="Tiến trình đơn thuê" subtitle="Trạng thái do hệ thống và Staff cập nhật">
+          {ORDER_STEPS.map((step, index) => {
+            const complete = currentStep >= index;
+            const active = currentStep === index;
+            return (
+              <View key={step} style={styles.stepRow}>
+                <View style={styles.stepRail}>
+                  <View
+                    style={[
+                      styles.stepDot,
+                      complete && styles.stepDotComplete,
+                      active && styles.stepDotActive,
+                    ]}
+                  >
+                    {complete && (
+                      <Ionicons name="checkmark" size={12} color={Colors.onPrimary} />
+                    )}
+                  </View>
+                  {index < ORDER_STEPS.length - 1 && (
+                    <View style={[styles.stepLine, complete && styles.stepLineComplete]} />
+                  )}
                 </View>
+                <View style={styles.stepTextWrap}>
+                  <Text style={[styles.stepTitle, complete && styles.stepTitleComplete]}>
+                    {STEP_LABELS[step]}
+                  </Text>
+                  {active && <Text style={styles.stepCurrent}>Trạng thái hiện tại</Text>}
+                </View>
+              </View>
+            );
+          })}
+        </Section>
 
-                <View style={styles.quantityBadge}>
-                  <Text style={styles.quantityText}>×{quantity}</Text>
+        <Section title="Thiết bị đã đặt" subtitle="Exact unit chỉ xuất hiện sau khi Kho pick">
+          {items.map((item) => (
+            <View key={item.id} style={styles.lineItem}>
+              <View style={styles.lineIcon}>
+                <Ionicons name="cube-outline" size={18} color={Colors.primaryDark} />
+              </View>
+              <View style={styles.flexOne}>
+                <Text style={styles.lineName}>
+                  {item.name || item.product?.name || `Thiết bị ${item.productId}`}
+                </Text>
+                <Text style={styles.lineMeta}>Số lượng: {item.quantity}</Text>
+              </View>
+              <Text style={styles.lineAmount}>
+                {money(item.feeAmount, order.currency)}
+              </Text>
+            </View>
+          ))}
+          {assignedUnits.length > 0 && (
+            <View style={styles.unitWrap}>
+              <Text style={styles.subheading}>Thiết bị vật lý đã gán</Text>
+              {assignedUnits.map((unit) => (
+                <Text key={unit.id} style={styles.unitText}>
+                  • {unit.assetCode || unit.unitId || unit.id}
+                  {unit.condition ? ` · ${unit.condition}` : ""}
+                </Text>
+              ))}
+            </View>
+          )}
+        </Section>
+
+        <Section title="Thanh toán" subtitle="Chỉ hiển thị kết quả server xác nhận">
+          <MoneyRow label="Phí thuê" value={order.rentalFee} currency={order.currency} />
+          <MoneyRow label="Tiền cọc" value={order.totalDeposit} currency={order.currency} />
+          <View style={styles.totalDivider} />
+          <MoneyRow label="Tổng cộng" value={order.totalAmount} currency={order.currency} strong />
+          <Text style={styles.paymentStatus}>
+            Trạng thái: {payment?.status || order.financialStatus || "Chưa cập nhật"}
+          </Text>
+          {order.paymentExpiresAt && (
+            <Text style={styles.deadline}>Hạn thanh toán: {dateTime(order.paymentExpiresAt)}</Text>
+          )}
+        </Section>
+
+        {canShowPickupCode && (
+          <Section title="Mã nhận thiết bị" subtitle="Chỉ đưa mã này cho Staff Delivery tại điểm nhận">
+            {pickupCode ? (
+              <View style={styles.codeBox}>
+                <Text style={styles.codeValue}>{pickupCode.pickupCode}</Text>
+                <Text style={styles.codeExpiry}>Hết hạn: {dateTime(pickupCode.expiresAt)}</Text>
+              </View>
+            ) : (
+              <TouchableOpacity
+                style={styles.revealButton}
+                disabled={codeLoading}
+                onPress={() => void revealPickupCode()}
+              >
+                {codeLoading ? (
+                  <ActivityIndicator color={Colors.onPrimary} />
+                ) : (
+                  <>
+                    <Ionicons name="eye-outline" size={18} color={Colors.onPrimary} />
+                    <Text style={styles.revealText}>Hiển thị mã nhận</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            )}
+            {codeError && <Text style={styles.inlineError}>{codeError}</Text>}
+            {handover?.conditionSnapshots?.length ? (
+              <Text style={styles.readOnlyNote}>
+                Có {handover.conditionSnapshots.length} bản ghi tình trạng trước giao. Bạn kiểm tra trực tiếp và báo Staff nếu có sai lệch.
+              </Text>
+            ) : null}
+          </Section>
+        )}
+
+        {deposit && (
+          <Section title="Theo dõi tiền cọc" subtitle="Cọc được xử lý riêng theo từng thiết bị">
+            <MoneyRow label="Đã thu" value={deposit.collectedAmount} currency={order.currency} />
+            <MoneyRow label="Đang giữ" value={deposit.heldAmount} currency={order.currency} />
+            <MoneyRow label="Đã hoàn" value={deposit.refundedAmount} currency={order.currency} />
+            <MoneyRow label="Khấu trừ" value={deposit.deductionAmount} currency={order.currency} />
+            {deposit.items.map((item) => (
+              <View key={item.unitId} style={styles.depositItem}>
+                <View style={styles.flexOne}>
+                  <Text style={styles.lineName}>{item.assetCode || item.unitId}</Text>
+                  <Text style={styles.lineMeta}>{item.status.replaceAll("_", " ")}</Text>
+                  {item.reason ? <Text style={styles.reasonText}>{item.reason}</Text> : null}
+                </View>
+                <Text style={styles.lineAmount}>{money(item.amount, order.currency)}</Text>
+              </View>
+            ))}
+          </Section>
+        )}
+
+        {timeline.length > 0 && (
+          <Section title="Lịch sử cập nhật">
+            {timeline.map((event, index) => (
+              <View key={event.id || `${event.status}-${index}`} style={styles.historyRow}>
+                <Ionicons name="time-outline" size={17} color={Colors.primaryDark} />
+                <View style={styles.flexOne}>
+                  <Text style={styles.historyTitle}>{event.title || event.status || "Cập nhật đơn"}</Text>
+                  {event.description ? <Text style={styles.lineMeta}>{event.description}</Text> : null}
+                  <Text style={styles.historyTime}>{dateTime(event.occurredAt || event.createdAt)}</Text>
                 </View>
               </View>
             ))}
-          </View>
-        </View>
+          </Section>
+        )}
 
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Tiến trình đơn thuê</Text>
-
-          <Text style={styles.sectionDescription}>
-            Trạng thái được cập nhật bởi kho và Staff Delivery.
-          </Text>
-
-          <View style={styles.timeline}>
-            {timeline.map((step, index) => {
-              const completed = index < currentIndex;
-
-              const active = index === currentIndex;
-
-              return (
-                <View key={step.status} style={styles.timelineRow}>
-                  <View style={styles.timelineIndicator}>
-                    <View
-                      style={[
-                        styles.timelineIcon,
-                        completed && styles.timelineIconCompleted,
-                        active && styles.timelineIconActive,
-                        !completed && !active && styles.timelineIconPending,
-                      ]}
-                    >
-                      <Ionicons
-                        name={completed ? "checkmark" : step.icon}
-                        size={17}
-                        color={completed || active ? "#FFFFFF" : "#94A3B8"}
-                      />
-                    </View>
-
-                    {index < timeline.length - 1 && (
-                      <View
-                        style={[
-                          styles.timelineLine,
-                          index < currentIndex && styles.timelineLineCompleted,
-                        ]}
-                      />
-                    )}
-                  </View>
-
-                  <View style={styles.timelineContent}>
-                    <Text
-                      style={[
-                        styles.timelineTitle,
-                        active && styles.timelineTitleActive,
-                      ]}
-                    >
-                      {step.title}
-                    </Text>
-
-                    <Text style={styles.timelineDescription}>
-                      {step.description}
-                    </Text>
-
-                    {active && (
-                      <View style={styles.currentStatusBadge}>
-                        <Text style={styles.currentStatusText}>
-                          TRẠNG THÁI HIỆN TẠI
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-                </View>
-              );
-            })}
-          </View>
-        </View>
-
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Chi tiết thanh toán</Text>
-
-          <View style={styles.paymentRow}>
-            <Text style={styles.paymentLabel}>
-              Tiền thuê ({order.days} ngày)
-            </Text>
-
-            <Text style={styles.paymentValue}>
-              {order.totalRentalFee.toLocaleString("vi-VN")}đ
-            </Text>
-          </View>
-
-          <View style={styles.paymentRow}>
-            <Text style={styles.paymentLabel}>Tiền cọc bảo đảm</Text>
-
-            <Text style={styles.paymentValue}>
-              {order.totalDeposit.toLocaleString("vi-VN")}đ
-            </Text>
-          </View>
-
-          <View style={styles.divider} />
-
-          <View style={styles.paymentRow}>
-            <Text style={styles.totalLabel}>Tổng đã thanh toán</Text>
-
-            <Text style={styles.totalValue}>
-              {order.totalPayment.toLocaleString("vi-VN")}đ
-            </Text>
-          </View>
-
-          <View style={styles.refundCard}>
-            <Ionicons
-              name="shield-checkmark-outline"
-              size={21}
-              color="#1B4332"
-            />
-
-            <Text style={styles.refundText}>
-              Tiền cọc sẽ được hoàn sau khi kho xác nhận tình trạng thiết bị.
-            </Text>
-          </View>
-        </View>
-
-        <View style={styles.supportCard}>
-          <View style={styles.supportIcon}>
-            <Ionicons name="headset-outline" size={22} color="#1B4332" />
-          </View>
-
-          <View style={styles.flexOne}>
-            <Text style={styles.supportTitle}>Cần hỗ trợ đơn thuê?</Text>
-
-            <Text style={styles.supportDescription}>
-              Liên hệ TrekGo nếu cần báo sự cố thiết bị.
-            </Text>
-          </View>
-
-          <TouchableOpacity style={styles.supportButton}>
-            <Ionicons name="chatbubble-outline" size={18} color="#1B4332" />
-          </TouchableOpacity>
-        </View>
+        <InfoBanner
+          icon="shield-checkmark-outline"
+          title="Đúng quyền Trekker"
+          description="Bạn chỉ theo dõi và xuất trình mã nhận. Staff chịu trách nhiệm bàn giao, thu hồi, kiểm định; Admin xử lý khấu trừ và hệ thống thực hiện hoàn cọc."
+        />
       </ScrollView>
     </SafeAreaView>
   );
 }
 
+function Header({ onBack }: { onBack: () => void }) {
+  return (
+    <View style={styles.header}>
+      <TouchableOpacity style={styles.headerButton} onPress={onBack}>
+        <Ionicons name="arrow-back" size={22} color={Colors.onSurface} />
+      </TouchableOpacity>
+      <View style={styles.flexOne}>
+        <Text style={styles.eyebrow}>TREKGO RENTAL</Text>
+        <Text style={styles.headerTitle}>Chi tiết đơn thuê</Text>
+      </View>
+      <View style={styles.headerButton}>
+        <Ionicons name="receipt-outline" size={21} color={Colors.primaryDark} />
+      </View>
+    </View>
+  );
+}
+
+function Section({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>{title}</Text>
+      {subtitle ? <Text style={styles.sectionSubtitle}>{subtitle}</Text> : null}
+      <View style={styles.sectionBody}>{children}</View>
+    </View>
+  );
+}
+
+function MoneyRow({
+  label,
+  value,
+  currency,
+  strong = false,
+}: {
+  label: string;
+  value?: number;
+  currency?: string;
+  strong?: boolean;
+}) {
+  return (
+    <View style={styles.moneyRow}>
+      <Text style={[styles.moneyLabel, strong && styles.moneyStrong]}>{label}</Text>
+      <Text style={[styles.moneyValue, strong && styles.moneyStrong]}>
+        {money(value, currency)}
+      </Text>
+    </View>
+  );
+}
+
+function InfoBanner({
+  icon,
+  title,
+  description,
+  tone = "normal",
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  title: string;
+  description: string;
+  tone?: "normal" | "warning";
+}) {
+  return (
+    <View style={[styles.infoBanner, tone === "warning" && styles.warningBanner]}>
+      <Ionicons
+        name={icon}
+        size={22}
+        color={tone === "warning" ? "#A32020" : Colors.primaryDark}
+      />
+      <View style={styles.flexOne}>
+        <Text style={[styles.infoTitle, tone === "warning" && styles.warningText]}>{title}</Text>
+        <Text style={styles.infoDescription}>{description}</Text>
+      </View>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: "#F5F7F5",
-  },
-  flexOne: {
-    flex: 1,
-  },
+  safeArea: { flex: 1, backgroundColor: Colors.surface },
+  flexOne: { flex: 1 },
   header: {
-    minHeight: 66,
+    minHeight: 72,
     paddingHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
+    gap: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "#E2E8E3",
-    backgroundColor: "#FFFFFF",
+    borderBottomColor: Colors.surfaceContainer,
+    backgroundColor: Colors.surfaceContainerLowest,
   },
-  backButton: {
-    width: 40,
-    height: 40,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 20,
-    backgroundColor: "#EEF2EE",
-  },
-  headerContent: {
-    flex: 1,
-    alignItems: "center",
-  },
-  headerTitle: {
-    color: "#17231B",
-    fontSize: 17,
-    fontWeight: "900",
-  },
-  headerSubtitle: {
-    marginTop: 2,
-    color: "#64748B",
-    fontSize: 10,
-  },
-  headerPlaceholder: {
-    width: 40,
-  },
-  content: {
-    padding: 16,
-    paddingBottom: 40,
-  },
-  heroCard: {
-    marginBottom: 12,
-    padding: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    borderRadius: 20,
-    backgroundColor: "#1B4332",
-  },
-  heroIcon: {
-    width: 50,
-    height: 50,
-    marginRight: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 16,
-    backgroundColor: "#2D6A4F",
-  },
-  heroLabel: {
-    color: "#BCE2CA",
-    fontSize: 9,
-    fontWeight: "900",
-    letterSpacing: 0.7,
-  },
-  heroTitle: {
-    marginTop: 4,
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "900",
-  },
-  heroDescription: {
-    marginTop: 3,
-    color: "#D4E8DB",
-    fontSize: 10,
-  },
-  actionCard: {
-    marginBottom: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: "#CAE2D2",
-    borderRadius: 18,
-    backgroundColor: "#FFFFFF",
-  },
-  actionHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 11,
-  },
-  actionIcon: {
+  headerButton: {
     width: 44,
     height: 44,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 14,
-    backgroundColor: "#E7F3EB",
+    borderRadius: Radius.full,
+    backgroundColor: Colors.surfaceContainer,
   },
-  actionTitle: {
-    color: "#17231B",
-    fontSize: 14,
-    fontWeight: "900",
-  },
-  actionDescription: {
-    marginTop: 3,
-    color: "#64748B",
-    fontSize: 10,
-    lineHeight: 15,
-  },
-  pendingCard: {
-    marginBottom: 12,
-    padding: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 11,
-    borderWidth: 1,
-    borderColor: "#F6D69A",
-    borderRadius: 18,
-    backgroundColor: "#FFF8E8",
-  },
-  pendingTitle: {
-    color: "#92400E",
-    fontSize: 13,
-    fontWeight: "900",
-  },
-  pendingDescription: {
-    marginTop: 3,
-    color: "#A16207",
-    fontSize: 10,
-    lineHeight: 15,
-  },
-  sectionCard: {
-    marginBottom: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: "#E2E8E3",
-    borderRadius: 18,
-    backgroundColor: "#FFFFFF",
-  },
-  sectionTitle: {
-    color: "#17231B",
-    fontSize: 15,
-    fontWeight: "900",
-  },
-  sectionDescription: {
-    marginTop: 4,
-    color: "#64748B",
-    fontSize: 11,
-    lineHeight: 17,
-  },
-  itemsList: {
-    marginTop: 12,
-    gap: 9,
-  },
-  itemRow: {
-    padding: 9,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    borderRadius: 14,
-    backgroundColor: "#F1F5F2",
-  },
-  itemImage: {
-    width: 52,
-    height: 52,
-    borderRadius: 12,
-  },
-  itemName: {
-    color: "#17231B",
-    fontSize: 12,
-    fontWeight: "800",
-  },
-  itemMeta: {
-    marginTop: 3,
-    color: "#2D6A4F",
-    fontSize: 10,
-    fontWeight: "700",
-  },
-  itemDeposit: {
-    marginTop: 2,
-    color: "#64748B",
-    fontSize: 9,
-  },
-  quantityBadge: {
-    minWidth: 30,
-    height: 30,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 15,
-    backgroundColor: "#DFF4E7",
-  },
-  quantityText: {
-    color: "#1B4332",
-    fontSize: 11,
-    fontWeight: "900",
-  },
-  timeline: {
-    marginTop: 18,
-  },
-  timelineRow: {
-    minHeight: 76,
-    flexDirection: "row",
-  },
-  timelineIndicator: {
-    width: 42,
-    alignItems: "center",
-  },
-  timelineIcon: {
-    zIndex: 2,
-    width: 34,
-    height: 34,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 17,
-  },
-  timelineIconCompleted: {
-    backgroundColor: "#2D6A4F",
-  },
-  timelineIconActive: {
-    backgroundColor: "#1B4332",
-  },
-  timelineIconPending: {
-    borderWidth: 1,
-    borderColor: "#CBD5E1",
-    backgroundColor: "#F1F5F2",
-  },
-  timelineLine: {
-    position: "absolute",
-    top: 34,
-    bottom: -42,
-    width: 2,
-    backgroundColor: "#E2E8F0",
-  },
-  timelineLineCompleted: {
-    backgroundColor: "#2D6A4F",
-  },
-  timelineContent: {
-    flex: 1,
-    paddingLeft: 8,
-    paddingBottom: 18,
-  },
-  timelineTitle: {
-    color: "#475569",
-    fontSize: 12,
-    fontWeight: "800",
-  },
-  timelineTitleActive: {
-    color: "#1B4332",
-    fontWeight: "900",
-  },
-  timelineDescription: {
-    marginTop: 3,
-    color: "#64748B",
-    fontSize: 10,
-    lineHeight: 15,
-  },
-  currentStatusBadge: {
-    alignSelf: "flex-start",
-    marginTop: 7,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 10,
-    backgroundColor: "#DFF4E7",
-  },
-  currentStatusText: {
-    color: "#1B4332",
-    fontSize: 8,
-    fontWeight: "900",
-  },
-  paymentRow: {
-    marginTop: 11,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 12,
-  },
-  paymentLabel: {
-    color: "#64748B",
-    fontSize: 12,
-  },
-  paymentValue: {
-    color: "#17231B",
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  divider: {
-    height: 1,
-    marginVertical: 12,
-    backgroundColor: "#E2E8E3",
-  },
-  totalLabel: {
-    color: "#17231B",
-    fontSize: 14,
-    fontWeight: "900",
-  },
-  totalValue: {
-    color: "#1B4332",
-    fontSize: 17,
-    fontWeight: "900",
-  },
-  refundCard: {
-    marginTop: 14,
-    padding: 11,
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 9,
-    borderRadius: 13,
-    backgroundColor: "#E7F3EB",
-  },
-  refundText: {
-    flex: 1,
-    color: "#315E42",
-    fontSize: 10,
-    lineHeight: 16,
-  },
-  supportCard: {
-    padding: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#D5E5DA",
-    borderRadius: 18,
-    backgroundColor: "#FFFFFF",
-  },
-  supportIcon: {
-    width: 42,
-    height: 42,
-    marginRight: 10,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 14,
-    backgroundColor: "#E7F3EB",
-  },
-  supportTitle: {
-    color: "#17231B",
-    fontSize: 12,
-    fontWeight: "900",
-  },
-  supportDescription: {
-    marginTop: 2,
-    color: "#64748B",
-    fontSize: 10,
-    lineHeight: 15,
-  },
-  supportButton: {
-    width: 38,
-    height: 38,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 19,
-    backgroundColor: "#DFF4E7",
-  },
-  primaryButton: {
-    minHeight: 50,
-    marginTop: 14,
-    paddingHorizontal: 20,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 25,
-    backgroundColor: "#1B4332",
-  },
-  primaryButtonText: {
-    color: "#FFFFFF",
-    fontSize: 13,
-    fontWeight: "900",
-  },
-  emptyContainer: {
-    flex: 1,
-    paddingHorizontal: 28,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  emptyTitle: {
-    marginTop: 14,
-    color: "#17231B",
-    fontSize: 20,
-    fontWeight: "900",
-  },
-  emptyDescription: {
-    marginTop: 8,
-    color: "#64748B",
-    fontSize: 12,
-    lineHeight: 18,
-    textAlign: "center",
-  },
+  eyebrow: { color: Colors.primaryDark, fontSize: 10, fontWeight: "900", letterSpacing: 1 },
+  headerTitle: { marginTop: 2, color: Colors.onSurface, fontSize: 20, fontWeight: "900" },
+  content: { padding: 16, gap: 14, paddingBottom: 48 },
+  centerState: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, padding: 28 },
+  emptyTitle: { color: Colors.onSurface, fontSize: 20, fontWeight: "900", textAlign: "center" },
+  mutedText: { color: Colors.onSurfaceVariant, fontSize: 12, lineHeight: 18, textAlign: "center" },
+  retryButton: { marginTop: 8, paddingHorizontal: 22, paddingVertical: 12, borderRadius: Radius.full, backgroundColor: Colors.primaryDark },
+  retryText: { color: Colors.onPrimaryDark, fontWeight: "900" },
+  heroCard: { padding: 16, flexDirection: "row", alignItems: "center", gap: 12, borderRadius: Radius.xl, backgroundColor: Colors.inkDeep, ...Shadows.tactical },
+  heroIcon: { width: 48, height: 48, alignItems: "center", justifyContent: "center", borderRadius: Radius.full, backgroundColor: Colors.primary },
+  orderId: { marginTop: 3, color: Colors.onPrimaryDark, fontSize: 12, fontWeight: "900" },
+  tripName: { marginTop: 4, color: Colors.primaryNeutral, fontSize: 11 },
+  statusBadge: { maxWidth: 112, paddingHorizontal: 9, paddingVertical: 7, borderRadius: Radius.full, backgroundColor: Colors.primary },
+  statusBadgeText: { color: Colors.onPrimary, fontSize: 9, fontWeight: "900", textAlign: "center" },
+  section: { padding: 16, borderRadius: Radius.xl, backgroundColor: Colors.surfaceContainerLowest, ...Shadows.card },
+  sectionTitle: { color: Colors.onSurface, fontSize: 17, fontWeight: "900" },
+  sectionSubtitle: { marginTop: 4, color: Colors.onSurfaceVariant, fontSize: 10, lineHeight: 15 },
+  sectionBody: { marginTop: 14 },
+  stepRow: { minHeight: 48, flexDirection: "row", gap: 10 },
+  stepRail: { width: 22, alignItems: "center" },
+  stepDot: { width: 18, height: 18, alignItems: "center", justifyContent: "center", borderRadius: Radius.full, borderWidth: 2, borderColor: Colors.surfaceContainerHighest, backgroundColor: Colors.surfaceContainerLowest },
+  stepDotComplete: { borderColor: Colors.primaryDark, backgroundColor: Colors.primaryDark },
+  stepDotActive: { borderWidth: 4, borderColor: Colors.primary, backgroundColor: Colors.primaryDark },
+  stepLine: { flex: 1, width: 2, backgroundColor: Colors.surfaceContainerHighest },
+  stepLineComplete: { backgroundColor: Colors.primaryDark },
+  stepTextWrap: { flex: 1, paddingBottom: 12 },
+  stepTitle: { color: Colors.onSurfaceMuted, fontSize: 12, fontWeight: "700" },
+  stepTitleComplete: { color: Colors.onSurface, fontWeight: "900" },
+  stepCurrent: { marginTop: 3, color: Colors.primaryDark, fontSize: 9, fontWeight: "800" },
+  lineItem: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 10, borderBottomWidth: 1, borderBottomColor: Colors.surfaceContainer },
+  lineIcon: { width: 38, height: 38, alignItems: "center", justifyContent: "center", borderRadius: Radius.md, backgroundColor: Colors.primaryPale },
+  lineName: { color: Colors.onSurface, fontSize: 12, fontWeight: "800" },
+  lineMeta: { marginTop: 3, color: Colors.onSurfaceVariant, fontSize: 10 },
+  lineAmount: { color: Colors.primaryDark, fontSize: 11, fontWeight: "900" },
+  unitWrap: { marginTop: 12, padding: 12, borderRadius: Radius.md, backgroundColor: Colors.primaryPale },
+  subheading: { marginBottom: 6, color: Colors.primaryDark, fontSize: 10, fontWeight: "900" },
+  unitText: { color: Colors.onSurfaceVariant, fontSize: 10, lineHeight: 17 },
+  moneyRow: { minHeight: 30, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  moneyLabel: { color: Colors.onSurfaceVariant, fontSize: 11 },
+  moneyValue: { color: Colors.onSurface, fontSize: 11, fontWeight: "800" },
+  moneyStrong: { color: Colors.primaryDark, fontSize: 14, fontWeight: "900" },
+  totalDivider: { height: 1, marginVertical: 8, backgroundColor: Colors.surfaceContainer },
+  paymentStatus: { marginTop: 12, color: Colors.onSurface, fontSize: 10, fontWeight: "800" },
+  deadline: { marginTop: 4, color: "#A32020", fontSize: 10 },
+  codeBox: { padding: 18, alignItems: "center", borderRadius: Radius.lg, backgroundColor: Colors.inkDeep },
+  codeValue: { color: Colors.primary, fontSize: 30, fontWeight: "900", letterSpacing: 5 },
+  codeExpiry: { marginTop: 6, color: Colors.primaryNeutral, fontSize: 10 },
+  revealButton: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, borderRadius: Radius.full, backgroundColor: Colors.primaryDark },
+  revealText: { color: Colors.onPrimaryDark, fontWeight: "900" },
+  inlineError: { marginTop: 8, color: "#A32020", fontSize: 10, textAlign: "center" },
+  readOnlyNote: { marginTop: 10, color: Colors.onSurfaceVariant, fontSize: 10, lineHeight: 16 },
+  depositItem: { marginTop: 10, paddingTop: 10, flexDirection: "row", alignItems: "center", borderTopWidth: 1, borderTopColor: Colors.surfaceContainer },
+  reasonText: { marginTop: 3, color: "#A32020", fontSize: 9 },
+  historyRow: { paddingVertical: 9, flexDirection: "row", gap: 9, borderBottomWidth: 1, borderBottomColor: Colors.surfaceContainer },
+  historyTitle: { color: Colors.onSurface, fontSize: 11, fontWeight: "800" },
+  historyTime: { marginTop: 3, color: Colors.onSurfaceMuted, fontSize: 9 },
+  infoBanner: { padding: 14, flexDirection: "row", gap: 10, borderRadius: Radius.lg, borderWidth: 1, borderColor: Colors.primaryNeutral, backgroundColor: Colors.primaryPale },
+  warningBanner: { borderColor: "#F3AAA7", backgroundColor: "#FFE5E2" },
+  infoTitle: { color: Colors.primaryDark, fontSize: 11, fontWeight: "900" },
+  warningText: { color: "#A32020" },
+  infoDescription: { marginTop: 3, color: Colors.onSurfaceVariant, fontSize: 10, lineHeight: 16 },
 });

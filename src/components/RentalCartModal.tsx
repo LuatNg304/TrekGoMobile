@@ -38,6 +38,16 @@ export function RentalCartModal({ visible, onClose }: RentalCartModalProps) {
     router.push("/rental-trip-select" as Href);
   }
 
+  function continueCheckout() {
+    if (!selectedTrip) {
+      openTripSelection();
+      return;
+    }
+
+    onClose();
+    router.push("/rental-checkout" as Href);
+  }
+
   return (
     <Modal
       visible={visible}
@@ -77,7 +87,10 @@ export function RentalCartModal({ visible, onClose }: RentalCartModalProps) {
                     "Cần trip hợp lệ để kiểm tra availability"}
                 </Text>
               </View>
-              <TouchableOpacity style={styles.tripAction} onPress={openTripSelection}>
+              <TouchableOpacity
+                style={styles.tripAction}
+                onPress={openTripSelection}
+              >
                 <Text style={styles.tripActionText}>
                   {selectedTrip ? "Đổi" : "Chọn"}
                 </Text>
@@ -102,7 +115,10 @@ export function RentalCartModal({ visible, onClose }: RentalCartModalProps) {
                   {cart.map(({ item, quantity }) => (
                     <View key={item.id} style={styles.itemRow}>
                       {item.imageUrl ? (
-                        <Image source={{ uri: item.imageUrl }} style={styles.itemImage} />
+                        <Image
+                          source={{ uri: item.imageUrl }}
+                          style={styles.itemImage}
+                        />
                       ) : (
                         <View style={styles.itemImagePlaceholder}>
                           <Ionicons
@@ -117,10 +133,12 @@ export function RentalCartModal({ visible, onClose }: RentalCartModalProps) {
                           {item.name}
                         </Text>
                         <Text style={styles.itemPrice}>
-                          {item.dailyRate.toLocaleString("vi-VN")}đ/ngày × {quantity}
+                          {item.dailyRate.toLocaleString("vi-VN")}đ/ngày ×{" "}
+                          {quantity}
                         </Text>
                         <Text style={styles.itemDeposit}>
-                          Cọc: {(item.deposit * quantity).toLocaleString("vi-VN")}đ
+                          Cọc:{" "}
+                          {(item.deposit * quantity).toLocaleString("vi-VN")}đ
                         </Text>
                       </View>
                       <View style={styles.quantityControl}>
@@ -132,7 +150,9 @@ export function RentalCartModal({ visible, onClose }: RentalCartModalProps) {
                           <Ionicons
                             name={quantity === 1 ? "trash-outline" : "remove"}
                             size={15}
-                            color={quantity === 1 ? Colors.error : Colors.onSurface}
+                            color={
+                              quantity === 1 ? Colors.error : Colors.onSurface
+                            }
                           />
                         </TouchableOpacity>
                         <Text style={styles.quantityValue}>{quantity}</Text>
@@ -144,7 +164,11 @@ export function RentalCartModal({ visible, onClose }: RentalCartModalProps) {
                             setCartQuantity(item, Math.min(20, quantity + 1))
                           }
                         >
-                          <Ionicons name="add" size={15} color={Colors.onSurface} />
+                          <Ionicons
+                            name="add"
+                            size={15}
+                            color={Colors.onSurface}
+                          />
                         </TouchableOpacity>
                       </View>
                     </View>
@@ -175,11 +199,17 @@ export function RentalCartModal({ visible, onClose }: RentalCartModalProps) {
 
                 <TouchableOpacity
                   style={styles.primaryButton}
-                  onPress={openTripSelection}
+                  onPress={continueCheckout}
                 >
-                  <Ionicons name="trail-sign" size={20} color={Colors.onPrimary} />
+                  <Ionicons
+                    name={selectedTrip ? "receipt-outline" : "trail-sign"}
+                    size={20}
+                    color={Colors.onPrimary}
+                  />
                   <Text style={styles.primaryButtonText}>
-                    {selectedTrip ? "Đổi chuyến đi" : "Chọn chuyến đi"}
+                    {selectedTrip
+                      ? "Kiểm tra tồn kho & báo giá"
+                      : "Chọn chuyến đi"}
                   </Text>
                   <Ionicons
                     name="arrow-forward"
@@ -190,10 +220,14 @@ export function RentalCartModal({ visible, onClose }: RentalCartModalProps) {
 
                 {selectedTrip && (
                   <View style={styles.nextStepCard}>
-                    <Ionicons name="layers-outline" size={20} color={Colors.warningDeep} />
+                    <Ionicons
+                      name="layers-outline"
+                      size={20}
+                      color={Colors.warningDeep}
+                    />
                     <Text style={styles.nextStepText}>
-                      Availability → Quote → Order sẽ được nối sau khi luồng Trip
-                      Mobile của nhóm cung cấp đầy đủ chuyến thành viên.
+                      Tồn kho, số ngày thuê, phí và tiền cọc sẽ được API kiểm
+                      tra lại trước khi tạo đơn. Quote không tự giữ thiết bị.
                     </Text>
                   </View>
                 )}
@@ -257,7 +291,12 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     letterSpacing: 0.7,
   },
-  title: { marginTop: 4, color: Colors.onSurface, fontSize: 23, fontWeight: "900" },
+  title: {
+    marginTop: 4,
+    color: Colors.onSurface,
+    fontSize: 23,
+    fontWeight: "900",
+  },
   subtitle: { marginTop: 4, color: Colors.onSurfaceVariant, fontSize: 11 },
   tripCard: {
     marginTop: 16,
@@ -271,17 +310,35 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.primaryPale,
   },
   tripLabel: { color: Colors.primaryDark, fontSize: 8, fontWeight: "900" },
-  tripTitle: { marginTop: 3, color: Colors.onSurface, fontSize: 11, fontWeight: "800" },
+  tripTitle: {
+    marginTop: 3,
+    color: Colors.onSurface,
+    fontSize: 11,
+    fontWeight: "800",
+  },
   tripAction: {
     paddingHorizontal: 12,
     paddingVertical: 9,
     borderRadius: Radius.full,
     backgroundColor: Colors.inkDeep,
   },
-  tripActionText: { color: Colors.onPrimaryDark, fontSize: 10, fontWeight: "900" },
+  tripActionText: {
+    color: Colors.onPrimaryDark,
+    fontSize: 10,
+    fontWeight: "900",
+  },
   emptyState: { paddingVertical: 45, alignItems: "center" },
-  emptyTitle: { marginTop: 12, color: Colors.onSurface, fontSize: 16, fontWeight: "900" },
-  emptyDescription: { marginTop: 5, color: Colors.onSurfaceVariant, fontSize: 11 },
+  emptyTitle: {
+    marginTop: 12,
+    color: Colors.onSurface,
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  emptyDescription: {
+    marginTop: 5,
+    color: Colors.onSurfaceVariant,
+    fontSize: 11,
+  },
   itemList: { marginTop: 16, gap: 10 },
   itemRow: {
     padding: 10,
@@ -302,7 +359,12 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.primaryPale,
   },
   itemName: { color: Colors.onSurface, fontSize: 12, fontWeight: "900" },
-  itemPrice: { marginTop: 4, color: Colors.primaryDark, fontSize: 10, fontWeight: "700" },
+  itemPrice: {
+    marginTop: 4,
+    color: Colors.primaryDark,
+    fontSize: 10,
+    fontWeight: "700",
+  },
   itemDeposit: { marginTop: 2, color: Colors.onSurfaceVariant, fontSize: 9 },
   quantityControl: {
     flexDirection: "row",
@@ -336,7 +398,11 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   summaryLabel: { color: Colors.primaryNeutral, fontSize: 11 },
-  summaryValue: { color: Colors.onPrimaryDark, fontSize: 12, fontWeight: "900" },
+  summaryValue: {
+    color: Colors.onPrimaryDark,
+    fontSize: 12,
+    fontWeight: "900",
+  },
   notice: {
     marginTop: 9,
     padding: 10,
@@ -345,7 +411,12 @@ const styles = StyleSheet.create({
     borderRadius: Radius.md,
     backgroundColor: "rgba(255,255,255,0.1)",
   },
-  noticeText: { flex: 1, color: Colors.primaryNeutral, fontSize: 9, lineHeight: 14 },
+  noticeText: {
+    flex: 1,
+    color: Colors.primaryNeutral,
+    fontSize: 9,
+    lineHeight: 14,
+  },
   primaryButton: {
     marginTop: 16,
     minHeight: 52,
@@ -356,7 +427,11 @@ const styles = StyleSheet.create({
     borderRadius: Radius.full,
     backgroundColor: Colors.primary,
   },
-  primaryButtonText: { color: Colors.onPrimary, fontSize: 13, fontWeight: "900" },
+  primaryButtonText: {
+    color: Colors.onPrimary,
+    fontSize: 13,
+    fontWeight: "900",
+  },
   nextStepCard: {
     marginTop: 10,
     padding: 12,
@@ -365,5 +440,10 @@ const styles = StyleSheet.create({
     borderRadius: Radius.md,
     backgroundColor: Colors.tertiaryContainer,
   },
-  nextStepText: { flex: 1, color: Colors.onTertiaryContainer, fontSize: 9, lineHeight: 14 },
+  nextStepText: {
+    flex: 1,
+    color: Colors.onTertiaryContainer,
+    fontSize: 9,
+    lineHeight: 14,
+  },
 });

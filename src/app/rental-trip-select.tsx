@@ -105,8 +105,8 @@ export default function RentalTripSelectScreen() {
         <View style={styles.explanationCard}>
           <Ionicons name="information-circle" size={21} color={Colors.primaryDark} />
           <Text style={styles.explanationText}>
-            Catalog được xem trước. Từ Availability, Quote và Order, TrekGo bắt
-            buộc dùng một tripId mà tài khoản của bạn là thành viên hợp lệ.
+            Catalog có thể xem trước. Để kiểm tra tồn kho, báo giá và tạo đơn,
+            TrekGo yêu cầu bạn là thành viên hợp lệ của chuyến đi.
           </Text>
         </View>
 
@@ -131,7 +131,7 @@ export default function RentalTripSelectScreen() {
           <StateBlock
             icon="trail-sign-outline"
             title="Bạn chưa có chuyến hợp lệ"
-            description="Hãy mua vé Public Trip hoặc tạo/tham gia Private Trip trước khi tiếp tục thuê thiết bị."
+            description="Hãy tham gia một Public Trip hoặc tạo/tham gia Private Trip trước khi tiếp tục thuê thiết bị."
           >
             <View style={styles.emptyActions}>
               <TouchableOpacity

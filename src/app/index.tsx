@@ -1,6 +1,6 @@
 import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/features/auth/AuthContext";
-import { Redirect } from "expo-router";
+import { Redirect, type Href } from "expo-router";
 
 export default function RootIndex() {
   const { isAuthenticated, user } = useAuth();
@@ -10,7 +10,7 @@ export default function RootIndex() {
 
   if (isAuthenticated || authRole) {
     if (effectiveRole === "STAFF_DELIVERY" || effectiveRole === "LEADER") {
-      return <Redirect href="/field-operations" />;
+      return <Redirect href={"/field-operations" as Href} />;
     }
     return <Redirect href="/(tabs)" />;
   }

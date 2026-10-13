@@ -1,4 +1,4 @@
-import { Colors, Radius } from "@/constants/theme";
+import { Radius } from "@/constants/theme";
 import type { LeaderPublicTrip } from "@/features/leaders/hooks";
 import { Ionicons } from "@expo/vector-icons";
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from "react-native";

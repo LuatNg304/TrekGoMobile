@@ -84,9 +84,13 @@ export function usePublicTrips(options: UsePublicTripsOptions = {}) {
 
   // Initial & Filter changes trigger fetch
   useEffect(() => {
-    if (autoFetch) {
+    if (!autoFetch) return;
+
+    const timer = setTimeout(() => {
       void fetchTrips(1, filter, "init");
-    }
+    }, 0);
+
+    return () => clearTimeout(timer);
   }, [filter, autoFetch, fetchTrips]);
 
   const refresh = useCallback(async () => {

@@ -18,11 +18,13 @@ import { RentalCartModal } from "@/components/RentalCartModal";
 import { TopHeader } from "@/components/TopHeader";
 import { Colors, Radius, Shadows } from "@/constants/theme";
 import { useApp } from "@/context/AppContext";
+import { useAuth } from "@/features/auth/AuthContext";
 import { rentalApi } from "@/features/rentals/api";
 import { useRentalSelection } from "@/features/rentals/RentalSelectionContext";
 import {
   calculateProductDeposit,
   RentalCategory,
+  RentalOrderSummary,
   RentalProduct,
   rentalProductSpecs,
 } from "@/features/rentals/types";
@@ -49,6 +51,7 @@ function toCartItem(product: RentalProduct): EquipmentItem {
 
 export default function RentalScreen() {
   const router = useRouter();
+  const { accessToken } = useAuth();
   const { cart, setCartQuantity } = useApp();
   const { selectedTrip } = useRentalSelection();
   const [view, setView] = useState<RentalView>("CATALOG");
@@ -61,6 +64,10 @@ export default function RentalScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string>();
   const [cartModalVisible, setCartModalVisible] = useState(false);
+  const [orders, setOrders] = useState<RentalOrderSummary[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [ordersRefreshing, setOrdersRefreshing] = useState(false);
+  const [ordersError, setOrdersError] = useState<string>();
 
   const cartTotalItems = useMemo(
     () => cart.reduce((sum, current) => sum + current.quantity, 0),
@@ -101,6 +108,145 @@ export default function RentalScreen() {
 
   function submitSearch() {
     setSearch(searchDraft.trim());
+  }
+
+  const loadOrders = useCallback(
+    async (isRefresh = false) => {
+      if (!accessToken) {
+        setOrders([]);
+        setOrdersError("Phiên đăng nhập không hợp lệ.");
+        return;
+      }
+
+      if (isRefresh) setOrdersRefreshing(true);
+      else setOrdersLoading(true);
+      setOrdersError(undefined);
+
+      try {
+        const result = await rentalApi.listOrders(accessToken, {
+          page: 1,
+          pageSize: 50,
+        });
+        setOrders(result.items);
+      } catch (requestError) {
+        setOrdersError(
+          requestError instanceof Error
+            ? requestError.message
+            : "Không tải được đơn thuê.",
+        );
+      } finally {
+        setOrdersLoading(false);
+        setOrdersRefreshing(false);
+      }
+    },
+    [accessToken],
+  );
+
+  useEffect(() => {
+    if (view !== "ORDERS") return;
+
+    const timer = setTimeout(() => {
+      void loadOrders();
+    }, 0);
+
+    return () => clearTimeout(timer);
+  }, [loadOrders, view]);
+
+  function renderOrders() {
+    if (ordersLoading) {
+      return (
+        <View style={styles.centerState}>
+          <ActivityIndicator size="large" color={Colors.primaryDark} />
+          <Text style={styles.stateDescription}>Đang tải đơn thuê thật...</Text>
+        </View>
+      );
+    }
+
+    if (ordersError) {
+      return (
+        <StateCard
+          icon="cloud-offline-outline"
+          title="Chưa tải được đơn thuê"
+          description={ordersError}
+          actionLabel="Thử lại"
+          onAction={() => void loadOrders()}
+        />
+      );
+    }
+
+    if (orders.length === 0) {
+      return (
+        <StateCard
+          icon="receipt-outline"
+          title="Chưa có đơn thuê"
+          description="Sau khi chọn chuyến, kiểm tra tồn kho và tạo đơn thành công, đơn thật sẽ xuất hiện tại đây."
+          actionLabel="Chọn thiết bị"
+          onAction={() => setView("CATALOG")}
+        />
+      );
+    }
+
+    return (
+      <View style={styles.ordersList}>
+        {orders.map((order) => {
+          const status = rentalOrderStatus(order.status);
+          return (
+            <TouchableOpacity
+              key={order.id}
+              style={styles.orderCard}
+              activeOpacity={0.85}
+              onPress={() => router.push(`/rental-orders/${order.id}` as Href)}
+            >
+              <View style={styles.orderTopRow}>
+                <View style={styles.orderIcon}>
+                  <Ionicons
+                    name="bag-check-outline"
+                    size={20}
+                    color={Colors.primaryDark}
+                  />
+                </View>
+                <View style={styles.flexOne}>
+                  <Text style={styles.orderCode}>ĐƠN #{shortId(order.id)}</Text>
+                  <Text style={styles.orderTrip} numberOfLines={1}>
+                    {order.trip?.title || `Trip ${shortId(order.tripId)}`}
+                  </Text>
+                </View>
+                <View style={[styles.statusPill, { backgroundColor: status.bg }]}>
+                  <Text style={[styles.statusText, { color: status.color }]}>
+                    {status.label}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.orderDivider} />
+
+              <View style={styles.orderBottomRow}>
+                <View>
+                  <Text style={styles.orderMetaLabel}>Tổng thanh toán</Text>
+                  <Text style={styles.orderAmount}>
+                    {formatCurrency(order.totalAmount, order.currency)}
+                  </Text>
+                </View>
+                <View style={styles.orderOpen}>
+                  <Text style={styles.orderOpenText}>Chi tiết</Text>
+                  <Ionicons
+                    name="chevron-forward"
+                    size={16}
+                    color={Colors.primaryDark}
+                  />
+                </View>
+              </View>
+
+              {order.exceptionStatus && (
+                <Text style={styles.exceptionText}>
+                  Cần chú ý: {order.exceptionStatus}
+                </Text>
+              )}
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    );
   }
 
   function renderCatalog() {
@@ -350,21 +496,17 @@ export default function RentalScreen() {
               onRefresh={() => void loadCatalog(true)}
               tintColor={Colors.primaryDark}
             />
-          ) : undefined
+          ) : (
+            <RefreshControl
+              refreshing={ordersRefreshing}
+              onRefresh={() => void loadOrders(true)}
+              tintColor={Colors.primaryDark}
+            />
+          )
         }
         contentContainerStyle={styles.scrollContent}
       >
-        {view === "CATALOG" ? (
-          renderCatalog()
-        ) : (
-          <StateCard
-            icon="receipt-outline"
-            title="Đơn thuê sẽ được nối ở bước tiếp theo"
-            description="Màn này không hiển thị đơn mock. Sau khi Trip, Availability, Quote và Order chạy end-to-end, đơn thật sẽ xuất hiện tại đây."
-            actionLabel="Tiếp tục chọn thiết bị"
-            onAction={() => setView("CATALOG")}
-          />
-        )}
+        {view === "CATALOG" ? renderCatalog() : renderOrders()}
       </ScrollView>
 
       {view === "CATALOG" && cartTotalItems > 0 && (
@@ -393,6 +535,40 @@ export default function RentalScreen() {
         onClose={() => setCartModalVisible(false)}
       />
     </SafeAreaView>
+  );
+}
+
+function shortId(value: string) {
+  return value.length > 8 ? value.slice(-8).toUpperCase() : value.toUpperCase();
+}
+
+function formatCurrency(value: number, currency = "VND") {
+  return `${value.toLocaleString("vi-VN")} ${currency === "VND" ? "đ" : currency}`;
+}
+
+function rentalOrderStatus(status: string) {
+  const statuses: Record<
+    string,
+    { label: string; color: string; bg: string }
+  > = {
+    PENDING_PAYMENT: { label: "Chờ thanh toán", color: "#8A5A00", bg: "#FFF1C2" },
+    PAID: { label: "Đã thanh toán", color: "#226600", bg: "#E0F5D3" },
+    PREPARING: { label: "Đang chuẩn bị", color: "#245F73", bg: "#DDF3F8" },
+    READY_FOR_HANDOVER: { label: "Sẵn sàng nhận", color: "#226600", bg: "#DDF7CB" },
+    ACTIVE: { label: "Đang sử dụng", color: "#174B00", bg: "#CFF3B8" },
+    RETURN_PENDING: { label: "Chờ thu hồi", color: "#714C00", bg: "#FFF0BF" },
+    RETURN_PROCESSING: { label: "Đang xử lý trả", color: "#714C00", bg: "#FFE5A6" },
+    COMPLETED: { label: "Hoàn tất", color: "#35523A", bg: "#E5EEE3" },
+    CANCELLED: { label: "Đã hủy", color: "#9E1A1A", bg: "#FFE0DE" },
+    EXPIRED: { label: "Hết hạn", color: "#6C6460", bg: "#EEEAE7" },
+  };
+
+  return (
+    statuses[status] ?? {
+      label: status.replaceAll("_", " "),
+      color: Colors.onSurfaceVariant,
+      bg: Colors.surfaceContainer,
+    }
   );
 }
 
@@ -586,6 +762,66 @@ const styles = StyleSheet.create({
   },
   categoryPillTextActive: { color: Colors.onPrimaryDark },
   centerState: { paddingVertical: 70, alignItems: "center", gap: 12 },
+  ordersList: { paddingHorizontal: 16, paddingTop: 14, gap: 12 },
+  orderCard: {
+    padding: 14,
+    borderRadius: Radius.lg,
+    backgroundColor: Colors.surfaceContainerLowest,
+    ...Shadows.card,
+  },
+  orderTopRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  orderIcon: {
+    width: 42,
+    height: 42,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: Radius.full,
+    backgroundColor: Colors.primaryPale,
+  },
+  orderCode: {
+    color: Colors.primaryDark,
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 0.5,
+  },
+  orderTrip: {
+    marginTop: 3,
+    color: Colors.onSurface,
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  statusPill: {
+    maxWidth: 118,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+    borderRadius: Radius.full,
+  },
+  statusText: { fontSize: 9, fontWeight: "900", textAlign: "center" },
+  orderDivider: {
+    height: 1,
+    marginVertical: 12,
+    backgroundColor: Colors.surfaceContainer,
+  },
+  orderBottomRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  orderMetaLabel: { color: Colors.onSurfaceMuted, fontSize: 9 },
+  orderAmount: {
+    marginTop: 3,
+    color: Colors.onSurface,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  orderOpen: { flexDirection: "row", alignItems: "center", gap: 3 },
+  orderOpenText: { color: Colors.primaryDark, fontSize: 11, fontWeight: "900" },
+  exceptionText: {
+    marginTop: 10,
+    color: "#A32020",
+    fontSize: 10,
+    fontWeight: "700",
+  },
   productsGrid: {
     paddingHorizontal: 16,
     flexDirection: "row",
