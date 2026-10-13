@@ -1,10 +1,36 @@
+import React, { createContext, useContext, useEffect, useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { leaderMembers } from "@/data/fieldOpsMock";
+
+import {
+  CommunityAuthorRole,
+  CommunityNotification,
+  CommunityPost,
+  CommunityProfile,
+  CommunityReport,
+  CommunityReportReason,
+  CreateCommunityPostInput,
+  CreatePersonalTrailInput,
+  EquipmentItem,
+  GroupTrip,
+  LiveNavTelemetry,
+  PersonalTrail,
+  RentalOrder,
+  SupportTicket,
+  SupportTicketCategory,
+  Trail,
+  TrekkerAccount,
+  Trip,
+  UserNotification,
+  UserProfile,
+} from "@/types";
+
 import {
   initialLiveTelemetry,
   mockEquipment,
   mockRentalOrders,
   mockTrails,
   mockTrips,
-<<<<<<< HEAD
   mockUserProfile,
 } from "@/data/mockData";
 import { useAuth } from "@/features/auth/AuthContext";
@@ -31,6 +57,22 @@ export interface GroupTripActionResult {
   ok: boolean;
   message: string;
   status?: GroupTrip["joinStatus"];
+}
+
+
+export type FieldWorkflowStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED';
+export type LeaderMemberAttendance = 'CHECKED_IN' | 'PENDING' | 'NO_SHOW';
+export type LeaderGpsStatus = 'OK' | 'LOST';
+export type DeliveryItemStatus = 'PENDING' | 'OK' | 'MISSING' | 'DAMAGED';
+export interface DeliveryItemState {
+  status: DeliveryItemStatus;
+  note: string;
+}
+export interface ReturnItemState {
+  status: DeliveryItemStatus;
+  note: string;
+}
+
 export interface FieldWorkflowState {
   leaderTripStatus: 'PREPARING' | 'IN_PROGRESS' | 'COMPLETED';
   leaderPretripApproved: boolean;
@@ -68,11 +110,11 @@ const FIELD_WORKFLOW_STORAGE_KEY = 'trekgo.field-workflow.v1';
 const initialFieldWorkflow: FieldWorkflowState = {
   leaderTripStatus: 'PREPARING',
   leaderPretripApproved: false,
-  leaderAttendance: leaderMembers.map(member => ({
+  leaderAttendance: leaderMembers.map((member) => ({
     memberName: member.name,
     status: member.status === 'Đã check-in' ? 'CHECKED_IN' : 'PENDING',
   })),
-  requiredCheckpointIds: mockTrails[0].checkpoints.map(checkpoint => checkpoint.id),
+  requiredCheckpointIds: mockTrails[0].checkpoints.map((checkpoint) => checkpoint.id),
   completedCheckpointIds: [],
   leaderSafetyAlert: { status: 'ACTIVE', selectedOption: null },
   gpsStatus: 'OK',
@@ -106,24 +148,75 @@ const initialFieldWorkflow: FieldWorkflowState = {
   depositStatus: 'HELD',
   lastUpdated: new Date().toISOString(),
 };
->>>>>>> Leader-Deli-UI
 
 interface AppContextType {
-  user: UserProfile;
-  setUser: React.Dispatch<React.SetStateAction<UserProfile>>;
-  toggleUserRole: () => void;
   authRole: 'STAFF_DELIVERY' | 'LEADER' | null;
   signInAsRole: (role: 'STAFF_DELIVERY' | 'LEADER') => void;
   signOut: () => void;
+  publishPublicTrip: (draft: { name: string; startDate: string; endDate: string; slots: number; trailId: string; checkpointIds: string[] }) => void;
+  user: UserProfile;
+  setUser: React.Dispatch<React.SetStateAction<UserProfile>>;
+  toggleUserRole: () => void;
+  trekkerAccount: TrekkerAccount;
+  updateUserProfile: (input: Partial<UserProfile>) => void;
+  updateTrekkerAccount: (input: Partial<TrekkerAccount>) => void;
 
   trips: Trip[];
   activeTrip: Trip;
-  createPrivateTrip: (tripData: Partial<Trip>) => void;
-  publishPublicTrip: (draft: { name: string; startDate: string; endDate: string; slots: number; trailId: string; checkpointIds: string[] }) => void;
+  createPrivateTrip: (tripData: Partial<Trip>) => Trip;
+  joinPrivateTrip: (inviteCode: string) => PrivateTripActionResult;
+  leavePrivateTrip: (tripId: string) => PrivateTripActionResult;
+  cancelPrivateTrip: (tripId: string) => PrivateTripActionResult;
   bookPublicTrip: (tripId: string, participantsCount: number) => void;
+
+  groupTrips: GroupTrip[];
+  joinGroupTrip: (groupTripId: string) => GroupTripActionResult;
+  cancelGroupTripRequest: (groupTripId: string) => GroupTripActionResult;
+  leaveGroupTrip: (groupTripId: string) => GroupTripActionResult;
+
+  userNotifications: UserNotification[];
+  markUserNotificationRead: (notificationId: string) => void;
+  markAllUserNotificationsRead: () => void;
+  deleteUserNotification: (notificationId: string) => void;
+
+  savedTrailIds: string[];
+  toggleSavedTrail: (trailId: string) => void;
+
+  supportTickets: SupportTicket[];
+  createSupportTicket: (input: {
+    category: SupportTicketCategory;
+    subject: string;
+    description: string;
+  }) => SupportTicket;
 
   trails: Trail[];
   unlockTrail: (trailId: string) => void;
+
+  personalTrails: PersonalTrail[];
+  createPersonalTrail: (input: CreatePersonalTrailInput) => PersonalTrail;
+  updatePersonalTrail: (
+    trailId: string,
+    input: CreatePersonalTrailInput,
+  ) => void;
+  submitPersonalTrail: (trailId: string) => void;
+  deletePersonalTrail: (trailId: string) => void;
+
+  communityPosts: CommunityPost[];
+  communityProfiles: CommunityProfile[];
+  communityNotifications: CommunityNotification[];
+  communityReports: CommunityReport[];
+  createCommunityPost: (input: CreateCommunityPostInput) => CommunityPost;
+  toggleCommunityPostLike: (postId: string) => void;
+  toggleCommunityPostSaved: (postId: string) => void;
+  addCommunityComment: (postId: string, content: string) => void;
+  toggleCommunityFollow: (profileId: string) => void;
+  markCommunityNotificationRead: (notificationId: string) => void;
+  markAllCommunityNotificationsRead: () => void;
+  reportCommunityPost: (
+    postId: string,
+    reason: CommunityReportReason,
+    detail?: string,
+  ) => void;
 
   equipment: EquipmentItem[];
   rentalOrders: RentalOrder[];
@@ -135,8 +228,11 @@ interface AppContextType {
   addToCart: (item: EquipmentItem, quantity: number) => void;
   removeFromCart: (itemId: string) => void;
   checkoutRental: (tripId: string, days: number) => void;
+  confirmRentalPickup: (orderId: string) => void;
+  requestRentalReturn: (orderId: string, returnMethod: string) => void;
+  completeRentalInspection: (orderId: string) => void;
+  confirmRentalDepositRefund: (orderId: string) => void;
 
-  // Live GPS & Navigation State
   telemetry: LiveNavTelemetry;
   activeTrail: Trail;
   toggleDeviation: () => void;
@@ -144,7 +240,6 @@ interface AppContextType {
   reconnectToRoute: () => void;
   completeCheckpointMission: (checkpointId: string) => void;
   resolveMemberAlert: (memberId: string) => void;
-
   fieldWorkflow: FieldWorkflowState;
   setLeaderMemberAttendance: (memberName: string, status: LeaderMemberAttendance) => void;
   completeLeaderCheckpoint: (checkpointId: string) => void;
@@ -170,21 +265,770 @@ interface AppContextType {
   completeReturn: () => void;
   enableReturnDemo: () => void;
   resetFieldWorkflow: () => void;
-}
+};
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
-export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<UserProfile>(mockUserProfile);
+const initialTrekkerAccount: TrekkerAccount = {
+  phone: "0903 456 789",
+  dateOfBirth: "18/09/2003",
+  gender: "MALE",
+  address: "Thành phố Hồ Chí Minh",
+  bio: "Trekker cuối tuần, yêu rừng thông và những cung đường săn mây.",
+  bloodType: "O+",
+  allergies: "Không ghi nhận",
+  medicalConditions: "Không có bệnh nền",
+  medications: "Không sử dụng thuốc định kỳ",
+  fitnessLevel: "INTERMEDIATE",
+  emergencyContact: {
+    name: "Nguyễn Minh Tâm",
+    relationship: "Người thân",
+    phone: "0912 345 678",
+  },
+  notifications: {
+    tripUpdates: true,
+    safetyAlerts: true,
+    communityActivities: true,
+    promotions: false,
+  },
+  privacy: {
+    profileVisibility: "PUBLIC",
+    activityVisibility: "FOLLOWERS",
+    allowFollowRequests: true,
+  },
+};
+
+const initialGroupTrips: GroupTrip[] = [
+  {
+    id: "group-ta-nang-01",
+    title: "Ghép đoàn săn mây Tà Năng – Phan Dũng",
+    destination: "Tà Năng – Phan Dũng",
+    province: "Lâm Đồng",
+    startDate: "16/10/2026",
+    endDate: "18/10/2026",
+    duration: "3 ngày 2 đêm",
+    difficulty: "Trung bình",
+    imageUrl: "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=1200&q=80",
+    description: "Nhóm nhỏ ưu tiên trải nghiệm chậm, săn mây bình minh và cắm trại trên sống lưng đồi cỏ.",
+    organizer: {
+      id: "community-leader-linh",
+      name: "Trần Gia Linh",
+      avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=240&q=80",
+      role: "LEADER",
+      verified: true,
+      badge: "Verified Leader",
+    },
+    maxMembers: 10,
+    currentMembers: 7,
+    priceEstimate: 1850000,
+    meetingPoint: "Bến xe Miền Đông mới, TP.HCM",
+    joinMode: "APPROVAL",
+    joinStatus: "NONE",
+    tags: ["Săn mây", "Cắm trại", "Chụp ảnh"],
+    requirements: ["Thể lực trung bình", "Có giày trekking", "Không bệnh tim mạch nặng"],
+    members: [
+      { id: "community-leader-linh", name: "Trần Gia Linh", avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=240&q=80", fitnessLevel: "ADVANCED", role: "ORGANIZER" },
+      { id: "group-member-1", name: "Hoàng Nam", avatar: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=240&q=80", fitnessLevel: "INTERMEDIATE", role: "MEMBER" },
+      { id: "group-member-2", name: "Bảo Ngọc", avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=240&q=80", fitnessLevel: "INTERMEDIATE", role: "MEMBER" },
+    ],
+  },
+  {
+    id: "group-bidoup-02",
+    title: "Cuối tuần chinh phục Bidoup",
+    destination: "Vườn quốc gia Bidoup – Núi Bà",
+    province: "Lâm Đồng",
+    startDate: "24/10/2026",
+    endDate: "25/10/2026",
+    duration: "2 ngày 1 đêm",
+    difficulty: "Khó",
+    imageUrl: "https://images.unsplash.com/photo-1551632811-561732d1e306?auto=format&fit=crop&w=1200&q=80",
+    description: "Đoàn dành cho trekker đã có kinh nghiệm, tốc độ ổn định và ưu tiên an toàn rừng già.",
+    organizer: {
+      id: "community-leader-minh",
+      name: "Lê Nhật Minh",
+      avatar: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=240&q=80",
+      role: "LEADER",
+      verified: true,
+      badge: "Top Organizer",
+    },
+    maxMembers: 8,
+    currentMembers: 5,
+    priceEstimate: 2250000,
+    meetingPoint: "Quảng trường Lâm Viên, Đà Lạt",
+    joinMode: "APPROVAL",
+    joinStatus: "PENDING",
+    tags: ["Rừng già", "Đỉnh cao", "Thử thách"],
+    requirements: ["Đã hoàn thành ít nhất 2 cung", "Thể lực khá", "Mang áo mưa cá nhân"],
+    members: [
+      { id: "community-leader-minh", name: "Lê Nhật Minh", avatar: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=240&q=80", fitnessLevel: "ADVANCED", role: "ORGANIZER" },
+    ],
+  },
+  {
+    id: "group-chua-chan-03",
+    title: "Trekking Núi Chứa Chan cho người mới",
+    destination: "Núi Chứa Chan",
+    province: "Đồng Nai",
+    startDate: "01/11/2026",
+    endDate: "01/11/2026",
+    duration: "Trong ngày",
+    difficulty: "Dễ",
+    imageUrl: "https://images.unsplash.com/photo-1486911278844-a81c5267e227?auto=format&fit=crop&w=1200&q=80",
+    description: "Chuyến làm quen trekking với nhịp độ nhẹ, phù hợp người mới và nhóm bạn nhỏ.",
+    organizer: {
+      id: "community-user-thao",
+      name: "Nguyễn Thanh Thảo",
+      avatar: "https://images.unsplash.com/photo-1527980965255-d3b416303d12?auto=format&fit=crop&w=240&q=80",
+      role: "TREKKER",
+      verified: false,
+    },
+    maxMembers: 12,
+    currentMembers: 9,
+    priceEstimate: 650000,
+    meetingPoint: "Bưu điện trung tâm TP.HCM",
+    joinMode: "INSTANT",
+    joinStatus: "NONE",
+    tags: ["Người mới", "Trong ngày", "Kết bạn"],
+    requirements: ["Sức khỏe ổn định", "Mang tối thiểu 1.5L nước", "Có mặt đúng giờ"],
+    members: [
+      { id: "community-user-thao", name: "Nguyễn Thanh Thảo", avatar: "https://images.unsplash.com/photo-1527980965255-d3b416303d12?auto=format&fit=crop&w=240&q=80", fitnessLevel: "INTERMEDIATE", role: "ORGANIZER" },
+    ],
+  },
+];
+
+const initialUserNotifications: UserNotification[] = [
+  {
+    id: "notification-booking-1",
+    category: "BOOKING",
+    title: "Booking đã được xác nhận",
+    message: "Vé QR cho chuyến trekking sắp tới đã sẵn sàng trong My Trips.",
+    createdAt: "10 phút trước",
+    isRead: false,
+    route: "/(tabs)/trips",
+  },
+  {
+    id: "notification-rental-1",
+    category: "RENTAL",
+    title: "Đơn thuê đang được chuẩn bị",
+    message: "Kho đã tiếp nhận đơn và đang chuẩn bị thiết bị cho chuyến đi của bạn.",
+    createdAt: "1 giờ trước",
+    isRead: false,
+    route: "/(tabs)/rental",
+  },
+  {
+    id: "notification-group-1",
+    category: "GROUP_TRIP",
+    title: "Yêu cầu ghép đoàn đang chờ duyệt",
+    message: "Trưởng nhóm Bidoup sẽ phản hồi yêu cầu tham gia của bạn.",
+    createdAt: "Hôm qua",
+    isRead: false,
+    route: "/group-trips",
+  },
+  {
+    id: "notification-trail-1",
+    category: "PERSONAL_TRAIL",
+    title: "Cung đường đã được xác minh",
+    message: "Cung đường cá nhân của bạn đã đạt trạng thái VERIFIED.",
+    createdAt: "2 ngày trước",
+    isRead: true,
+    route: "/personal-trails",
+  },
+  {
+    id: "notification-trail-2",
+    category: "PERSONAL_TRAIL",
+    title: "Cần chỉnh sửa cung đường",
+    message: "Admin yêu cầu bổ sung checkpoint và mô tả an toàn trước khi duyệt lại.",
+    createdAt: "3 ngày trước",
+    isRead: true,
+    route: "/personal-trails",
+  },
+];
+
+function formatNow() {
+  return new Date().toLocaleString("vi-VN");
+}
+
+function normalizeInviteCode(value: string) {
+  return value.trim().toUpperCase();
+}
+
+const initialPersonalTrails: PersonalTrail[] = [
+  {
+    id: "personal-trail-dinh-pinhatt",
+    ownerId: mockUserProfile.id,
+    name: "Đường mòn săn hoàng hôn Pinhatt",
+    region: "Đà Lạt, Lâm Đồng",
+    difficulty: "Trung bình",
+    distanceKm: 8.6,
+    elevationGainM: 420,
+    duration: "1 ngày",
+    terrainType: "Rừng thông & Sống núi",
+    description:
+      "Route cá nhân xuyên rừng thông lên điểm ngắm hồ Tuyền Lâm và đỉnh Pinhatt.",
+    visibility: "PRIVATE",
+    verificationStatus: "DRAFT",
+    routePreset: "RIDGE",
+    routePoints: [
+      { id: "route-1", x: 42, y: 304 },
+      { id: "route-2", x: 112, y: 252 },
+      { id: "route-3", x: 208, y: 196 },
+      { id: "route-4", x: 294, y: 116 },
+      { id: "route-5", x: 356, y: 62 },
+    ],
+    checkpoints: [
+      {
+        id: "personal-cp-1",
+        order: 1,
+        name: "Bìa rừng thông",
+        elevation: 1450,
+        distanceFromStartKm: 0,
+        status: "PENDING",
+        coords: { x: 42, y: 304 },
+      },
+      {
+        id: "personal-cp-2",
+        order: 2,
+        name: "Điểm ngắm hồ Tuyền Lâm",
+        elevation: 1620,
+        distanceFromStartKm: 4.2,
+        status: "PENDING",
+        coords: { x: 208, y: 196 },
+      },
+    ],
+    createdAt: "01/10/2026",
+    updatedAt: "01/10/2026",
+  },
+  {
+    id: "personal-trail-suoi-vang",
+    ownerId: mockUserProfile.id,
+    name: "Suối Vàng – Đồi cỏ hồng",
+    region: "Lạc Dương, Lâm Đồng",
+    difficulty: "Dễ",
+    distanceKm: 5.4,
+    elevationGainM: 180,
+    duration: "Nửa ngày",
+    terrainType: "Đồi cỏ & Đường đất",
+    description:
+      "Cung đường ngắn dành cho nhóm mới bắt đầu, có nhiều điểm dừng chụp ảnh.",
+    visibility: "PRIVATE",
+    verificationStatus: "REJECTED",
+    rejectionReason:
+      "Cần bổ sung checkpoint nguồn nước và mô tả lối thoát khẩn cấp.",
+    routePreset: "FOREST",
+    routePoints: [
+      { id: "route-a", x: 38, y: 292 },
+      { id: "route-b", x: 126, y: 238 },
+      { id: "route-c", x: 230, y: 172 },
+      { id: "route-d", x: 346, y: 86 },
+    ],
+    checkpoints: [
+      {
+        id: "personal-cp-a",
+        order: 1,
+        name: "Bãi gửi xe Suối Vàng",
+        elevation: 1380,
+        distanceFromStartKm: 0,
+        status: "PENDING",
+        coords: { x: 38, y: 292 },
+      },
+    ],
+    createdAt: "29/09/2026",
+    updatedAt: "30/09/2026",
+  },
+];
+
+const initialCommunityPosts: CommunityPost[] = [
+  {
+    id: "community-post-pinhatt",
+    author: {
+      id: "leader-hoang-nam",
+      name: "Hoàng Nam",
+      avatar: "https://i.pravatar.cc/200?img=12",
+      role: "LEADER",
+      verified: true,
+      badge: "Verified Leader",
+    },
+    content:
+      "Sáng nay Pinhatt có mây thấp và gió khá mạnh ở đoạn sống núi. Đoàn đi sau 9 giờ nên mang áo gió, giữ khoảng cách và tránh đứng lâu tại mép đá.",
+    imageUrl:
+      "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1200&q=80",
+    location: "Đỉnh Pinhatt, Lâm Đồng",
+    trailName: "Đường mòn săn hoàng hôn Pinhatt",
+    tags: ["Cảnh báo", "Pinhatt", "Thời tiết"],
+    createdAt: "35 phút trước",
+    likesCount: 128,
+    commentsCount: 2,
+    isLiked: false,
+    isSaved: true,
+    comments: [
+      {
+        id: "comment-pinhatt-1",
+        postId: "community-post-pinhatt",
+        author: {
+          id: "trekker-minh-anh",
+          name: "Minh Anh",
+          avatar: "https://i.pravatar.cc/200?img=47",
+          role: "TREKKER",
+          verified: false,
+        },
+        content: "Cảm ơn Leader, nhóm mình sẽ xuất phát sớm hơn dự kiến.",
+        createdAt: "20 phút trước",
+      },
+      {
+        id: "comment-pinhatt-2",
+        postId: "community-post-pinhatt",
+        author: {
+          id: "leader-khanh-linh",
+          name: "Khánh Linh",
+          avatar: "https://i.pravatar.cc/200?img=32",
+          role: "LEADER",
+          verified: true,
+          badge: "Top Organizer",
+        },
+        content: "Đoạn CP2 cũng hơi trơn, nhớ kiểm tra đế giày trước khi lên.",
+        createdAt: "12 phút trước",
+      },
+    ],
+  },
+  {
+    id: "community-post-ta-nang",
+    author: {
+      id: "trekker-minh-anh",
+      name: "Minh Anh",
+      avatar: "https://i.pravatar.cc/200?img=47",
+      role: "TREKKER",
+      verified: false,
+      badge: "Mountain Explorer",
+    },
+    content:
+      "Hoàn thành cung Tà Năng – Phan Dũng lần đầu tiên! Cảm ơn mọi người đã chia sẻ checklist nước và đồ chống nắng. View cuối ngày thật sự xứng đáng.",
+    imageUrl:
+      "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=1200&q=80",
+    location: "Tà Năng – Phan Dũng",
+    trailName: "Tà Năng – Phan Dũng",
+    tags: ["Review chuyến đi", "Tà Năng", "Tân binh"],
+    createdAt: "2 giờ trước",
+    likesCount: 84,
+    commentsCount: 1,
+    isLiked: true,
+    isSaved: false,
+    comments: [
+      {
+        id: "comment-ta-nang-1",
+        postId: "community-post-ta-nang",
+        author: {
+          id: "leader-hoang-nam",
+          name: "Hoàng Nam",
+          avatar: "https://i.pravatar.cc/200?img=12",
+          role: "LEADER",
+          verified: true,
+          badge: "Verified Leader",
+        },
+        content: "Chúc mừng bạn đã hoàn thành cung đầu tiên nhé!",
+        createdAt: "1 giờ trước",
+      },
+    ],
+  },
+  {
+    id: "community-post-gear",
+    author: {
+      id: "leader-khanh-linh",
+      name: "Khánh Linh",
+      avatar: "https://i.pravatar.cc/200?img=32",
+      role: "LEADER",
+      verified: true,
+      badge: "Top Organizer",
+    },
+    content:
+      "Checklist nhanh cho chuyến 2 ngày 1 đêm: áo mưa nhẹ, đèn pin đội đầu, túi ngủ phù hợp nhiệt độ và tối thiểu 2 lít nước/người. Đừng mang balo quá 20% cân nặng cơ thể.",
+    location: "Cộng đồng TrekGo",
+    tags: ["Kinh nghiệm", "Trang bị", "Checklist"],
+    createdAt: "Hôm qua",
+    likesCount: 206,
+    commentsCount: 0,
+    isLiked: false,
+    isSaved: false,
+    comments: [],
+  },
+];
+
+const initialCommunityProfiles: CommunityProfile[] = [
+  {
+    id: mockUserProfile.id,
+    name: mockUserProfile.name,
+    avatar: mockUserProfile.avatar,
+    coverImage:
+      "https://images.unsplash.com/photo-1464278533981-50106e6176b1?auto=format&fit=crop&w=1200&q=80",
+    role: (mockUserProfile.role === "LEADER" ? "LEADER" : "TREKKER") as CommunityAuthorRole,
+    verified: mockUserProfile.role === "LEADER",
+    badge: mockUserProfile.role === "LEADER" ? "Verified Leader" : "Trail Explorer",
+    bio: "Yêu những cung đường nhiều cây xanh, thích ghi lại checklist và kinh nghiệm cho người mới.",
+    location: "TP. Hồ Chí Minh",
+    joinedAt: "Tham gia từ 08/2026",
+    followersCount: 126,
+    followingCount: 48,
+    completedTripsCount: mockUserProfile.completedTripsCount,
+    totalDistanceKm: mockUserProfile.totalDistanceKm,
+    specialties: ["Trekking cuối tuần", "Checklist", "Ảnh hành trình"],
+    isFollowing: false,
+  },
+  {
+    id: "leader-hoang-nam",
+    name: "Hoàng Nam",
+    avatar: "https://i.pravatar.cc/200?img=12",
+    coverImage:
+      "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=1200&q=80",
+    role: "LEADER",
+    verified: true,
+    badge: "Verified Leader",
+    bio: "Leader chuyên tuyến Tây Nguyên, ưu tiên an toàn đoàn và kỹ năng xử lý thời tiết xấu.",
+    location: "Đà Lạt, Lâm Đồng",
+    joinedAt: "Tham gia từ 04/2025",
+    followersCount: 2840,
+    followingCount: 119,
+    completedTripsCount: 68,
+    totalDistanceKm: 1246,
+    specialties: ["Tây Nguyên", "An toàn tuyến", "Sơ cứu"],
+    isFollowing: true,
+  },
+  {
+    id: "trekker-minh-anh",
+    name: "Minh Anh",
+    avatar: "https://i.pravatar.cc/200?img=47",
+    coverImage:
+      "https://images.unsplash.com/photo-1551632811-561732d1e306?auto=format&fit=crop&w=1200&q=80",
+    role: "TREKKER",
+    verified: false,
+    badge: "Mountain Explorer",
+    bio: "Tân binh mê săn mây, đang chinh phục từng cung đường đẹp của Việt Nam.",
+    location: "Biên Hòa, Đồng Nai",
+    joinedAt: "Tham gia từ 09/2026",
+    followersCount: 318,
+    followingCount: 92,
+    completedTripsCount: 7,
+    totalDistanceKm: 86,
+    specialties: ["Săn mây", "Review chuyến đi", "Người mới"],
+    isFollowing: false,
+  },
+  {
+    id: "leader-khanh-linh",
+    name: "Khánh Linh",
+    avatar: "https://i.pravatar.cc/200?img=32",
+    coverImage:
+      "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1200&q=80",
+    role: "LEADER",
+    verified: true,
+    badge: "Top Organizer",
+    bio: "Leader tuyến dài ngày, thích chia sẻ cách chuẩn bị hành lý gọn và đủ.",
+    location: "Hà Nội",
+    joinedAt: "Tham gia từ 11/2024",
+    followersCount: 4210,
+    followingCount: 204,
+    completedTripsCount: 94,
+    totalDistanceKm: 2084,
+    specialties: ["Tuyến dài ngày", "Trang bị", "Điều phối đoàn"],
+    isFollowing: true,
+  },
+];
+
+const initialCommunityNotifications: CommunityNotification[] = [
+  {
+    id: "community-notification-safety",
+    type: "SAFETY",
+    title: "Cảnh báo tuyến Pinhatt",
+    message: "Gió mạnh và mây thấp tại đoạn sống núi. Kiểm tra bài cập nhật trước khi khởi hành.",
+    createdAt: "20 phút trước",
+    isRead: false,
+    postId: "community-post-pinhatt",
+  },
+  {
+    id: "community-notification-comment",
+    type: "COMMENT",
+    title: "Khánh Linh đã bình luận",
+    message: "Checklist này rất phù hợp cho đoàn đi cuối tuần.",
+    createdAt: "1 giờ trước",
+    isRead: false,
+    actor: {
+      id: "leader-khanh-linh",
+      name: "Khánh Linh",
+      avatar: "https://i.pravatar.cc/200?img=32",
+      role: "LEADER",
+      verified: true,
+      badge: "Top Organizer",
+    },
+    profileId: "leader-khanh-linh",
+  },
+  {
+    id: "community-notification-follow",
+    type: "FOLLOW",
+    title: "Minh Anh đã theo dõi bạn",
+    message: "Bạn có thêm một người đồng hành mới trong Community.",
+    createdAt: "Hôm qua",
+    isRead: true,
+    actor: {
+      id: "trekker-minh-anh",
+      name: "Minh Anh",
+      avatar: "https://i.pravatar.cc/200?img=47",
+      role: "TREKKER",
+      verified: false,
+      badge: "Mountain Explorer",
+    },
+    profileId: "trekker-minh-anh",
+  },
+];
+
+export const AppProvider: React.FC<{
+  children: React.ReactNode;
+}> = ({ children }) => {
+  const { user: authenticatedUser } = useAuth();
+  const [localUser, setUser] = useState<UserProfile>(mockUserProfile);
   const [authRole, setAuthRole] = useState<'STAFF_DELIVERY' | 'LEADER' | null>(null);
-  const [trips, setTrips] = useState<Trip[]>(mockTrips);
-  const [trails, setTrails] = useState<Trail[]>(mockTrails);
-  const [equipment] = useState<EquipmentItem[]>(mockEquipment);
-  const [rentalOrders, setRentalOrders] = useState<RentalOrder[]>(mockRentalOrders);
-  const [cart, setCart] = useState<{ item: EquipmentItem; quantity: number }[]>([]);
-  const [telemetry, setTelemetry] = useState<LiveNavTelemetry>(initialLiveTelemetry);
   const [fieldWorkflow, setFieldWorkflow] = useState<FieldWorkflowState>(initialFieldWorkflow);
   const [workflowHydrated, setWorkflowHydrated] = useState(false);
+
+  useEffect(() => {
+    AsyncStorage.getItem(FIELD_WORKFLOW_STORAGE_KEY)
+      .then((value) => {
+        if (value) {
+          const stored = JSON.parse(value) as Partial<FieldWorkflowState> & {
+            deliveryItems?: (boolean | DeliveryItemState)[];
+            returnItems?: (boolean | ReturnItemState)[];
+          };
+          const deliveryItems =
+            stored.deliveryItems?.map((item) =>
+              typeof item === 'boolean'
+                ? ({ status: item ? 'OK' : 'PENDING', note: '' } as DeliveryItemState)
+                : item,
+            ) ?? initialFieldWorkflow.deliveryItems;
+          const returnItems =
+            stored.returnItems?.map((item) =>
+              typeof item === 'boolean'
+                ? ({ status: item ? 'OK' : 'PENDING', note: '' } as ReturnItemState)
+                : item,
+            ) ?? initialFieldWorkflow.returnItems;
+          setFieldWorkflow({ ...initialFieldWorkflow, ...stored, deliveryItems, returnItems });
+        }
+      })
+      .catch(() => undefined)
+      .finally(() => setWorkflowHydrated(true));
+  }, []);
+
+  useEffect(() => {
+    if (!workflowHydrated) return;
+    AsyncStorage.setItem(FIELD_WORKFLOW_STORAGE_KEY, JSON.stringify(fieldWorkflow)).catch(() => undefined);
+  }, [fieldWorkflow, workflowHydrated]);
+
+  const updateFieldWorkflow = (update: Partial<FieldWorkflowState>) => {
+    setFieldWorkflow((prev) => ({ ...prev, ...update, lastUpdated: new Date().toISOString() }));
+  };
+
+  const approveLeaderPretrip = () => updateFieldWorkflow({ leaderPretripApproved: true });
+
+  const publishPublicTrip = (draft: {
+    name: string;
+    startDate: string;
+    endDate: string;
+    slots: number;
+    trailId: string;
+    checkpointIds: string[];
+  }) => {
+    const trail = trails.find((item) => item.id === draft.trailId);
+    if (!trail) return;
+    const newTrip: Trip = {
+      id: `trip-public-${Date.now()}`,
+      type: 'PUBLIC',
+      name: draft.name,
+      trailId: trail.id,
+      destination: trail.region,
+      startDate: draft.startDate,
+      endDate: draft.endDate,
+      durationDays: 1,
+      status: 'UPCOMING',
+      leader: {
+        name: 'Minh Khoa',
+        avatar: '',
+        phone: '',
+        rating: 5,
+        badge: 'Mountain Leader',
+      },
+      capacity: draft.slots,
+      enrolledCount: 0,
+      pricePerPerson: 0,
+      bookingCode: `TG-${Date.now().toString().slice(-6)}`,
+      weather: {
+        tempC: 0,
+        condition: 'Chưa cập nhật',
+        rainRisk: false,
+        rainChancePercent: 0,
+        humidityPercent: 0,
+        windSpeedKmh: 0,
+      },
+      participants: [],
+    };
+    setTrips((prev) => [newTrip, ...prev]);
+  };
+
+  const setLeaderMemberAttendance = (memberName: string, status: LeaderMemberAttendance) => {
+    setFieldWorkflow((prev) => ({
+      ...prev,
+      leaderAttendance: prev.leaderAttendance.map((member) =>
+        member.memberName === memberName ? { ...member, status } : member,
+      ),
+      lastUpdated: new Date().toISOString(),
+    }));
+  };
+
+  const startLeaderTrip = () => {
+    setFieldWorkflow((prev) => {
+      const hasPendingAttendance = prev.leaderAttendance.some((member) => member.status === 'PENDING');
+      const hasCheckedInMember = prev.leaderAttendance.some((member) => member.status === 'CHECKED_IN');
+      if (!prev.leaderPretripApproved || hasPendingAttendance || !hasCheckedInMember) return prev;
+      return { ...prev, leaderTripStatus: 'IN_PROGRESS', lastUpdated: new Date().toISOString() };
+    });
+  };
+
+  const completeLeaderCheckpoint = (checkpointId: string) => {
+    setFieldWorkflow((prev) =>
+      prev.leaderTripStatus !== 'IN_PROGRESS' ||
+      !prev.requiredCheckpointIds.includes(checkpointId) ||
+      prev.completedCheckpointIds.includes(checkpointId)
+        ? prev
+        : {
+            ...prev,
+            completedCheckpointIds: [...prev.completedCheckpointIds, checkpointId],
+            lastUpdated: new Date().toISOString(),
+          },
+    );
+  };
+
+  const resolveLeaderSafetyAlert = (selectedOption: string) => {
+    updateFieldWorkflow({
+      leaderSafetyAlert: { status: 'RESOLVED', selectedOption },
+    });
+  };
+
+  const toggleLeaderGpsStatus = () => {
+    setFieldWorkflow((prev) => ({
+      ...prev,
+      gpsStatus: prev.gpsStatus === 'OK' ? 'LOST' : 'OK',
+      pendingSyncCount: prev.gpsStatus === 'OK' ? prev.pendingSyncCount + 1 : prev.pendingSyncCount,
+      lastUpdated: new Date().toISOString(),
+    }));
+  };
+
+  const toggleLeaderOnlineStatus = () => {
+    setFieldWorkflow((prev) => {
+      if (!prev.isOnline) {
+        setTimeout(() => {
+          setFieldWorkflow((current) => ({
+            ...current,
+            pendingSyncCount: 0,
+            lastUpdated: new Date().toISOString(),
+          }));
+        }, 1000);
+      }
+      return {
+        ...prev,
+        isOnline: !prev.isOnline,
+        pendingSyncCount: prev.isOnline ? prev.pendingSyncCount + 1 : prev.pendingSyncCount,
+        lastUpdated: new Date().toISOString(),
+      };
+    });
+  };
+
+  const completeLeaderTrip = () => {
+    setFieldWorkflow((prev) => {
+      const hasMissingCheckpoint = prev.requiredCheckpointIds.some((id) => !prev.completedCheckpointIds.includes(id));
+      if (prev.leaderTripStatus !== 'IN_PROGRESS' || hasMissingCheckpoint) return prev;
+      return { ...prev, leaderTripStatus: 'COMPLETED', lastUpdated: new Date().toISOString() };
+    });
+  };
+
+  const sendLeaderReport = () =>
+    updateFieldWorkflow({
+      leaderReportSent: true,
+      handoverRequested: true,
+      returnStatus: 'IN_PROGRESS',
+    });
+
+  const receiveDeliveryPackage = (packageCode: string) => {
+    const readyOrder = rentalOrders.find((order) => order.status === 'READY_FOR_DELIVERY');
+    if (!readyOrder || packageCode !== 'PKG-7892-A') return false;
+    updateFieldWorkflow({ packageReceived: true });
+    return true;
+  };
+
+  const markArrivedAtPickup = () => updateFieldWorkflow({ arrivedAtPickup: true });
+  const setDeliveryVerified = (verified: boolean) => updateFieldWorkflow({ deliveryVerified: verified });
+  const setDeliveryItem = (index: number, status: DeliveryItemStatus, note: string) =>
+    updateFieldWorkflow({
+      deliveryItems: fieldWorkflow.deliveryItems.map((item, itemIndex) =>
+        itemIndex === index ? { status, note } : item,
+      ),
+    });
+  const setDeliveryPhoto = (uri: string | null) => updateFieldWorkflow({ deliveryPhotoUri: uri });
+  const setDeliverySigned = (signed: boolean) => updateFieldWorkflow({ deliverySigned: signed });
+  const completeDelivery = () =>
+    updateFieldWorkflow({ deliveryStatus: 'COMPLETED', returnStatus: 'PENDING', depositStatus: 'HELD' });
+  const markReturnArrived = () => updateFieldWorkflow({ returnArrived: true, returnStatus: 'IN_PROGRESS' });
+  const setReturnVerified = (verified: boolean) => updateFieldWorkflow({ returnVerified: verified });
+  const setReturnItem = (index: number, status: DeliveryItemStatus, note: string) =>
+    updateFieldWorkflow({
+      returnItems: fieldWorkflow.returnItems.map((item, itemIndex) =>
+        itemIndex === index ? { status, note } : item,
+      ),
+    });
+  const setReturnConditionRecorded = (recorded: boolean) => updateFieldWorkflow({ returnConditionRecorded: recorded });
+  const setReturnSigned = (signed: boolean) => updateFieldWorkflow({ returnSigned: signed });
+  const completeReturn = () =>
+    updateFieldWorkflow({ returnStatus: 'COMPLETED', depositStatus: 'PENDING_INSPECTION' });
+  const enableReturnDemo = () =>
+    updateFieldWorkflow({
+      handoverRequested: true,
+      leaderReportSent: true,
+      returnStatus: 'IN_PROGRESS',
+    });
+  const resetFieldWorkflow = () =>
+    setFieldWorkflow({ ...initialFieldWorkflow, lastUpdated: new Date().toISOString() });
+
+  const signInAsRole = (role: 'STAFF_DELIVERY' | 'LEADER') => {
+    setAuthRole(role);
+    setUser((prev) => ({
+      ...prev,
+      role,
+      name: role === 'LEADER' ? 'Minh Khoa' : 'Hoàng Văn Tuấn',
+    }));
+  };
+
+  const signOut = () => setAuthRole(null);
+  const user: UserProfile = authenticatedUser
+    ? {
+        ...localUser,
+        id: authenticatedUser.id,
+        name:
+          authenticatedUser.fullName ||
+          authenticatedUser.name ||
+          authenticatedUser.email.split("@")[0],
+        email: authenticatedUser.email,
+        avatar:
+          authenticatedUser.avatarUrl ||
+          authenticatedUser.avatar ||
+          localUser.avatar,
+        role: authenticatedUser.role === "LEADER" ? "LEADER" : "TREKKER",
+      }
+    : localUser;
+  const [trekkerAccount, setTrekkerAccount] = useState<TrekkerAccount>(
+    initialTrekkerAccount,
+  );
+  const [groupTrips, setGroupTrips] = useState<GroupTrip[]>(initialGroupTrips);
+  const [userNotifications, setUserNotifications] = useState<UserNotification[]>(
+    initialUserNotifications,
+  );
+  const [savedTrailIds, setSavedTrailIds] = useState<string[]>([
+    "trail-pinhatt",
+  ]);
+  const [supportTickets, setSupportTickets] = useState<SupportTicket[]>([]);
+  const [trips, setTrips] = useState<Trip[]>(mockTrips);
+  const [trails, setTrails] = useState<Trail[]>(mockTrails);
 
   const [personalTrails, setPersonalTrails] = useState<PersonalTrail[]>(
     initialPersonalTrails,
@@ -225,171 +1069,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     ) || trips[0];
   const activeTrail = trails[0];
 
-  useEffect(() => {
-    AsyncStorage.getItem(FIELD_WORKFLOW_STORAGE_KEY)
-      .then(value => {
-        if (value) {
-          const stored = JSON.parse(value) as Partial<FieldWorkflowState> & { deliveryItems?: (boolean | DeliveryItemState)[]; returnItems?: (boolean | ReturnItemState)[] };
-          const deliveryItems = stored.deliveryItems?.map(item => typeof item === 'boolean'
-            ? { status: item ? 'OK' : 'PENDING', note: '' } as DeliveryItemState
-            : item) ?? initialFieldWorkflow.deliveryItems;
-          const returnItems = stored.returnItems?.map(item => typeof item === 'boolean'
-            ? { status: item ? 'OK' : 'PENDING', note: '' } as ReturnItemState
-            : item) ?? initialFieldWorkflow.returnItems;
-          setFieldWorkflow({ ...initialFieldWorkflow, ...stored, deliveryItems, returnItems });
-        }
-      })
-      .catch(() => undefined)
-      .finally(() => setWorkflowHydrated(true));
-  }, []);
-
-  useEffect(() => {
-    if (!workflowHydrated) return;
-    AsyncStorage.setItem(FIELD_WORKFLOW_STORAGE_KEY, JSON.stringify(fieldWorkflow)).catch(() => undefined);
-  }, [fieldWorkflow, workflowHydrated]);
-
-  const updateFieldWorkflow = (update: Partial<FieldWorkflowState>) => {
-    setFieldWorkflow(prev => ({ ...prev, ...update, lastUpdated: new Date().toISOString() }));
-  };
-
-  const approveLeaderPretrip = () => updateFieldWorkflow({ leaderPretripApproved: true });
-  const publishPublicTrip = (draft: { name: string; startDate: string; endDate: string; slots: number; trailId: string; checkpointIds: string[] }) => {
-    const trail = trails.find(item => item.id === draft.trailId);
-    if (!trail) return;
-    const newTrip: Trip = {
-      id: `trip-public-${Date.now()}`,
-      type: 'PUBLIC',
-      name: draft.name,
-      trailId: trail.id,
-      destination: trail.region,
-      startDate: draft.startDate,
-      endDate: draft.endDate,
-      durationDays: 1,
-      status: 'UPCOMING',
-      leader: {
-        name: 'Minh Khoa',
-        avatar: '',
-        phone: '',
-        rating: 5,
-        badge: 'Mountain Leader',
-      },
-      capacity: draft.slots,
-      enrolledCount: 0,
-      pricePerPerson: 0,
-      bookingCode: `TG-${Date.now().toString().slice(-6)}`,
-      weather: {
-        tempC: 0,
-        condition: 'Chưa cập nhật',
-        rainRisk: false,
-        rainChancePercent: 0,
-        humidityPercent: 0,
-        windSpeedKmh: 0,
-      },
-      participants: [],
-    };
-    setTrips(prev => [newTrip, ...prev]);
-  };
-  const setLeaderMemberAttendance = (memberName: string, status: LeaderMemberAttendance) => {
-    setFieldWorkflow(prev => ({
-      ...prev,
-      leaderAttendance: prev.leaderAttendance.map(member =>
-        member.memberName === memberName ? { ...member, status } : member
-      ),
-      lastUpdated: new Date().toISOString(),
-    }));
-  };
-  const startLeaderTrip = () => {
-    setFieldWorkflow(prev => {
-      const hasPendingAttendance = prev.leaderAttendance.some(member => member.status === 'PENDING');
-      const hasCheckedInMember = prev.leaderAttendance.some(member => member.status === 'CHECKED_IN');
-      if (!prev.leaderPretripApproved || hasPendingAttendance || !hasCheckedInMember) return prev;
-      return { ...prev, leaderTripStatus: 'IN_PROGRESS', lastUpdated: new Date().toISOString() };
-    });
-  };
-  const completeLeaderCheckpoint = (checkpointId: string) => {
-    setFieldWorkflow(prev => prev.leaderTripStatus !== 'IN_PROGRESS'
-      || !prev.requiredCheckpointIds.includes(checkpointId)
-      || prev.completedCheckpointIds.includes(checkpointId)
-      ? prev
-      : {
-          ...prev,
-          completedCheckpointIds: [...prev.completedCheckpointIds, checkpointId],
-          lastUpdated: new Date().toISOString(),
-        });
-  };
-  const resolveLeaderSafetyAlert = (selectedOption: string) => {
-    updateFieldWorkflow({
-      leaderSafetyAlert: { status: 'RESOLVED', selectedOption },
-    });
-  };
-  const toggleLeaderGpsStatus = () => {
-    setFieldWorkflow(prev => ({
-      ...prev,
-      gpsStatus: prev.gpsStatus === 'OK' ? 'LOST' : 'OK',
-      pendingSyncCount: prev.gpsStatus === 'OK' ? prev.pendingSyncCount + 1 : prev.pendingSyncCount,
-      lastUpdated: new Date().toISOString(),
-    }));
-  };
-  const toggleLeaderOnlineStatus = () => {
-    setFieldWorkflow(prev => {
-      if (!prev.isOnline) {
-        setTimeout(() => {
-          setFieldWorkflow(current => ({
-            ...current,
-            pendingSyncCount: 0,
-            lastUpdated: new Date().toISOString(),
-          }));
-        }, 1000);
-      }
-      return {
-        ...prev,
-        isOnline: !prev.isOnline,
-        pendingSyncCount: prev.isOnline ? prev.pendingSyncCount + 1 : prev.pendingSyncCount,
-        lastUpdated: new Date().toISOString(),
-      };
-    });
-  };
-  const completeLeaderTrip = () => {
-    setFieldWorkflow(prev => {
-      const hasMissingCheckpoint = prev.requiredCheckpointIds.some(id => !prev.completedCheckpointIds.includes(id));
-      if (prev.leaderTripStatus !== 'IN_PROGRESS' || hasMissingCheckpoint) return prev;
-      return { ...prev, leaderTripStatus: 'COMPLETED', lastUpdated: new Date().toISOString() };
-    });
-  };
-  const sendLeaderReport = () => updateFieldWorkflow({
-    leaderReportSent: true,
-    handoverRequested: true,
-    returnStatus: 'IN_PROGRESS',
-  });
-  const receiveDeliveryPackage = (packageCode: string) => {
-    const readyOrder = rentalOrders.find(order => order.status === 'READY_FOR_DELIVERY');
-    if (!readyOrder || packageCode !== 'PKG-7892-A') return false;
-    updateFieldWorkflow({ packageReceived: true });
-    return true;
-  };
-  const markArrivedAtPickup = () => updateFieldWorkflow({ arrivedAtPickup: true });
-  const setDeliveryVerified = (verified: boolean) => updateFieldWorkflow({ deliveryVerified: verified });
-  const setDeliveryItem = (index: number, status: DeliveryItemStatus, note: string) => updateFieldWorkflow({
-    deliveryItems: fieldWorkflow.deliveryItems.map((item, itemIndex) => itemIndex === index ? { status, note } : item),
-  });
-  const setDeliveryPhoto = (uri: string | null) => updateFieldWorkflow({ deliveryPhotoUri: uri });
-  const setDeliverySigned = (signed: boolean) => updateFieldWorkflow({ deliverySigned: signed });
-  const completeDelivery = () => updateFieldWorkflow({ deliveryStatus: 'COMPLETED', returnStatus: 'PENDING', depositStatus: 'HELD' });
-  const markReturnArrived = () => updateFieldWorkflow({ returnArrived: true, returnStatus: 'IN_PROGRESS' });
-  const setReturnVerified = (verified: boolean) => updateFieldWorkflow({ returnVerified: verified });
-  const setReturnItem = (index: number, status: DeliveryItemStatus, note: string) => updateFieldWorkflow({
-    returnItems: fieldWorkflow.returnItems.map((item, itemIndex) => itemIndex === index ? { status, note } : item),
-  });
-  const setReturnConditionRecorded = (recorded: boolean) => updateFieldWorkflow({ returnConditionRecorded: recorded });
-  const setReturnSigned = (signed: boolean) => updateFieldWorkflow({ returnSigned: signed });
-  const completeReturn = () => updateFieldWorkflow({ returnStatus: 'COMPLETED', depositStatus: 'PENDING_INSPECTION' });
-  const enableReturnDemo = () => updateFieldWorkflow({
-    handoverRequested: true,
-    leaderReportSent: true,
-    returnStatus: 'IN_PROGRESS',
-  });
-  const resetFieldWorkflow = () => setFieldWorkflow({ ...initialFieldWorkflow, lastUpdated: new Date().toISOString() });
-
   const toggleUserRole = () => {
     setUser((current) => ({
       ...current,
@@ -397,12 +1076,144 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }));
   };
 
-  const signInAsRole = (role: 'STAFF_DELIVERY' | 'LEADER') => {
-    setAuthRole(role);
-    setUser(prev => ({ ...prev, role, name: role === 'LEADER' ? 'Minh Khoa' : 'Hoàng Văn Tuấn' }));
+  const updateUserProfile = (input: Partial<UserProfile>) => {
+    setUser((current) => ({ ...current, ...input }));
+
+    setCommunityProfiles((current) =>
+      current.map((profile) =>
+        profile.id === user.id
+          ? {
+              ...profile,
+              name: input.name ?? profile.name,
+              avatar: input.avatar ?? profile.avatar,
+            }
+          : profile,
+      ),
+    );
   };
 
-  const signOut = () => setAuthRole(null);
+  const updateTrekkerAccount = (input: Partial<TrekkerAccount>) => {
+    setTrekkerAccount((current) => ({ ...current, ...input }));
+  };
+
+  const joinGroupTrip = (groupTripId: string): GroupTripActionResult => {
+    const selected = groupTrips.find((trip) => trip.id === groupTripId);
+
+    if (!selected) return { ok: false, message: "Không tìm thấy chuyến ghép đoàn." };
+    if (selected.joinStatus === "JOINED") return { ok: true, message: "Bạn đã tham gia chuyến này.", status: "JOINED" };
+    if (selected.joinStatus === "PENDING") return { ok: true, message: "Yêu cầu của bạn đang chờ duyệt.", status: "PENDING" };
+    if (selected.currentMembers >= selected.maxMembers) return { ok: false, message: "Chuyến đi đã đủ thành viên." };
+
+    const nextStatus = selected.joinMode === "INSTANT" ? "JOINED" : "PENDING";
+    setGroupTrips((current) =>
+      current.map((trip) =>
+        trip.id !== groupTripId
+          ? trip
+          : {
+              ...trip,
+              joinStatus: nextStatus,
+              currentMembers: nextStatus === "JOINED" ? trip.currentMembers + 1 : trip.currentMembers,
+              members:
+                nextStatus === "JOINED"
+                  ? [
+                      ...trip.members,
+                      {
+                        id: user.id,
+                        name: user.name,
+                        avatar: user.avatar,
+                        fitnessLevel: trekkerAccount.fitnessLevel,
+                        role: "MEMBER" as const,
+                      },
+                    ]
+                  : trip.members,
+            },
+      ),
+    );
+
+    return {
+      ok: true,
+      status: nextStatus,
+      message:
+        nextStatus === "JOINED"
+          ? "Bạn đã tham gia nhóm thành công."
+          : "Đã gửi yêu cầu. Trưởng nhóm sẽ duyệt hồ sơ của bạn.",
+    };
+  };
+
+  const cancelGroupTripRequest = (groupTripId: string): GroupTripActionResult => {
+    setGroupTrips((current) =>
+      current.map((trip) =>
+        trip.id === groupTripId && trip.joinStatus === "PENDING"
+          ? { ...trip, joinStatus: "NONE" }
+          : trip,
+      ),
+    );
+    return { ok: true, message: "Đã rút yêu cầu tham gia.", status: "NONE" };
+  };
+
+  const leaveGroupTrip = (groupTripId: string): GroupTripActionResult => {
+    setGroupTrips((current) =>
+      current.map((trip) =>
+        trip.id === groupTripId && trip.joinStatus === "JOINED"
+          ? {
+              ...trip,
+              joinStatus: "NONE",
+              currentMembers: Math.max(0, trip.currentMembers - 1),
+              members: trip.members.filter((member) => member.id !== user.id),
+            }
+          : trip,
+      ),
+    );
+    return { ok: true, message: "Bạn đã rời chuyến ghép đoàn.", status: "NONE" };
+  };
+
+  const markUserNotificationRead = (notificationId: string) => {
+    setUserNotifications((current) =>
+      current.map((notification) =>
+        notification.id === notificationId
+          ? { ...notification, isRead: true }
+          : notification,
+      ),
+    );
+  };
+
+  const markAllUserNotificationsRead = () => {
+    setUserNotifications((current) =>
+      current.map((notification) => ({ ...notification, isRead: true })),
+    );
+  };
+
+  const deleteUserNotification = (notificationId: string) => {
+    setUserNotifications((current) =>
+      current.filter((notification) => notification.id !== notificationId),
+    );
+  };
+
+  const toggleSavedTrail = (trailId: string) => {
+    setSavedTrailIds((current) =>
+      current.includes(trailId)
+        ? current.filter((id) => id !== trailId)
+        : [trailId, ...current],
+    );
+  };
+
+  const createSupportTicket = (input: {
+    category: SupportTicketCategory;
+    subject: string;
+    description: string;
+  }) => {
+    const ticket: SupportTicket = {
+      id: `SUP-${Date.now().toString().slice(-6)}`,
+      category: input.category,
+      subject: input.subject.trim(),
+      description: input.description.trim(),
+      createdAt: new Date().toLocaleString("vi-VN"),
+      status: "SUBMITTED",
+    };
+
+    setSupportTickets((current) => [ticket, ...current]);
+    return ticket;
+  };
 
   const createPrivateTrip = (tripData: Partial<Trip>) => {
     const inviteCode =
@@ -806,7 +1617,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         id: user.id,
         name: user.name,
         avatar: user.avatar,
-        role: user.role,
+        role: (user.role === "LEADER" ? "LEADER" : "TREKKER") as CommunityAuthorRole,
         verified: user.role === "LEADER",
         badge: user.role === "LEADER" ? "Verified Leader" : "Trekker",
       },
@@ -878,7 +1689,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 id: user.id,
                 name: user.name,
                 avatar: user.avatar,
-                role: user.role,
+                role: (user.role === "LEADER" ? "LEADER" : "TREKKER") as CommunityAuthorRole,
                 verified: user.role === "LEADER",
                 badge:
                   user.role === "LEADER" ? "Verified Leader" : "Trekker",
@@ -1178,13 +1989,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         user,
         setUser,
         toggleUserRole,
-        authRole,
-        signInAsRole,
-        signOut,
+        trekkerAccount,
+        updateUserProfile,
+        updateTrekkerAccount,
         trips,
         activeTrip,
         createPrivateTrip,
-        publishPublicTrip,
+        joinPrivateTrip,
+        leavePrivateTrip,
+        cancelPrivateTrip,
         bookPublicTrip,
         groupTrips,
         joinGroupTrip,
@@ -1235,6 +2048,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         reconnectToRoute,
         completeCheckpointMission,
         resolveMemberAlert,
+        authRole,
+        signInAsRole,
+        signOut,
+        publishPublicTrip,
         fieldWorkflow,
         setLeaderMemberAttendance,
         completeLeaderCheckpoint,
@@ -1260,7 +2077,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         completeReturn,
         enableReturnDemo,
         resetFieldWorkflow,
-      }}>
+      }}
+    >
       {children}
     </AppContext.Provider>
   );

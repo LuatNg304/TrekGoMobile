@@ -1,8 +1,9 @@
-import { FieldModal } from '@/components/FieldModal';
 import { Colors, Radius, Shadows } from '@/constants/theme';
 import { useApp } from '@/context/AppContext';
-import { deliveryTasks, leaderTrip } from '@/data/fieldOpsMock';
+import { deliveryTasks } from '@/data/fieldOpsMock';
 import { Ionicons } from '@expo/vector-icons';
+import { useAuth } from '@/features/auth/AuthContext';
+import { LeaderDashboardScreen } from '@/features/leaders/screens';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
@@ -18,8 +19,16 @@ const Action = ({ icon, label, onPress, tone = 'green' }: { icon: keyof typeof I
 export default function FieldOperationsHome() {
     const router = useRouter();
     const { user, authRole, signOut, fieldWorkflow, enableReturnDemo, resetFieldWorkflow } = useApp();
-    const isStaff = authRole === 'STAFF_DELIVERY';
-    const [modalVisible, setModalVisible] = useState(false);
+    const { user: authUser, signOut: authSignOut } = useAuth();
+    const effectiveRole = authRole || (authUser?.role === 'STAFF_DELIVERY' || authUser?.role === 'LEADER' ? authUser.role : null) || (user.role === 'STAFF_DELIVERY' || user.role === 'LEADER' ? user.role : null);
+
+    if (!effectiveRole) { router.replace('/'); return null; }
+
+    if (effectiveRole === 'LEADER') {
+        return <LeaderDashboardScreen />;
+    }
+
+    const isStaff = effectiveRole === 'STAFF_DELIVERY';
     const workflowTaskStatuses = [fieldWorkflow.deliveryStatus, fieldWorkflow.returnStatus];
     const taskTodayCount = workflowTaskStatuses.length;
     const deliveryInProgress = fieldWorkflow.deliveryStatus === 'IN_PROGRESS' || (fieldWorkflow.deliveryStatus === 'PENDING' && (fieldWorkflow.packageReceived || fieldWorkflow.arrivedAtPickup));
@@ -33,61 +42,20 @@ export default function FieldOperationsHome() {
         return fieldWorkflow.deliveryStatus === 'COMPLETED' ? 'COMPLETED' : deliveryInProgress ? 'IN_PROGRESS' : 'WAITING';
     };
     const visibleTasks = deliveryTasks.filter(task => taskStatus(task) === activeTaskTab);
-    const logout = () => { signOut(); router.replace('/'); };
-
-    if (!authRole) { router.replace('/'); return null; }
+    const logout = () => { signOut(); void authSignOut(); router.replace('/'); };
 
     return (
         <SafeAreaView style={styles.safeArea}>
             <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-                <View style={styles.header}><View><Text style={styles.eyebrow}>{isStaff ? 'TREKOPS DELIVERY' : 'MOUNTAIN LEADER'}</Text><Text style={styles.heading}>Xin chào, {user.name}</Text></View><TouchableOpacity onPress={logout} accessibilityLabel="Đăng xuất"><Ionicons name="log-out-outline" size={23} color={Colors.ink} /></TouchableOpacity></View>
-                <View style={[styles.statusBanner, isStaff ? styles.bannerGreen : styles.bannerAmber]}><Ionicons name={isStaff ? 'cube' : 'compass'} size={22} color={isStaff ? Colors.primaryDark : '#9b6700'} /><View style={{ flex: 1 }}><Text style={styles.bannerTitle}>{isStaff ? 'Ca giao nhận hôm nay' : 'Trung tâm chỉ huy chuyến trek'}</Text><Text style={styles.bannerText}>{isStaff ? `${taskTodayCount} task hôm nay · GPS đã sẵn sàng` : `${leaderTrip.name} · ${fieldWorkflow.leaderTripStatus === 'PREPARING' ? 'Đang chuẩn bị' : fieldWorkflow.leaderTripStatus === 'IN_PROGRESS' ? 'Đang di chuyển' : 'Đã hoàn thành'}`}</Text></View><View style={styles.liveDot} /></View>
+                <View style={styles.header}><View><Text style={styles.eyebrow}>TREKOPS DELIVERY</Text><Text style={styles.heading}>Xin chào, {authUser?.name || user.name}</Text></View><TouchableOpacity onPress={logout} accessibilityLabel="Đăng xuất"><Ionicons name="log-out-outline" size={23} color={Colors.ink} /></TouchableOpacity></View>
+                <View style={[styles.statusBanner, styles.bannerGreen]}><Ionicons name="cube" size={22} color={Colors.primaryDark} /><View style={{ flex: 1 }}><Text style={styles.bannerTitle}>Ca giao nhận hôm nay</Text><Text style={styles.bannerText}>{`${taskTodayCount} task hôm nay · GPS đã sẵn sàng`}</Text></View><View style={styles.liveDot} /></View>
 
-                {isStaff ? <>
-                    <View style={styles.statsRow}><Stat value={String(taskTodayCount)} label="Task hôm nay" /><Stat value={String(inProgressCount)} label="Đang xử lý" /><Stat value={String(completedCount)} label="Đã hoàn tất" /></View>
-                    <Text style={styles.sectionTitle}>NHIỆM VỤ</Text>
-                    <View style={styles.taskTabs}>{([['WAITING', 'Chờ nhận'], ['IN_PROGRESS', 'Đang xử lý'], ['COMPLETED', 'Hoàn tất']] as const).map(([value, label]) => <TouchableOpacity key={value} style={[styles.taskTab, activeTaskTab === value && styles.taskTabActive]} onPress={() => setActiveTaskTab(value)}><Text style={[styles.taskTabText, activeTaskTab === value && styles.taskTabTextActive]}>{label}</Text></TouchableOpacity>)}</View>
-                    {visibleTasks.length === 0 ? <View style={styles.empty}><Text style={styles.emptyText}>Không có task trong trạng thái này.</Text></View> : visibleTasks.map(task => <TouchableOpacity key={task.id} style={styles.taskCard} onPress={() => { if (task.type === 'THU_HOI') router.push({ pathname: '/field-operations/staff-return' as never, params: { taskId: task.id } }); else router.push({ pathname: '/field-operations/staff-task', params: { taskId: task.id } }); }} activeOpacity={0.84}><View style={styles.taskTop}><Text style={styles.taskId}>{task.id}</Text><Text style={styles.taskStatus}>{activeTaskTab === 'WAITING' && task.type === 'THU_HOI' && !fieldWorkflow.handoverRequested ? 'Chờ Leader hoàn tất' : task.status}</Text></View><Text style={styles.taskTitle}>{task.title}</Text><Text style={styles.taskMeta}><Ionicons name="person-outline" size={13} /> {task.customer}</Text><Text style={styles.taskMeta}><Ionicons name="location-outline" size={13} /> {task.location} · {task.time}</Text><View style={styles.taskItems}><Ionicons name="briefcase-outline" size={15} color={Colors.primaryDark} /><Text style={styles.taskItemsText}>{task.items}</Text><Ionicons name="arrow-forward" size={17} color={Colors.primaryDark} /></View></TouchableOpacity>)}
-                    <Text style={styles.sectionTitle}>LỐI TẮT</Text><Action icon="time-outline" label="Lịch sử nhiệm vụ" onPress={() => router.push('/field-operations/staff-history')} /><Action icon="qr-code-outline" label="Mở máy quét QR / OTP" onPress={() => router.push({ pathname: '/field-operations/staff-task', params: { taskId: deliveryTasks[0].id } })} /><Action icon="flag-outline" label="Demo trực tiếp luồng thu hồi" onPress={() => { enableReturnDemo(); setActiveTaskTab('IN_PROGRESS'); }} /><Action icon="refresh-outline" label="Đặt lại dữ liệu demo" onPress={resetFieldWorkflow} />
-                </> : (() => {
-                    const checkedInCount = fieldWorkflow.leaderAttendance.filter(member => member.status === 'CHECKED_IN').length;
-                    const attendanceComplete = fieldWorkflow.leaderAttendance.every(member => member.status !== 'PENDING');
-                    const checkpointCount = fieldWorkflow.completedCheckpointIds.length;
-                    const requiredCheckpointCount = fieldWorkflow.requiredCheckpointIds.length;
-                    const nextStep = fieldWorkflow.leaderTripStatus === 'PREPARING'
-                        ? fieldWorkflow.leaderPretripApproved
-                            ? { label: 'Bắt đầu chuyến đi', detail: 'Danh sách đã sẵn sàng. Xác nhận để mở GPS.', route: '/field-operations/leader-trip' as const, icon: 'play-circle-outline' as const }
-                            : { label: 'Hoàn tất kiểm tra trước chuyến', detail: attendanceComplete ? 'Mọi thành viên đã được xử lý.' : 'Cần điểm danh hoặc ghi nhận no-show cho toàn bộ đoàn.', route: '/field-operations/leader-pretrip' as const, icon: 'lock-open-outline' as const }
-                        : fieldWorkflow.leaderTripStatus === 'IN_PROGRESS'
-                            ? { label: 'Tiếp tục điều hành chuyến', detail: 'Theo dõi GPS và xác nhận các checkpoint trên tuyến.', route: '/field-operations/leader-map' as const, icon: 'navigate-outline' as const }
-                            : { label: fieldWorkflow.leaderReportSent ? 'Xem báo cáo chuyến' : 'Kết thúc và gửi báo cáo', detail: fieldWorkflow.leaderReportSent ? 'Báo cáo đã được chuyển cho đội vận hành.' : 'Kiểm tra đủ checkpoint trước khi kết thúc chuyến.', route: '/field-operations/leader-summary' as const, icon: 'flag-outline' as const };
-                    const tripStatusLabel = fieldWorkflow.leaderTripStatus === 'PREPARING' ? 'ĐANG CHUẨN BỊ' : fieldWorkflow.leaderTripStatus === 'IN_PROGRESS' ? 'ĐANG DI CHUYỂN' : 'ĐÃ HOÀN THÀNH';
-                    return <>
-                        <View style={styles.commandCard}>
-                            <View style={styles.commandHeader}><View><Text style={styles.tripCode}>{leaderTrip.code}</Text><Text style={styles.tripName}>{leaderTrip.name}</Text></View><View style={styles.statusPill}><View style={styles.statusPillDot} /><Text style={styles.statusPillText}>{tripStatusLabel}</Text></View></View>
-                            <View style={styles.commandRoute}><Ionicons name="calendar-outline" size={15} color="#b8cbb2" /><Text style={styles.commandRouteText}>{leaderTrip.date} · {leaderTrip.altitude} cao độ cơ sở</Text></View>
-                            <TouchableOpacity style={styles.commandButton} onPress={() => router.push(nextStep.route)} activeOpacity={0.86}><Ionicons name={nextStep.icon} size={21} color="#fff" /><View style={styles.commandButtonCopy}><Text style={styles.commandButtonLabel}>{nextStep.label}</Text><Text style={styles.commandButtonDetail}>{nextStep.detail}</Text></View><Ionicons name="arrow-forward" size={20} color="#fff" /></TouchableOpacity>
-                        </View>
-
-                        <View style={styles.progressCard}>
-                            <View style={styles.progressHeader}><View><Text style={styles.progressEyebrow}>TIẾN ĐỘ ĐIỀU HÀNH</Text><Text style={styles.progressTitle}>Lộ trình công việc</Text></View><Text style={styles.progressPercent}>{fieldWorkflow.leaderTripStatus === 'COMPLETED' ? '100%' : fieldWorkflow.leaderTripStatus === 'IN_PROGRESS' ? `${requiredCheckpointCount ? Math.round((checkpointCount / requiredCheckpointCount) * 100) : 0}%` : '0%'}</Text></View>
-                            <ProgressStep index="01" title="Pre-trip & điểm danh" detail={fieldWorkflow.leaderPretripApproved ? `${checkedInCount} thành viên đã check-in` : `${checkedInCount}/${fieldWorkflow.leaderAttendance.length} đã xử lý`} active={!fieldWorkflow.leaderPretripApproved} done={fieldWorkflow.leaderPretripApproved} />
-                            <ProgressStep index="02" title="Điều hành trên tuyến" detail={fieldWorkflow.leaderTripStatus === 'IN_PROGRESS' ? `${checkpointCount}/${requiredCheckpointCount} checkpoint` : 'Chưa mở phiên GPS'} active={fieldWorkflow.leaderTripStatus === 'IN_PROGRESS'} done={fieldWorkflow.leaderTripStatus === 'COMPLETED'} />
-                            <ProgressStep index="03" title="Tổng kết & bàn giao" detail={fieldWorkflow.leaderReportSent ? 'Đã gửi báo cáo cho vận hành' : 'Chưa gửi báo cáo'} active={fieldWorkflow.leaderTripStatus === 'COMPLETED'} done={fieldWorkflow.leaderReportSent} last />
-                        </View>
-
-                        <Text style={styles.sectionTitle}>CẦN XỬ LÝ</Text>
-                        {fieldWorkflow.gpsStatus === 'LOST' && <Action icon="locate-outline" label="Mất GPS — kiểm tra tín hiệu" tone="amber" onPress={() => router.push('/field-operations/leader-map')} />}
-                        {fieldWorkflow.leaderSafetyAlert.status === 'ACTIVE' && <Action icon="warning-outline" label="Cảnh báo tuyến cần được xử lý" tone="amber" onPress={() => router.push('/field-operations/leader-safety')} />}
-                        {fieldWorkflow.pendingSyncCount > 0 && <Action icon="cloud-upload-outline" label={`${fieldWorkflow.pendingSyncCount} bản ghi đang chờ đồng bộ`} onPress={() => setModalVisible(true)} />}
-                        {!fieldWorkflow.leaderPretripApproved && <Action icon="clipboard-outline" label="Mở checklist trước chuyến" onPress={() => router.push('/field-operations/leader-pretrip')} />}
-                        <Action icon="add-circle-outline" label="Tạo Public Trip mới" onPress={() => router.push('/field-operations/leader-create-trip')} />
-
-                        <View style={styles.memberPreview}><View style={styles.memberSectionHeader}><Text style={styles.sectionTitle}>ĐOÀN HÔM NAY</Text><Text style={styles.memberCount}>{checkedInCount}/{fieldWorkflow.leaderAttendance.length} CHECK-IN</Text></View>{fieldWorkflow.leaderAttendance.map(member => <View key={member.memberName} style={styles.memberRow}><View style={[styles.memberDot, member.status === 'PENDING' && styles.memberDotWait, member.status === 'NO_SHOW' && styles.memberDotNoShow]} /><Text style={styles.memberName}>{member.memberName}</Text><Text style={styles.memberStatus}>{member.status === 'CHECKED_IN' ? 'Đã check-in' : member.status === 'NO_SHOW' ? 'No-show' : 'Chờ xử lý'}</Text></View>)}</View>
-                    </>;
-                })()}
+                <View style={styles.statsRow}><Stat value={String(taskTodayCount)} label="Task hôm nay" /><Stat value={String(inProgressCount)} label="Đang xử lý" /><Stat value={String(completedCount)} label="Đã hoàn tất" /></View>
+                <Text style={styles.sectionTitle}>NHIỆM VỤ</Text>
+                <View style={styles.taskTabs}>{([['WAITING', 'Chờ nhận'], ['IN_PROGRESS', 'Đang xử lý'], ['COMPLETED', 'Hoàn tất']] as const).map(([value, label]) => <TouchableOpacity key={value} style={[styles.taskTab, activeTaskTab === value && styles.taskTabActive]} onPress={() => setActiveTaskTab(value)}><Text style={[styles.taskTabText, activeTaskTab === value && styles.taskTabTextActive]}>{label}</Text></TouchableOpacity>)}</View>
+                {visibleTasks.length === 0 ? <View style={styles.empty}><Text style={styles.emptyText}>Không có task trong trạng thái này.</Text></View> : visibleTasks.map(task => <TouchableOpacity key={task.id} style={styles.taskCard} onPress={() => { if (task.type === 'THU_HOI') router.push({ pathname: '/field-operations/staff-return' as any, params: { taskId: task.id } }); else router.push({ pathname: '/field-operations/staff-task' as any, params: { taskId: task.id } }); }} activeOpacity={0.84}><View style={styles.taskTop}><Text style={styles.taskId}>{task.id}</Text><Text style={styles.taskStatus}>{activeTaskTab === 'WAITING' && task.type === 'THU_HOI' && !fieldWorkflow.handoverRequested ? 'Chờ Leader hoàn tất' : task.status}</Text></View><Text style={styles.taskTitle}>{task.title}</Text><Text style={styles.taskMeta}><Ionicons name="person-outline" size={13} /> {task.customer}</Text><Text style={styles.taskMeta}><Ionicons name="location-outline" size={13} /> {task.location} · {task.time}</Text><View style={styles.taskItems}><Ionicons name="briefcase-outline" size={15} color={Colors.primaryDark} /><Text style={styles.taskItemsText}>{task.items}</Text><Ionicons name="arrow-forward" size={17} color={Colors.primaryDark} /></View></TouchableOpacity>)}
+                <Text style={styles.sectionTitle}>LỐI TẮT</Text><Action icon="time-outline" label="Lịch sử nhiệm vụ" onPress={() => router.push('/field-operations/staff-history' as any)} /><Action icon="qr-code-outline" label="Mở máy quét QR / OTP" onPress={() => router.push({ pathname: '/field-operations/staff-task' as any, params: { taskId: deliveryTasks[0].id } })} /><Action icon="flag-outline" label="Demo trực tiếp luồng thu hồi" onPress={() => { enableReturnDemo(); setActiveTaskTab('IN_PROGRESS'); }} /><Action icon="refresh-outline" label="Đặt lại dữ liệu demo" onPress={resetFieldWorkflow} />
             </ScrollView>
-            <FieldModal visible={modalVisible} title="Dữ liệu đã đồng bộ" message="GPS, checklist và trạng thái thành viên đang được lưu offline. Lần đồng bộ gần nhất: vừa xong." icon="cloud-done-outline" actionLabel="Đã hiểu" onAction={() => setModalVisible(false)} onClose={() => setModalVisible(false)} />
         </SafeAreaView>
     );
 }

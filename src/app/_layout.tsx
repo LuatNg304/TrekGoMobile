@@ -36,7 +36,7 @@ function RootNavigator() {
     // Determine current effective role (from auth token or mock switcher)
     const effectiveRole = user?.role || authRole;
 
-    if (!isAuthenticated && !authRole && !isInAuthGroup && rootSegment !== "") {
+    if (!isAuthenticated && !authRole && !isInAuthGroup) {
       router.replace("/auth/login" as Href);
       return;
     }
