@@ -1274,6 +1274,8 @@ export const AppProvider: React.FC<{
       verificationStatus: input.submitForVerification ? "PENDING" : "DRAFT",
       routePreset: input.routePreset,
       routePoints: input.routePoints,
+      gpsRoute: input.gpsRoute || [],
+      gpsSegments: input.gpsSegments || [],
       checkpoints: input.checkpoints,
       createdAt: now,
       updatedAt: now,
@@ -1315,6 +1317,8 @@ export const AppProvider: React.FC<{
           rejectionReason: undefined,
           routePreset: input.routePreset,
           routePoints: input.routePoints,
+          gpsRoute: input.gpsRoute !== undefined ? input.gpsRoute : trail.gpsRoute,
+          gpsSegments: input.gpsSegments !== undefined ? input.gpsSegments : trail.gpsSegments,
           checkpoints: input.checkpoints.map((checkpoint, index) => ({
             ...checkpoint,
             order: index + 1,

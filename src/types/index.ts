@@ -42,7 +42,7 @@ export interface Checkpoint {
   id: string;
   order: number;
   name: string;
-  elevation: number;
+  elevation?: number | null;
   distanceFromStartKm: number;
   status: CheckpointStatus;
   mission?: CheckpointMission;
@@ -79,6 +79,10 @@ export interface PersonalTrailRoutePoint {
   id: string;
   x: number;
   y: number;
+  lat?: number;
+  lng?: number;
+  elevation?: number;
+  segmentId?: number;
 }
 
 export interface PersonalTrail {
@@ -97,6 +101,8 @@ export interface PersonalTrail {
   rejectionReason?: string;
   routePreset: "RIDGE" | "FOREST" | "WATERFALL";
   routePoints: PersonalTrailRoutePoint[];
+  gpsRoute?: [number, number, number?][]; // [lng, lat, elev?][] toạ độ GPS thực tế của cung đường đã đi (chuẩn 3D GeoJSON)
+  gpsSegments?: [number, number, number?][][]; // Phân đoạn khi Pause/Resume hoặc mất tín hiệu GPS
   checkpoints: Checkpoint[];
   createdAt: string;
   updatedAt: string;
@@ -113,6 +119,8 @@ export interface CreatePersonalTrailInput {
   description: string;
   routePreset: PersonalTrail["routePreset"];
   routePoints: PersonalTrailRoutePoint[];
+  gpsRoute?: [number, number, number?][]; // [lng, lat, elev?][] toạ độ GPS thực tế của cung đường đã đi (chuẩn 3D GeoJSON)
+  gpsSegments?: [number, number, number?][][];
   checkpoints: Checkpoint[];
   submitForVerification: boolean;
 }

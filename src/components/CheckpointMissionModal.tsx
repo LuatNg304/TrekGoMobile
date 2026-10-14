@@ -52,7 +52,9 @@ export const CheckpointMissionModal: React.FC<CheckpointMissionModalProps> = ({
             <View style={{ flex: 1 }}>
               <View style={styles.badgeRow}>
                 <Text style={styles.arrivalBadge}>GPS XÁC NHẬN ĐẾN ĐÍCH</Text>
-                <Text style={styles.elevationTag}>+{checkpoint.elevation}m</Text>
+                {checkpoint.elevation != null && (
+                  <Text style={styles.elevationTag}>+{checkpoint.elevation}m</Text>
+                )}
               </View>
               <Text style={styles.checkpointTitle}>{checkpoint.name}</Text>
             </View>

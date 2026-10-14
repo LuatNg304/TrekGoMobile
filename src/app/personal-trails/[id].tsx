@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { type Href, useLocalSearchParams, useRouter } from "expo-router";
-import { useMemo } from "react";
+import { useMemo, useRef, useCallback } from "react";
 import {
   Alert,
   ScrollView,
@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { TacticalMap } from "@/components/TacticalMap";
+import { MapLibre3DView, MapLibre3DViewRef } from "@/components/map/MapLibre3DView";
 import { Colors, Radius, Shadows } from "@/constants/theme";
 import { useApp } from "@/context/AppContext";
 import { PersonalTrailVerificationStatus } from "@/types";
@@ -66,11 +67,47 @@ export default function PersonalTrailDetailScreen() {
   const trailId = Array.isArray(params.id) ? params.id[0] : params.id;
 
   const { personalTrails, submitPersonalTrail, deletePersonalTrail } = useApp();
+  const mapRef = useRef<MapLibre3DViewRef>(null);
 
   const trail = useMemo(
     () => personalTrails.find((current) => current.id === trailId),
     [personalTrails, trailId],
   );
+
+  // Khi bản đồ 3D sẵn sàng -> Fit bounds toàn bộ cung đường kèm padding đệm hợp lý
+  const handleMapReady = useCallback(() => {
+    let routeCoords: [number, number, number?][] | undefined;
+    if (trail?.gpsSegments && trail.gpsSegments.length > 0) {
+      const validPoints: [number, number, number?][] = [];
+      for (const seg of trail.gpsSegments) {
+        if (seg.length >= 2) {
+          validPoints.push(...seg);
+        }
+      }
+      if (validPoints.length > 1) {
+        routeCoords = validPoints;
+      }
+    }
+    if (!routeCoords) {
+      routeCoords = trail?.gpsRoute;
+    }
+
+    if (routeCoords && routeCoords.length > 1) {
+      let minLng = Infinity;
+      let maxLng = -Infinity;
+      let minLat = Infinity;
+      let maxLat = -Infinity;
+      for (const pt of routeCoords) {
+        if (pt[0] < minLng) minLng = pt[0];
+        if (pt[0] > maxLng) maxLng = pt[0];
+        if (pt[1] < minLat) minLat = pt[1];
+        if (pt[1] > maxLat) maxLat = pt[1];
+      }
+      if (minLng !== Infinity) {
+        mapRef.current?.fitBounds([[minLng, minLat], [maxLng, maxLat]], 45);
+      }
+    }
+  }, [trail]);
 
   function submitForVerification() {
     if (!trail) {
@@ -227,14 +264,14 @@ export default function PersonalTrailDetailScreen() {
 
             <View style={styles.summaryItem}>
               <Ionicons
-                name="flag-outline"
+                name="time-outline"
                 size={19}
                 color={Colors.primaryDark}
               />
               <Text style={styles.summaryValue}>
-                {trail.checkpoints.length}
+                {trail.duration || "00:00"}
               </Text>
-              <Text style={styles.summaryLabel}>Checkpoint</Text>
+              <Text style={styles.summaryLabel}>Thời lượng</Text>
             </View>
           </View>
         </View>
@@ -296,12 +333,31 @@ export default function PersonalTrailDetailScreen() {
           </View>
 
           <View style={styles.mapWrapper}>
-            <TacticalMap
-              isOnRoute
-              height={250}
-              checkpoints={trail.checkpoints}
-              interactive={false}
-            />
+            {trail.gpsRoute && trail.gpsRoute.length > 0 ? (
+              <MapLibre3DView
+                ref={mapRef}
+                height={260}
+                center={[trail.gpsRoute[0][0], trail.gpsRoute[0][1]]}
+                is3D={true}
+                dragRotate={true}
+                onMapReady={handleMapReady}
+                plannedRoute={
+                  trail.gpsSegments && trail.gpsSegments.length > 0
+                    ? trail.gpsSegments
+                    : trail.gpsRoute
+                }
+                checkpoints={[]}
+                showEndpoints={true}
+                interactive={true}
+              />
+            ) : (
+              <TacticalMap
+                isOnRoute
+                height={250}
+                checkpoints={trail.checkpoints}
+                interactive={false}
+              />
+            )}
           </View>
         </View>
 
@@ -334,44 +390,56 @@ export default function PersonalTrailDetailScreen() {
           </View>
         </View>
 
-        <View style={styles.sectionCard}>
-          <View style={styles.sectionHeader}>
-            <View style={styles.sectionIcon}>
-              <Ionicons name="flag" size={19} color={Colors.primaryDark} />
+        {trail.checkpoints &&
+        trail.checkpoints.length > 0 &&
+        !trail.checkpoints.every(
+          (cp) =>
+            cp.name.includes("Điểm xuất phát") ||
+            cp.name.includes("Điểm kết thúc") ||
+            cp.id.startsWith("cp-start") ||
+            cp.id.startsWith("cp-end"),
+        ) && (
+          <View style={styles.sectionCard}>
+            <View style={styles.sectionHeader}>
+              <View style={styles.sectionIcon}>
+                <Ionicons name="flag" size={19} color={Colors.primaryDark} />
+              </View>
+              <View style={styles.flexOne}>
+                <Text style={styles.sectionTitle}>Checkpoint</Text>
+                <Text style={styles.sectionSubtitle}>
+                  {trail.checkpoints.length} mốc trên tuyến
+                </Text>
+              </View>
             </View>
-            <View style={styles.flexOne}>
-              <Text style={styles.sectionTitle}>Checkpoint</Text>
-              <Text style={styles.sectionSubtitle}>
-                {trail.checkpoints.length} mốc trên tuyến
-              </Text>
-            </View>
-          </View>
 
-          <View style={styles.checkpointList}>
-            {trail.checkpoints.map((checkpoint, index) => (
-              <View key={checkpoint.id} style={styles.checkpointRow}>
-                <View style={styles.timelineColumn}>
-                  <View style={styles.checkpointOrder}>
-                    <Text style={styles.checkpointOrderText}>
-                      {checkpoint.order}
+            <View style={styles.checkpointList}>
+              {trail.checkpoints.map((checkpoint, index) => (
+                <View key={checkpoint.id} style={styles.checkpointRow}>
+                  <View style={styles.timelineColumn}>
+                    <View style={styles.checkpointOrder}>
+                      <Text style={styles.checkpointOrderText}>
+                        {checkpoint.order}
+                      </Text>
+                    </View>
+                    {index < trail.checkpoints.length - 1 ? (
+                      <View style={styles.timelineLine} />
+                    ) : null}
+                  </View>
+
+                  <View style={styles.checkpointContent}>
+                    <Text style={styles.checkpointName}>{checkpoint.name}</Text>
+                    <Text style={styles.checkpointMeta}>
+                      {checkpoint.distanceFromStartKm} km từ điểm đầu ·{" "}
+                      {checkpoint.elevation != null
+                        ? `${checkpoint.elevation} m`
+                        : "Chưa xác định độ cao"}
                     </Text>
                   </View>
-                  {index < trail.checkpoints.length - 1 ? (
-                    <View style={styles.timelineLine} />
-                  ) : null}
                 </View>
-
-                <View style={styles.checkpointContent}>
-                  <Text style={styles.checkpointName}>{checkpoint.name}</Text>
-                  <Text style={styles.checkpointMeta}>
-                    {checkpoint.distanceFromStartKm} km từ điểm đầu ·{" "}
-                    {checkpoint.elevation} m
-                  </Text>
-                </View>
-              </View>
-            ))}
+              ))}
+            </View>
           </View>
-        </View>
+        )}
 
         <View style={styles.auditCard}>
           <View style={styles.auditRow}>

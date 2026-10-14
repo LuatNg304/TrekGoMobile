@@ -1,5 +1,5 @@
 import { CreatePrivateTripModal } from "@/components/CreatePrivateTripModal";
-import { MapLibre3DView, MapCheckpoint } from "@/components/map/MapLibre3DView";
+import { MapLibre3DView, MapCheckpoint, MapLibre3DViewRef } from "@/components/map/MapLibre3DView";
 import { LiveTrailRecorderModal } from "@/components/trail/LiveTrailRecorderModal";
 import { TopHeader } from "@/components/TopHeader";
 import { Colors, Radius, Shadows } from "@/constants/theme";
@@ -7,7 +7,7 @@ import { useApp } from "@/context/AppContext";
 import { Trail, PersonalTrail } from "@/types";
 import { Ionicons } from "@expo/vector-icons";
 import { Href, useRouter } from "expo-router";
-import React, { useState } from "react";
+import React, { useState, useRef, useCallback } from "react";
 import {
   Image,
   ScrollView,
@@ -84,21 +84,48 @@ export default function ExploreScreen() {
   ]);
 
   const activePersonal = selectedPersonalTrail || personalTrails[0];
-  const personalCheckpoints: MapCheckpoint[] = (activePersonal?.checkpoints || []).map(
-    (cp, idx) => ({
-      id: cp.id,
-      name: cp.name,
-      order: cp.order || idx + 1,
-      latitude: cp.realCoords?.lat || 11.5831 + idx * 0.004,
-      longitude: cp.realCoords?.lon || 108.529 + idx * 0.004,
-      elevation: cp.elevation,
-      status: "PENDING",
-    }),
-  );
-  const personalPlannedRoute: [number, number][] = personalCheckpoints.map((cp) => [
-    cp.longitude,
-    cp.latitude,
-  ]);
+  const personalMapRef = useRef<MapLibre3DViewRef>(null);
+
+  const handlePersonalMapReady = useCallback(() => {
+    let routeCoords: [number, number, number?][] | undefined;
+    if (activePersonal?.gpsSegments && activePersonal.gpsSegments.length > 0) {
+      const validPoints: [number, number, number?][] = [];
+      for (const seg of activePersonal.gpsSegments) {
+        if (seg.length >= 2) {
+          validPoints.push(...seg);
+        }
+      }
+      if (validPoints.length > 1) {
+        routeCoords = validPoints;
+      }
+    }
+    if (!routeCoords) {
+      routeCoords = activePersonal?.gpsRoute;
+    }
+
+    if (routeCoords && routeCoords.length > 1) {
+      let minLng = Infinity;
+      let maxLng = -Infinity;
+      let minLat = Infinity;
+      let maxLat = -Infinity;
+      for (const pt of routeCoords) {
+        if (pt[0] < minLng) minLng = pt[0];
+        if (pt[0] > maxLng) maxLng = pt[0];
+        if (pt[1] < minLat) minLat = pt[1];
+        if (pt[1] > maxLat) maxLat = pt[1];
+      }
+      if (minLng !== Infinity) {
+        personalMapRef.current?.fitBounds([[minLng, minLat], [maxLng, maxLat]], 45);
+      }
+    }
+  }, [activePersonal]);
+
+  const personalPlannedRoute =
+    activePersonal?.gpsSegments && activePersonal.gpsSegments.length > 0
+      ? activePersonal.gpsSegments
+      : activePersonal?.gpsRoute && activePersonal.gpsRoute.length > 0
+        ? activePersonal.gpsRoute
+        : [];
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -163,12 +190,12 @@ export default function ExploreScreen() {
           </View>
         </View>
 
-        {/* 2. Strava Live GPS Tracker Action Banner */}
+        {/* 2. TrekGo Live GPS Tracker Action Banner */}
         <View style={styles.liveRecordBanner}>
           <View style={styles.liveRecordInfo}>
             <View style={styles.liveRecordTag}>
               <View style={styles.pulseDot} />
-              <Text style={styles.liveRecordTagText}>GPS LIVE STRAVA TRACK</Text>
+              <Text style={styles.liveRecordTagText}>GPS LIVE TREKGO TRACK</Text>
             </View>
             <Text style={styles.liveRecordTitle}>Ghi nhận cung đường cá nhân</Text>
             <Text style={styles.liveRecordDesc}>
@@ -485,12 +512,12 @@ export default function ExploreScreen() {
 
                     <View style={styles.bentoTile}>
                       <View style={styles.bentoIconBg}>
-                        <Ionicons name="flag" size={16} color={Colors.primaryDark} />
+                        <Ionicons name="trail-sign" size={16} color={Colors.primaryDark} />
                       </View>
                       <View>
-                        <Text style={styles.bentoLabel}>CHECKPOINTS</Text>
-                        <Text style={styles.bentoValue}>
-                          {activePersonal.checkpoints.length} mốc
+                        <Text style={styles.bentoLabel}>ĐỊA HÌNH</Text>
+                        <Text style={styles.bentoValue} numberOfLines={1}>
+                          {activePersonal.terrainType || "Rừng núi"}
                         </Text>
                       </View>
                     </View>
@@ -512,10 +539,20 @@ export default function ExploreScreen() {
                   </View>
 
                   <MapLibre3DView
+                    ref={personalMapRef}
+                    key={activePersonal?.id || "personal-map"}
                     height={260}
+                    center={
+                      activePersonal?.gpsRoute && activePersonal.gpsRoute.length > 0
+                        ? [activePersonal.gpsRoute[0][0], activePersonal.gpsRoute[0][1]]
+                        : [108.529, 11.5831]
+                    }
                     is3D={true}
+                    dragRotate={true}
+                    onMapReady={handlePersonalMapReady}
                     plannedRoute={personalPlannedRoute}
-                    checkpoints={personalCheckpoints}
+                    checkpoints={[]}
+                    showEndpoints={true}
                     interactive={true}
                   />
                 </View>
@@ -657,14 +694,18 @@ export default function ExploreScreen() {
         </View>
       </ScrollView>
 
-      {/* MODAL GHI CUNG ĐƯỜNG STRAVA STYLE */}
+      {/* MODAL GHI CUNG ĐƯỜNG TrekGo STYLE */}
       <LiveTrailRecorderModal
         visible={isRecordingModalVisible}
         onClose={() => setIsRecordingModalVisible(false)}
-        onSaved={(newId) => {
+        onSaved={(newId, newTrail) => {
           setActiveTab("PERSONAL");
-          const created = personalTrails.find((t) => t.id === newId);
-          if (created) setSelectedPersonalTrail(created);
+          if (newTrail) {
+            setSelectedPersonalTrail(newTrail);
+          } else {
+            const created = personalTrails.find((t) => t.id === newId);
+            if (created) setSelectedPersonalTrail(created);
+          }
         }}
       />
 
