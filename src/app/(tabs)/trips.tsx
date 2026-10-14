@@ -150,6 +150,19 @@ export default function TripsScreen() {
             <Text style={styles.historyCountBadgeText}>12</Text>
           </View>
         </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            styles.subFilterChip,
+            { backgroundColor: Colors.tertiaryFixed, gap: 5 },
+          ]}
+          onPress={() => router.push("/private-trips" as any)}
+        >
+          <Ionicons name="lock-closed" size={13} color="#564500" />
+          <Text style={[styles.subFilterText, { color: "#564500", fontWeight: "700" }]}>
+            Chuyến riêng
+          </Text>
+        </TouchableOpacity>
       </ScrollView>
     );
   }
@@ -323,7 +336,16 @@ export default function TripsScreen() {
         </View>
 
         {trips.length > 1 && (
-          <View style={styles.privateTripCard}>
+          <TouchableOpacity
+            style={styles.privateTripCard}
+            onPress={() =>
+              router.push({
+                pathname: "/private-trips/[id]",
+                params: { id: trips[1]?.id || "trip-uuid-123" },
+              } as any)
+            }
+            activeOpacity={0.88}
+          >
             <View style={styles.privateTop}>
               <View style={styles.privatePill}>
                 <Ionicons name="lock-closed" size={12} color="#564500" />
@@ -363,7 +385,12 @@ export default function TripsScreen() {
 
               <TouchableOpacity
                 style={styles.inviteBtn}
-                onPress={() => setCreatePrivateModalVisible(true)}
+                onPress={() =>
+                  router.push({
+                    pathname: "/private-trips/[id]",
+                    params: { id: trips[1]?.id || "trip-uuid-123" },
+                  } as any)
+                }
               >
                 <Ionicons
                   name="share-social-outline"
@@ -374,12 +401,12 @@ export default function TripsScreen() {
                 <Text style={styles.inviteBtnText}>Mời thành viên</Text>
               </TouchableOpacity>
             </View>
-          </View>
+          </TouchableOpacity>
         )}
 
         <TouchableOpacity
           style={styles.createTripBanner}
-          onPress={() => setCreatePrivateModalVisible(true)}
+          onPress={() => router.push("/private-trips/create" as any)}
           activeOpacity={0.85}
         >
           <View style={styles.createTripIcon}>
