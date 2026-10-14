@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/features/auth/AuthContext';
 import { LeaderDashboardScreen } from '@/features/leaders/screens';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -23,7 +23,13 @@ export default function FieldOperationsHome() {
     const [activeTaskTab, setActiveTaskTab] = useState<'WAITING' | 'IN_PROGRESS' | 'COMPLETED'>('WAITING');
     const effectiveRole = authRole || (authUser?.role === 'STAFF_DELIVERY' || authUser?.role === 'LEADER' ? authUser.role : null) || (user.role === 'STAFF_DELIVERY' || user.role === 'LEADER' ? user.role : null);
 
-    if (!effectiveRole) { router.replace('/'); return null; }
+    useEffect(() => {
+        if (!effectiveRole) {
+            router.replace('/');
+        }
+    }, [effectiveRole, router]);
+
+    if (!effectiveRole) return null;
 
     if (effectiveRole === 'LEADER') {
         return <LeaderDashboardScreen />;
