@@ -8,6 +8,7 @@ import React, {
 } from "react";
 
 import { authApi, AuthApiError } from "@/features/auth/api";
+import { subscribeToAuthState } from "@/lib/api-client";
 import {
   clearStoredAuth,
   readStoredAuth,
@@ -75,6 +76,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    return subscribeToAuthState(setSession);
+  }, []);
+
+  useEffect(() => {
     let active = true;
 
     async function restoreSession() {
@@ -98,25 +103,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       try {
         const user = await authApi.me(stored.accessToken);
-        const validated = { ...stored, user };
+        const latestStored = (await readStoredAuth()) ?? stored;
+        const validated = { ...latestStored, user };
         await writeStoredAuth(validated);
         if (active) setSession(validated);
       } catch (error) {
-        if (error instanceof AuthApiError && error.status === 401) {
-          try {
-            const refreshed = await authApi.refresh(stored.refreshToken);
-            const user = await authApi.me(refreshed.accessToken);
-            const renewed: StoredAuthState = { ...refreshed, user };
-            await writeStoredAuth(renewed);
-            if (active) setSession(renewed);
-          } catch (refreshError) {
-            if (refreshError instanceof AuthApiError && refreshError.status === 0) {
-              // Keep the last valid local session while the API is temporarily offline.
-            } else {
-              await clearStoredAuth();
-              if (active) setSession(null);
-            }
-          }
+        if (
+          error instanceof AuthApiError &&
+          error.status !== 0 &&
+          error.status < 500
+        ) {
+          await clearStoredAuth();
+          if (active) setSession(null);
         }
       } finally {
         if (active) setIsLoading(false);

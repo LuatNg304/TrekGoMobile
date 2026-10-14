@@ -1,5 +1,15 @@
 import { Platform } from "react-native";
 
+import {
+  clearStoredAuth,
+  readStoredAuth,
+  writeStoredAuth,
+} from "@/features/auth/storage";
+import type {
+  RefreshTokenResponse,
+  StoredAuthState,
+} from "@/features/auth/types";
+
 const fallbackApiUrl = Platform.select({
   android: "http://10.0.2.2:3000",
   default: "http://127.0.0.1:3000",
@@ -37,6 +47,22 @@ type ApiRequestOptions = RequestInit & {
   fallbackMessages?: Partial<Record<number, string>>;
 };
 
+type AuthStateListener = (state: StoredAuthState | null) => void;
+
+const authStateListeners = new Set<AuthStateListener>();
+let refreshPromise: Promise<StoredAuthState> | null = null;
+
+export function subscribeToAuthState(listener: AuthStateListener) {
+  authStateListeners.add(listener);
+  return () => {
+    authStateListeners.delete(listener);
+  };
+}
+
+function notifyAuthState(state: StoredAuthState | null) {
+  authStateListeners.forEach((listener) => listener(state));
+}
+
 const defaultMessages: Record<number, string> = {
   400: "Dữ liệu gửi lên không hợp lệ.",
   401: "Phiên đăng nhập không hợp lệ hoặc đã hết hạn.",
@@ -67,6 +93,98 @@ function getErrorMessage(
   );
 }
 
+async function parseResponse<T>(
+  response: Response,
+  fallbackMessages?: Partial<Record<number, string>>,
+): Promise<T> {
+  const text = await response.text();
+  let payload: T | ApiErrorEnvelope | null = null;
+
+  if (text) {
+    try {
+      payload = JSON.parse(text) as T | ApiErrorEnvelope;
+    } catch {
+      throw new ApiError(
+        "TrekGo API trả về dữ liệu không hợp lệ.",
+        response.status,
+      );
+    }
+  }
+
+  if (!response.ok) {
+    const errorPayload = payload as ApiErrorEnvelope | null;
+    throw new ApiError(
+      getErrorMessage(errorPayload, response.status, fallbackMessages),
+      response.status,
+      errorPayload?.error?.code,
+      errorPayload?.error?.details,
+    );
+  }
+
+  return payload as T;
+}
+
+async function refreshStoredSession(): Promise<StoredAuthState> {
+  const stored = await readStoredAuth();
+
+  if (!stored?.refreshToken) {
+    await clearStoredAuth();
+    notifyAuthState(null);
+    throw new ApiError("Phiên đăng nhập đã hết hạn.", 401);
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/auth/refresh-token`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ refreshToken: stored.refreshToken }),
+      signal: controller.signal,
+    });
+    const refreshed = await parseResponse<RefreshTokenResponse>(response);
+    const renewed: StoredAuthState = { ...stored, ...refreshed };
+
+    await writeStoredAuth(renewed);
+    notifyAuthState(renewed);
+    return renewed;
+  } catch (error) {
+    if (
+      error instanceof ApiError &&
+      (error.status === 400 || error.status === 401 || error.status === 403)
+    ) {
+      await clearStoredAuth();
+      notifyAuthState(null);
+    }
+
+    if (error instanceof ApiError) throw error;
+
+    const timedOut = error instanceof Error && error.name === "AbortError";
+    throw new ApiError(
+      timedOut
+        ? "API làm mới phiên đăng nhập phản hồi quá lâu."
+        : `Không kết nối được TrekGo API tại ${API_BASE_URL}.`,
+      0,
+    );
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function refreshSessionOnce(): Promise<StoredAuthState> {
+  if (!refreshPromise) {
+    refreshPromise = refreshStoredSession().finally(() => {
+      refreshPromise = null;
+    });
+  }
+
+  return refreshPromise;
+}
+
 export async function apiRequest<T>(
   path: string,
   options: ApiRequestOptions = {},
@@ -80,55 +198,44 @@ export async function apiRequest<T>(
   } = options;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  const requestHeaders = new Headers(headers);
+  const baseHeaders = new Headers(headers);
 
-  if (!requestHeaders.has("Accept")) {
-    requestHeaders.set("Accept", "application/json");
+  if (!baseHeaders.has("Accept")) {
+    baseHeaders.set("Accept", "application/json");
   }
 
   const isFormData =
     typeof FormData !== "undefined" && requestOptions.body instanceof FormData;
 
-  if (requestOptions.body && !isFormData && !requestHeaders.has("Content-Type")) {
-    requestHeaders.set("Content-Type", "application/json");
+  if (requestOptions.body && !isFormData && !baseHeaders.has("Content-Type")) {
+    baseHeaders.set("Content-Type", "application/json");
   }
 
-  if (accessToken) {
-    requestHeaders.set("Authorization", `Bearer ${accessToken}`);
-  }
+  const sendRequest = async (token?: string) => {
+    const requestHeaders = new Headers(baseHeaders);
 
-  try {
-    const response = await fetch(`${API_BASE_URL}${path}`, {
+    if (token) {
+      requestHeaders.set("Authorization", `Bearer ${token}`);
+    }
+
+    return fetch(`${API_BASE_URL}${path}`, {
       ...requestOptions,
       headers: requestHeaders,
       signal: controller.signal,
     });
+  };
 
-    const text = await response.text();
-    let payload: T | ApiErrorEnvelope | null = null;
+  try {
+    const stored = accessToken ? await readStoredAuth() : null;
+    const currentAccessToken = stored?.accessToken ?? accessToken;
+    let response = await sendRequest(currentAccessToken);
 
-    if (text) {
-      try {
-        payload = JSON.parse(text) as T | ApiErrorEnvelope;
-      } catch {
-        throw new ApiError(
-          "TrekGo API trả về dữ liệu không hợp lệ.",
-          response.status,
-        );
-      }
+    if (response.status === 401 && accessToken) {
+      const renewed = await refreshSessionOnce();
+      response = await sendRequest(renewed.accessToken);
     }
 
-    if (!response.ok) {
-      const errorPayload = payload as ApiErrorEnvelope | null;
-      throw new ApiError(
-        getErrorMessage(errorPayload, response.status, fallbackMessages),
-        response.status,
-        errorPayload?.error?.code,
-        errorPayload?.error?.details,
-      );
-    }
-
-    return payload as T;
+    return await parseResponse<T>(response, fallbackMessages);
   } catch (error) {
     if (error instanceof ApiError) throw error;
 
