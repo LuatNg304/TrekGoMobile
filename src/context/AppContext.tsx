@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState } from "react";
+import React, { createContext, useContext, useEffect, useState } from "react";
 
 import {
   CommunityNotification,
@@ -31,6 +31,12 @@ import {
   mockUserProfile,
 } from "@/data/mockData";
 import { useAuth } from "@/features/auth/AuthContext";
+import {
+  accountStorage,
+  offlineMapStorage,
+  OfflineMapPackage,
+  trailStorage,
+} from "@/services/storage";
 
 export interface RentalSettlement {
   orderId: string;
@@ -84,6 +90,12 @@ interface AppContextType {
 
   savedTrailIds: string[];
   toggleSavedTrail: (trailId: string) => void;
+
+  offlinePackages: Record<string, OfflineMapPackage>;
+  downloadOfflineTrail: (trailId: string) => Promise<void>;
+  removeOfflineTrail: (trailId: string) => Promise<void>;
+  isTrailOfflineReady: (trailId: string) => boolean;
+  isStorageHydrated: boolean;
 
   supportTickets: SupportTicket[];
   createSupportTicket: (input: {
@@ -718,6 +730,62 @@ export const AppProvider: React.FC<{
   >([]);
   const [telemetry, setTelemetry] =
     useState<LiveNavTelemetry>(initialLiveTelemetry);
+  const [offlinePackages, setOfflinePackages] = useState<
+    Record<string, OfflineMapPackage>
+  >({});
+  const [isStorageHydrated, setIsStorageHydrated] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function hydrateStorage() {
+      try {
+        const [
+          storedSavedTrails,
+          storedPersonalTrails,
+          storedOfflinePackages,
+          storedAccount,
+          storedCart,
+        ] = await Promise.all([
+          trailStorage.getSavedTrailIds(),
+          trailStorage.getPersonalTrails(),
+          offlineMapStorage.getPackages(),
+          accountStorage.getTrekkerAccount(),
+          accountStorage.getRentalCart(),
+        ]);
+
+        if (!isMounted) return;
+
+        if (storedSavedTrails) {
+          setSavedTrailIds(storedSavedTrails);
+        }
+        if (storedPersonalTrails) {
+          setPersonalTrails(storedPersonalTrails);
+        }
+        if (storedOfflinePackages) {
+          setOfflinePackages(storedOfflinePackages);
+        }
+        if (storedAccount) {
+          setTrekkerAccount(storedAccount);
+        }
+        if (storedCart) {
+          setCart(storedCart);
+        }
+      } catch (error) {
+        console.warn("[AppContext] Lỗi hydrate dữ liệu AsyncStorage:", error);
+      } finally {
+        if (isMounted) {
+          setIsStorageHydrated(true);
+        }
+      }
+    }
+
+    hydrateStorage();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const activeTrip =
     trips.find(
@@ -752,7 +820,11 @@ export const AppProvider: React.FC<{
   };
 
   const updateTrekkerAccount = (input: Partial<TrekkerAccount>) => {
-    setTrekkerAccount((current) => ({ ...current, ...input }));
+    setTrekkerAccount((current) => {
+      const next = { ...current, ...input };
+      accountStorage.saveTrekkerAccount(next);
+      return next;
+    });
   };
 
   const joinGroupTrip = (groupTripId: string): GroupTripActionResult => {
@@ -849,11 +921,13 @@ export const AppProvider: React.FC<{
   };
 
   const toggleSavedTrail = (trailId: string) => {
-    setSavedTrailIds((current) =>
-      current.includes(trailId)
+    setSavedTrailIds((current) => {
+      const next = current.includes(trailId)
         ? current.filter((id) => id !== trailId)
-        : [trailId, ...current],
-    );
+        : [trailId, ...current];
+      trailStorage.saveTrailIds(next);
+      return next;
+    });
   };
 
   const createSupportTicket = (input: {
@@ -1205,7 +1279,11 @@ export const AppProvider: React.FC<{
       updatedAt: now,
     };
 
-    setPersonalTrails((current) => [newTrail, ...current]);
+    setPersonalTrails((current) => {
+      const next = [newTrail, ...current];
+      trailStorage.savePersonalTrails(next);
+      return next;
+    });
 
     return newTrail;
   };
@@ -1214,8 +1292,8 @@ export const AppProvider: React.FC<{
     trailId: string,
     input: CreatePersonalTrailInput,
   ) => {
-    setPersonalTrails((current) =>
-      current.map((trail) => {
+    setPersonalTrails((current) => {
+      const next: PersonalTrail[] = current.map((trail) => {
         if (trail.id !== trailId) {
           return trail;
         }
@@ -1230,10 +1308,10 @@ export const AppProvider: React.FC<{
           duration: input.duration.trim(),
           terrainType: input.terrainType.trim(),
           description: input.description.trim(),
-          visibility: "PRIVATE",
+          visibility: "PRIVATE" as const,
           verificationStatus: input.submitForVerification
-            ? "PENDING"
-            : "DRAFT",
+            ? ("PENDING" as const)
+            : ("DRAFT" as const),
           rejectionReason: undefined,
           routePreset: input.routePreset,
           routePoints: input.routePoints,
@@ -1243,30 +1321,36 @@ export const AppProvider: React.FC<{
           })),
           updatedAt: new Date().toLocaleDateString("vi-VN"),
         };
-      }),
-    );
+      });
+      trailStorage.savePersonalTrails(next);
+      return next;
+    });
   };
 
   const submitPersonalTrail = (trailId: string) => {
-    setPersonalTrails((current) =>
-      current.map((trail) =>
+    setPersonalTrails((current) => {
+      const next: PersonalTrail[] = current.map((trail) =>
         trail.id === trailId
           ? {
               ...trail,
-              visibility: "PRIVATE",
-              verificationStatus: "PENDING",
+              visibility: "PRIVATE" as const,
+              verificationStatus: "PENDING" as const,
               rejectionReason: undefined,
               updatedAt: new Date().toLocaleDateString("vi-VN"),
             }
           : trail,
-      ),
-    );
+      );
+      trailStorage.savePersonalTrails(next);
+      return next;
+    });
   };
 
   const deletePersonalTrail = (trailId: string) => {
-    setPersonalTrails((current) =>
-      current.filter((trail) => trail.id !== trailId),
-    );
+    setPersonalTrails((current) => {
+      const next = current.filter((trail) => trail.id !== trailId);
+      trailStorage.savePersonalTrails(next);
+      return next;
+    });
   };
 
   const createCommunityPost = (input: CreateCommunityPostInput) => {
@@ -1419,20 +1503,27 @@ export const AppProvider: React.FC<{
     setCart((current) => {
       const existing = current.find((entry) => entry.item.id === item.id);
 
+      let next;
       if (existing) {
-        return current.map((entry) =>
+        next = current.map((entry) =>
           entry.item.id === item.id
             ? { ...entry, quantity: entry.quantity + quantity }
             : entry,
         );
+      } else {
+        next = [...current, { item, quantity }];
       }
-
-      return [...current, { item, quantity }];
+      accountStorage.saveRentalCart(next);
+      return next;
     });
   };
 
   const removeFromCart = (itemId: string) => {
-    setCart((current) => current.filter((entry) => entry.item.id !== itemId));
+    setCart((current) => {
+      const next = current.filter((entry) => entry.item.id !== itemId);
+      accountStorage.saveRentalCart(next);
+      return next;
+    });
   };
 
   const checkoutRental = (tripId: string, days: number) => {
@@ -1467,6 +1558,48 @@ export const AppProvider: React.FC<{
 
     setRentalOrders((current) => [newOrder, ...current]);
     setCart([]);
+    accountStorage.saveRentalCart([]);
+  };
+
+  const downloadOfflineTrail = async (trailId: string) => {
+    const trail = trails.find((t) => t.id === trailId);
+    if (!trail) return;
+
+    const initialPkg: OfflineMapPackage = {
+      trailId,
+      trailName: trail.name,
+      downloadedAt: new Date().toLocaleDateString("vi-VN"),
+      sizeMb: 42.5,
+      status: "DOWNLOADING",
+      tileCount: 380,
+    };
+
+    setOfflinePackages((current) => ({ ...current, [trailId]: initialPkg }));
+
+    setTimeout(() => {
+      const completedPkg: OfflineMapPackage = {
+        ...initialPkg,
+        status: "DOWNLOADED",
+      };
+      setOfflinePackages((current) => {
+        const next = { ...current, [trailId]: completedPkg };
+        offlineMapStorage.savePackage(completedPkg);
+        return next;
+      });
+    }, 1200);
+  };
+
+  const removeOfflineTrail = async (trailId: string) => {
+    setOfflinePackages((current) => {
+      const next = { ...current };
+      delete next[trailId];
+      offlineMapStorage.removePackage(trailId);
+      return next;
+    });
+  };
+
+  const isTrailOfflineReady = (trailId: string): boolean => {
+    return offlinePackages[trailId]?.status === "DOWNLOADED";
   };
 
   const confirmRentalPickup = (orderId: string) => {
@@ -1668,6 +1801,11 @@ export const AppProvider: React.FC<{
         deleteUserNotification,
         savedTrailIds,
         toggleSavedTrail,
+        offlinePackages,
+        downloadOfflineTrail,
+        removeOfflineTrail,
+        isTrailOfflineReady,
+        isStorageHydrated,
         supportTickets,
         createSupportTicket,
         trails,
