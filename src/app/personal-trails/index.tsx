@@ -2,15 +2,15 @@ import { Ionicons } from "@expo/vector-icons";
 import { type Href, useRouter } from "expo-router";
 import { useMemo, useState } from "react";
 import {
-    Alert,
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 import { TacticalMap } from "@/components/TacticalMap";
 import { Colors, Radius, Shadows } from "@/constants/theme";

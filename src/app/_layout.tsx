@@ -3,17 +3,21 @@ import { Stack, useRouter, useSegments } from "expo-router";
 import React, { useEffect } from "react";
 import { ActivityIndicator, Platform, StyleSheet, Text, View } from "react-native";
 
+import { SafeAreaProvider } from "react-native-safe-area-context";
+
 import { Colors } from "@/constants/theme";
 import { AppProvider } from "@/context/AppContext";
 import { AuthProvider, useAuth } from "@/features/auth/AuthContext";
 
 export default function RootLayout() {
   return (
-    <AuthProvider>
-      <AppProvider>
-        <RootNavigator />
-      </AppProvider>
-    </AuthProvider>
+    <SafeAreaProvider>
+      <AuthProvider>
+        <AppProvider>
+          <RootNavigator />
+        </AppProvider>
+      </AuthProvider>
+    </SafeAreaProvider>
   );
 }
 

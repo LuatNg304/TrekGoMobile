@@ -2,13 +2,13 @@ import { Ionicons } from "@expo/vector-icons";
 import { type Href, useLocalSearchParams, useRouter } from "expo-router";
 import { useMemo, useState } from "react";
 import {
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 import { BookingModal } from "@/components/BookingModal";
 import { Colors, Radius, Shadows } from "@/constants/theme";
