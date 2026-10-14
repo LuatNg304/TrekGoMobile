@@ -1,5 +1,6 @@
 import { Redirect, type Href, useLocalSearchParams } from "expo-router";
 
+
 export default function RentalSettlementRedirectScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
 

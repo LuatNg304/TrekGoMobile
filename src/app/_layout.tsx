@@ -10,15 +10,16 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 
 export default function RootLayout() {
   return (
-    <AuthProvider>
-      <AppProvider>
-        <SafeAreaProvider>
+    <SafeAreaProvider>
+      <AuthProvider>
+        <AppProvider>
           <RentalSelectionProvider>
             <RootNavigator />
           </RentalSelectionProvider>
-        </SafeAreaProvider>
-      </AppProvider>
-    </AuthProvider>
+        </AppProvider>
+      </AuthProvider>
+    </SafeAreaProvider>
+
   );
 }
 

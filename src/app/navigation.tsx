@@ -6,8 +6,10 @@ import {
   ScrollView,
   TouchableOpacity,
   Alert,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { StatusBar } from "expo-status-bar";
+
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Radius, Shadows } from '@/constants/theme';
@@ -20,6 +22,7 @@ import { Checkpoint } from '@/types';
 
 export default function NavigationScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const {
     telemetry,
     activeTrail,
@@ -50,7 +53,8 @@ export default function NavigationScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <View style={[styles.safeArea, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+      <StatusBar style="dark" />
       {/* 1. Top HUD Header */}
       <View style={styles.topHudBar}>
         <View style={styles.topHudLeft}>
@@ -259,7 +263,7 @@ export default function NavigationScreen() {
         onClose={() => setActiveCheckpointModal(null)}
         onComplete={cpId => completeCheckpointMission(cpId)}
       />
-    </SafeAreaView>
+    </View>
   );
 }
 

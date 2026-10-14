@@ -2,13 +2,13 @@ import { Ionicons } from "@expo/vector-icons";
 import { type Href, useRouter } from "expo-router";
 import { useState } from "react";
 import {
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 import { CreatePrivateTripModal } from "@/components/CreatePrivateTripModal";
 import { TopHeader } from "@/components/TopHeader";

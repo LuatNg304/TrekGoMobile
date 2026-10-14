@@ -4,13 +4,14 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Image,
-  SafeAreaView,
+
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 import { Colors, Radius, Shadows } from "@/constants/theme";
 import { useApp } from "@/context/AppContext";
