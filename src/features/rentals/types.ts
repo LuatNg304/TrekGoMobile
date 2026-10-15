@@ -200,12 +200,83 @@ export type RentalOrderLine = {
 };
 
 export type RentalAssignedUnit = {
-  id: string;
-  unitId?: string;
+  id?: string;
+  assignmentId?: string;
+  unitId: string;
   assetCode?: string;
   status?: string;
   condition?: string;
   productName?: string;
+};
+
+export type DeliveryTaskSummary = {
+  id: string;
+  type: "OUTBOUND" | "RETURN";
+  status: string;
+  scheduledAt?: string | null;
+  point: { id: string; name: string; address?: string | null };
+  package: { id: string; code: string; status: string };
+  orderSummary: {
+    orderId: string;
+    bookingId?: string | null;
+    tripId: string;
+    orderStatus: string;
+    recipient?: { displayName?: string; fullName?: string; name?: string };
+  };
+  version: number;
+  allowedActions: string[];
+};
+
+export type DeliveryTaskUnit = {
+  unitId: string;
+  assetCode: string;
+  product?: { id?: string; name?: string };
+  condition?: string;
+  physicalStatus?: string;
+  assignmentStatus?: string;
+};
+
+export type DeliveryTaskDetail = {
+  task: {
+    id: string;
+    type: "OUTBOUND" | "RETURN";
+    status: string;
+    scheduledAt?: string | null;
+    point: { id: string; name: string; address?: string | null };
+    version: number;
+    allowedActions: string[];
+  };
+  package: { id: string; code: string; status: string; version: number } | null;
+  units: DeliveryTaskUnit[];
+  recipient: { displayName?: string; fullName?: string; name?: string };
+  verificationStatus: Record<string, unknown>;
+};
+
+export type RentalReturnScanResult = {
+  returnId: string;
+  returnSessionId: string;
+  receivedUnits: { unitId: string; assetCode: string; receivedAt: string; duplicate: boolean }[];
+  missingUnits: { unitId: string; assetCode: string }[];
+  duplicates: string[];
+  version: number;
+  taskVersion: number;
+};
+
+export type RentalReturnObservationResult = {
+  returnSessionId?: string | null;
+  observations: { unitId: string; observationOnly: true }[];
+  requiresInventoryInspection: boolean;
+  refundEligible: false;
+  discrepancies: { unitId: string; reason: string }[];
+};
+
+export type RentalReturnTransferResult = {
+  pendingTransferId: string;
+  unitIds: string[];
+  status: string;
+  transferStartedAt?: string | null;
+  transferWatchAt?: string | null;
+  monitoringStatus?: string;
 };
 
 export type RentalOrderTimelineItem = {

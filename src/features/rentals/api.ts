@@ -1,6 +1,8 @@
 import { apiRequest } from "@/lib/api-client";
 
 import {
+  DeliveryTaskDetail,
+  DeliveryTaskSummary,
   PaginatedResult,
   RentalAvailability,
   RentalCategory,
@@ -13,6 +15,9 @@ import {
   RentalPickupCode,
   RentalProduct,
   RentalQuote,
+  RentalReturnObservationResult,
+  RentalReturnScanResult,
+  RentalReturnTransferResult,
   RentalTripOption,
 } from "@/features/rentals/types";
 
@@ -315,6 +320,118 @@ export const rentalApi = {
     const response = await apiRequest<Envelope<RentalOrderDetail>>(
       `/api/v1/rental-orders/${orderId}`,
       { method: "GET", accessToken },
+    );
+
+    return unwrap(response);
+  },
+
+  async listDeliveryTasks(
+    accessToken: string,
+    input?: { type?: "OUTBOUND" | "RETURN"; status?: string; page?: number; pageSize?: number },
+  ) {
+    const query = queryString({
+      type: input?.type,
+      status: input?.status,
+      page: input?.page ?? 1,
+      pageSize: input?.pageSize ?? 50,
+    });
+    const response = await apiRequest<Envelope<PaginatedResult<DeliveryTaskSummary>>>(
+      `/api/v1/delivery/tasks?${query}`,
+      { method: "GET", accessToken },
+    );
+
+    return unwrap(response);
+  },
+
+  async claimDeliveryTask(
+    taskId: string,
+    expectedVersion: number,
+    idempotencyKey: string,
+    accessToken: string,
+  ) {
+    const response = await apiRequest<Envelope<{ version: number }>>(
+      `/api/v1/delivery/tasks/${taskId}/claim`,
+      {
+        method: "POST",
+        accessToken,
+        headers: { "Idempotency-Key": idempotencyKey },
+        body: JSON.stringify({ expectedVersion }),
+      },
+    );
+
+    return unwrap(response);
+  },
+
+  async getDeliveryTask(taskId: string, accessToken: string) {
+    const response = await apiRequest<Envelope<DeliveryTaskDetail>>(
+      `/api/v1/delivery/tasks/${taskId}`,
+      { method: "GET", accessToken },
+    );
+
+    return unwrap(response);
+  },
+
+  async scanRentalReturn(
+    orderId: string,
+    input: { assetCodes: string[]; operationId: string; expectedVersion: number },
+    idempotencyKey: string,
+    accessToken: string,
+  ) {
+    const response = await apiRequest<Envelope<RentalReturnScanResult>>(
+      `/api/v1/rental-orders/${orderId}/return-scan`,
+      {
+        method: "POST",
+        accessToken,
+        headers: { "Idempotency-Key": idempotencyKey },
+        body: JSON.stringify(input),
+      },
+    );
+
+    return unwrap(response);
+  },
+
+  async submitRentalReturnObservations(
+    orderId: string,
+    input: {
+      items: {
+        unitId: string;
+        visibleDamage?: boolean;
+        accessoryObservations?: string[];
+        notes?: string;
+        evidenceIds?: string[];
+      }[];
+      expectedVersion: number;
+    },
+    idempotencyKey: string,
+    accessToken: string,
+  ) {
+    const response = await apiRequest<Envelope<RentalReturnObservationResult>>(
+      `/api/v1/rental-orders/${orderId}/return-observations`,
+      {
+        method: "POST",
+        accessToken,
+        headers: { "Idempotency-Key": idempotencyKey },
+        body: JSON.stringify(input),
+      },
+    );
+
+    return unwrap(response);
+  },
+
+  async transferRentalReturnToInventory(
+    returnTaskId: string,
+    input: { unitIds: string[]; packageId?: string; pendingTransferId?: string; expectedVersion: number },
+    idempotencyKey: string,
+    accessToken: string,
+  ) {
+    const response = await apiRequest<Envelope<RentalReturnTransferResult>>(
+      `/api/v1/delivery/tasks/${returnTaskId}/return-to-inventory-location`,
+      {
+        method: "POST",
+        accessToken,
+        headers: { "Idempotency-Key": idempotencyKey },
+        body: JSON.stringify(input),
+      },
     );
 
     return unwrap(response);
