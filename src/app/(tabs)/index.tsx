@@ -57,6 +57,7 @@ export default function HomeScreen() {
         </View>
 
         {/* 2. UPCOMING TRIP HERO CARD (24px rounded card / Scandinavian fintech vibe) */}
+        {activeTrip.id ? (
         <View style={styles.heroCard}>
           {/* Card Image Banner */}
           <View style={styles.heroImageContainer}>
@@ -86,7 +87,7 @@ export default function HomeScreen() {
                 color={Colors.primary}
               />
               <Text style={styles.bookingText}>
-                {activeTrip.bookingCode || "#BK-8842"}
+                {activeTrip.bookingCode ?? ""}
               </Text>
             </View>
 
@@ -194,6 +195,15 @@ export default function HomeScreen() {
             </View>
           </View>
         </View>
+        ) : (
+          <View style={styles.heroCard}>
+            <View style={styles.heroBody}>
+              <Text style={styles.greetingSubtitle}>
+                Bạn chưa có chuyến đi nào sắp tới.
+              </Text>
+            </View>
+          </View>
+        )}
 
         {/* 3. QUICK ACTION SHORTCUTS (4 Items Rounded Icon Buttons) */}
         <View style={styles.shortcutsRow}>

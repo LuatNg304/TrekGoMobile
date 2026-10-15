@@ -1,7 +1,7 @@
 import { FieldModal } from '@/components/FieldModal';
 import { Colors, Radius, Shadows } from '@/constants/theme';
 import { useApp } from '@/context/AppContext';
-import { deliveryTasks } from '@/data/fieldOpsMock';
+import { deliveryTasks, emptyDeliveryTask } from '@/data/fieldOpsMock';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
@@ -15,7 +15,7 @@ const labels: Record<ItemStatus, string> = { PENDING: 'Chưa kiểm', OK: 'Bình
 export default function StaffReturnScreen() {
   const router = useRouter();
   const { taskId } = useLocalSearchParams<{ taskId?: string }>();
-  const task = deliveryTasks.find(item => item.id === taskId && item.type === 'THU_HOI') ?? deliveryTasks[1];
+  const task = deliveryTasks.find(item => item.id === taskId && item.type === 'THU_HOI') ?? deliveryTasks[1] ?? emptyDeliveryTask;
   const { fieldWorkflow, markReturnArrived, setReturnVerified, setReturnItem, setReturnConditionRecorded, setReturnSigned, completeReturn } = useApp();
   const [otp, setOtp] = useState('');
   const [busy, setBusy] = useState(false);

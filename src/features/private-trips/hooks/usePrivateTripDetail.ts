@@ -26,49 +26,13 @@ export function usePrivateTripDetail(tripId?: string, autoFetch = true) {
         }
         throw new Error("Không có dữ liệu.");
       } catch (err: any) {
-        // Fallback demo trip detail so UI testing is always smooth
-        const demoTrip: PrivateTrip = {
-          id: targetId,
-          title: "Săn mây Tà Xùa cùng Team Dev",
-          description:
-            "Chuyến đi trekking ngắm mây và cắm trại cuối tuần cùng bạn bè tại đỉnh Gió Tà Xùa.",
-          startAt: "2026-11-25T06:00:00.000Z",
-          endAt: "2026-11-26T18:00:00.000Z",
-          maxPax: 6,
-          pickupPointId: "cf010000-0000-4000-8000-000000001002",
-          destinationId: "cf010000-0000-4000-8000-000000001001",
-          status: "OPEN",
-          version: 1,
-          inviteCode: "TG-8F92A",
-          pickupPoint: {
-            id: "cf010000-0000-4000-8000-000000001002",
-            name: "Bến xe Miền Đông Mới - Cổng 3",
-          },
-          tripCheckpointsViaTripId: [
-            {
-              id: "cp-1",
-              name: "Trạm kiểm lâm Chân núi",
-              sequence: 1,
-            },
-            {
-              id: "cp-2",
-              name: "Đỉnh Gió săn mây",
-              sequence: 2,
-            },
-            {
-              id: "cp-3",
-              name: "Mỏm đá Sống Lưng Khủng Long",
-              sequence: 3,
-            },
-          ],
-          tripTrailPlansViaTripId: [
-            {
-              snapshotName: "Cung đường Sống Lưng Khủng Long",
-            },
-          ],
-        };
-        setTrip(demoTrip);
-        return demoTrip;
+        setTrip(null);
+        setError(
+          err instanceof ApiError
+            ? err.message
+            : err?.message || "Không thể tải chi tiết chuyến đi.",
+        );
+        return null;
       } finally {
         setLoading(false);
       }

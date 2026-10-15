@@ -26,47 +26,13 @@ export function usePrivateTripRoom(tripId?: string, autoFetch = true) {
         }
         throw new Error("Không có dữ liệu.");
       } catch (err: any) {
-        const demoRoom: TripRoomData = {
-          trip: {
-            id: targetId,
-            title: "Săn mây Tà Xùa cùng Team Dev",
-            status: "OPEN",
-            startAt: "2026-11-25T06:00:00.000Z",
-            endAt: "2026-11-26T18:00:00.000Z",
-            capacity: 6,
-            activeMemberCount: 3,
-            pickupPoint: {
-              id: "cf010000-0000-4000-8000-000000001002",
-              name: "Bến xe Miền Đông Mới - Cổng 3",
-            },
-          },
-          viewer: {
-            isHost: true,
-            membershipId: "mem-host-1",
-            membershipVersion: 1,
-            membershipStatus: "ACTIVE",
-          },
-          permissions: {
-            canInvite: true,
-            canRemoveMembers: true,
-            canLeave: false,
-            canRent: true,
-          },
-          requiredCheckpoints: [
-            {
-              id: "cp-1",
-              name: "Trạm kiểm lâm Chân núi",
-              sequence: 1,
-            },
-            {
-              id: "cp-2",
-              name: "Đỉnh Gió săn mây",
-              sequence: 2,
-            },
-          ],
-        };
-        setRoomData(demoRoom);
-        return demoRoom;
+        setRoomData(null);
+        setError(
+          err instanceof ApiError
+            ? err.message
+            : err?.message || "Không thể tải phòng chờ chuyến đi.",
+        );
+        return null;
       } finally {
         setLoading(false);
       }

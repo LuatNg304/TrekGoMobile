@@ -107,6 +107,24 @@ export interface FieldWorkflowState {
 
 const FIELD_WORKFLOW_STORAGE_KEY = 'trekgo.field-workflow.v1';
 
+// Placeholder khi chưa có trip nào (id rỗng = không có trip thật).
+const EMPTY_TRIP = {
+  id: '',
+  type: 'PUBLIC',
+  name: '',
+  trailId: '',
+  destination: '',
+  startDate: '',
+  endDate: '',
+  durationDays: 0,
+  status: 'UPCOMING',
+  leader: { name: '', avatar: '', phone: '', rating: 0, badge: '' },
+  capacity: 0,
+  enrolledCount: 0,
+  weather: { tempC: 0, condition: '' },
+  participants: [],
+} as unknown as Trip;
+
 const initialFieldWorkflow: FieldWorkflowState = {
   leaderTripStatus: 'PREPARING',
   leaderPretripApproved: false,
@@ -114,7 +132,7 @@ const initialFieldWorkflow: FieldWorkflowState = {
     memberName: member.name,
     status: member.status === 'Đã check-in' ? 'CHECKED_IN' : 'PENDING',
   })),
-  requiredCheckpointIds: mockTrails[0].checkpoints.map((checkpoint) => checkpoint.id),
+  requiredCheckpointIds: (mockTrails[0]?.checkpoints ?? []).map((checkpoint) => checkpoint.id),
   completedCheckpointIds: [],
   leaderSafetyAlert: { status: 'ACTIVE', selectedOption: null },
   gpsStatus: 'OK',
@@ -1066,7 +1084,9 @@ export const AppProvider: React.FC<{
         trip.type === "PUBLIC" &&
         trip.status === "UPCOMING" &&
         Boolean(trip.bookingCode),
-    ) || trips[0];
+    ) ||
+    trips[0] ||
+    EMPTY_TRIP;
   const activeTrail = trails[0];
 
   const toggleUserRole = () => {
