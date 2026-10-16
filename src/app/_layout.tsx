@@ -1,6 +1,7 @@
 import { Colors } from "@/constants/theme";
 import { AppProvider, useApp } from "@/context/AppContext";
 import { AuthProvider, useAuth } from "@/features/auth/AuthContext";
+import { NetworkLoggerModal } from "@/components/common/NetworkLoggerModal";
 import { Stack, useRouter, useSegments, type Href } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import React, { useEffect } from "react";
@@ -95,6 +96,7 @@ function RootNavigator() {
           }}
         />
       </Stack>
+      <NetworkLoggerModal />
     </View>
   );
 }

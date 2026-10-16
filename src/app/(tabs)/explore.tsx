@@ -5,7 +5,7 @@ import { useApp } from "@/context/AppContext";
 import { Trail } from "@/types";
 import { Ionicons } from "@expo/vector-icons";
 import { Href, useRouter } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Image,
   SafeAreaView,
@@ -23,7 +23,23 @@ export default function ExploreScreen() {
 
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedFilter, setSelectedFilter] = useState<string>("Tất cả");
+<<<<<<< HEAD
   const [selectedTrailId, setSelectedTrailId] = useState<string | null>(null);
+=======
+  const [selectedTrail, setSelectedTrail] = useState<Trail | undefined>(
+    trails[0],
+  );
+  const [createPrivateModalVisible, setCreatePrivateModalVisible] =
+    useState(false);
+>>>>>>> b01d2abbfe2fefaefa41b9ce85ef70edb018fb6f
+
+  useEffect(() => {
+    if (!selectedTrail && trails.length > 0) {
+      setSelectedTrail(trails[0]);
+    }
+  }, [trails, selectedTrail]);
+
+  const activeTrail = selectedTrail || trails[0];
 
   const filters = ["Tất cả", "Gần bạn", "Dễ", "Trung bình", "Khó", "Đã sở hữu"];
 
@@ -52,8 +68,13 @@ export default function ExploreScreen() {
     safeTrails[0];
 
   const handleUnlock = () => {
+<<<<<<< HEAD
     if (selectedTrail?.id) {
       unlockTrail(selectedTrail.id);
+=======
+    if (activeTrail) {
+      unlockTrail(activeTrail.id);
+>>>>>>> b01d2abbfe2fefaefa41b9ce85ef70edb018fb6f
     }
   };
 
@@ -144,6 +165,7 @@ export default function ExploreScreen() {
         </TouchableOpacity>
 
         {/* 2. Main Trail Canvas Card */}
+<<<<<<< HEAD
         {!selectedTrail ? (
           <View style={styles.emptyCard}>
             <View style={styles.emptyIconCircle}>
@@ -166,6 +188,212 @@ export default function ExploreScreen() {
                 style={styles.emptySecondaryCta}
                 onPress={() => router.push("/public-trips" as Href)}
                 activeOpacity={0.85}
+=======
+        {activeTrail ? (
+          <View style={styles.mainTrailCard}>
+            {/* Hero Image */}
+            <View style={styles.trailHeroWrapper}>
+              <Image
+                source={{ uri: activeTrail.imageUrl }}
+                style={styles.trailHeroImage}
+              />
+              <View style={styles.heroOverlay} />
+
+              {/* Top Badges */}
+              <View style={styles.offlineGpsBadge}>
+                <View style={styles.pulseDot} />
+                <Text style={styles.offlineGpsText}>Offline GPS 3D</Text>
+              </View>
+
+              <View style={styles.ratingBadge}>
+                <Ionicons name="star" size={13} color="#fed018" />
+                <Text style={styles.ratingText}>
+                  {activeTrail.rating} ({activeTrail.reviewCount})
+                </Text>
+              </View>
+
+              {/* Bottom Hero Info */}
+              <View style={styles.heroInfoBottom}>
+                <View style={styles.categoryTagsRow}>
+                  <View style={styles.categoryTag}>
+                    <Text style={styles.categoryTagText}>
+                      {activeTrail.terrainType}
+                    </Text>
+                  </View>
+                  <View
+                    style={[styles.categoryTag, { backgroundColor: "#fed018" }]}
+                  >
+                    <Text style={[styles.categoryTagText, { color: "#4a3b1c" }]}>
+                      {activeTrail.difficulty}
+                    </Text>
+                  </View>
+                </View>
+
+                <Text style={styles.trailTitle}>{activeTrail.name}</Text>
+                <Text style={styles.trailSubtitle}>
+                  📍 {activeTrail.region}
+                </Text>
+              </View>
+            </View>
+
+            {/* Bento Telemetry Grid */}
+            <View style={styles.bentoGrid}>
+              <View style={styles.bentoTile}>
+                <View style={styles.bentoIconBg}>
+                  <Ionicons
+                    name="git-commit"
+                    size={16}
+                    color={Colors.primaryDark}
+                  />
+                </View>
+                <View>
+                  <Text style={styles.bentoLabel}>KHOẢNG CÁCH</Text>
+                  <Text style={styles.bentoValue}>
+                    {activeTrail.distanceKm} km
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.bentoTile}>
+                <View style={styles.bentoIconBg}>
+                  <Ionicons name="time" size={16} color={Colors.secondary} />
+                </View>
+                <View>
+                  <Text style={styles.bentoLabel}>THỜI GIAN</Text>
+                  <Text style={styles.bentoValue}>{activeTrail.duration}</Text>
+                </View>
+              </View>
+
+              <View style={styles.bentoTile}>
+                <View style={styles.bentoIconBg}>
+                  <Ionicons name="trending-up" size={16} color="#725c00" />
+                </View>
+                <View>
+                  <Text style={styles.bentoLabel}>ĐỘ CAO LŨY KẾ</Text>
+                  <Text style={styles.bentoValue}>
+                    +{activeTrail.elevationGainM}m
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.bentoTile}>
+                <View style={styles.bentoIconBg}>
+                  <Ionicons name="flag" size={16} color={Colors.primaryDark} />
+                </View>
+                <View>
+                  <Text style={styles.bentoLabel}>CHECKPOINTS</Text>
+                  <Text style={styles.bentoValue}>
+                    {activeTrail.checkpoints.length} Mốc GPS
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            {/* Interactive Topo Route Map Preview */}
+            <View style={styles.mapSectionCard}>
+              <View style={styles.mapHeaderRow}>
+                <View
+                  style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+                >
+                  <Ionicons name="map" size={16} color={Colors.primaryDark} />
+                  <Text style={styles.mapHeaderTitle}>
+                    Bản đồ địa hình & Tuyến GPS
+                  </Text>
+                </View>
+                <View style={styles.contourBadge}>
+                  <Text style={styles.contourText}>Contour 25m</Text>
+                </View>
+              </View>
+
+              <TacticalMap
+                isOnRoute={true}
+                height={220}
+                checkpoints={activeTrail.checkpoints}
+                interactive={false}
+              />
+            </View>
+
+            {/* Trail Description */}
+            <View style={styles.descSection}>
+              <Text style={styles.descTitle}>Tổng quan hành trình</Text>
+              <Text style={styles.descBody}>{activeTrail.description}</Text>
+            </View>
+
+            {/* Actions CTA */}
+            <View style={styles.ctaRow}>
+              {activeTrail.isUnlocked ? (
+                <>
+                  <TouchableOpacity
+                    style={styles.primaryCta}
+                    onPress={() => router.push("/navigation")}
+                    activeOpacity={0.85}
+                  >
+                    <Ionicons
+                      name="navigate"
+                      size={18}
+                      color={Colors.onPrimary}
+                    />
+                    <Text style={styles.primaryCtaText}>
+                      Vào Chế Độ GPS Trekking
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.secondaryCta}
+                    onPress={() => setCreatePrivateModalVisible(true)}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="people" size={18} color={Colors.onSurface} />
+                    <Text style={styles.secondaryCtaText}>Tạo Private Trip</Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <TouchableOpacity
+                  style={styles.unlockCta}
+                  onPress={handleUnlock}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="lock-open" size={20} color={Colors.onPrimary} />
+                  <Text style={styles.unlockCtaText}>
+                    Mở Khóa Bản Đồ GPS Toàn Tuyến (
+                    {activeTrail.price.toLocaleString("vi-VN")} đ)
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        ) : (
+          <View style={styles.emptyTrailCard}>
+            <Ionicons
+              name="map-outline"
+              size={42}
+              color={Colors.onSurfaceVariant}
+            />
+            <Text style={styles.emptyTrailTitle}>
+              Chưa có dữ liệu cung đường
+            </Text>
+            <Text style={styles.emptyTrailSub}>
+              Hệ thống chưa tải được danh sách cung đường hoặc danh sách đang trống.
+            </Text>
+          </View>
+        )}
+
+        {/* 3. Other Trails List */}
+        <View style={styles.otherTrailsSection}>
+          <Text style={styles.otherTrailsTitle}>
+            Các Cung Đường Khác ({filteredTrails.length})
+          </Text>
+          <View style={styles.otherTrailsList}>
+            {filteredTrails.map((t) => (
+              <TouchableOpacity
+                key={t.id}
+                style={[
+                  styles.otherTrailItem,
+                  activeTrail?.id === t.id && styles.otherTrailItemSelected,
+                ]}
+                onPress={() => setSelectedTrail(t)}
+                activeOpacity={0.8}
+>>>>>>> b01d2abbfe2fefaefa41b9ce85ef70edb018fb6f
               >
                 <Ionicons name="compass-outline" size={16} color={Colors.primaryDark} />
                 <Text style={styles.emptySecondaryCtaText}>Public Tours</Text>
@@ -233,7 +461,15 @@ export default function ExploreScreen() {
               <View style={styles.bentoTile}>
                 <View style={styles.bentoIconBg}>
                   <Ionicons
+<<<<<<< HEAD
                     name="git-commit"
+=======
+                    name={
+                      activeTrail?.id === t.id
+                        ? "chevron-down"
+                        : "chevron-forward"
+                    }
+>>>>>>> b01d2abbfe2fefaefa41b9ce85ef70edb018fb6f
                     size={16}
                     color={Colors.primaryDark}
                   />
@@ -817,6 +1053,7 @@ const styles = StyleSheet.create({
     color: Colors.mute,
     marginTop: 2,
   },
+<<<<<<< HEAD
   emptyCard: {
     marginHorizontal: 16,
     backgroundColor: Colors.surfaceContainerLowest,
@@ -886,6 +1123,30 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700",
     color: Colors.primaryDark,
+=======
+  emptyTrailCard: {
+    marginHorizontal: 16,
+    backgroundColor: Colors.surfaceContainerLowest,
+    borderRadius: Radius.xl,
+    padding: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 24,
+    ...Shadows.card,
+  },
+  emptyTrailTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: Colors.onSurface,
+    marginTop: 12,
+    marginBottom: 6,
+  },
+  emptyTrailSub: {
+    fontSize: 13,
+    color: Colors.onSurfaceVariant,
+    textAlign: "center",
+    lineHeight: 18,
+>>>>>>> b01d2abbfe2fefaefa41b9ce85ef70edb018fb6f
   },
 });
 
