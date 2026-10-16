@@ -1,22 +1,44 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import {
-  View,
-  Text,
-  StyleSheet,
-  Modal,
-  TouchableOpacity,
-  Alert,
-  TextInput,
-  ScrollView,
-  Platform,
-} from "react-native";
-import * as Location from "expo-location";
-import { Ionicons } from "@expo/vector-icons";
+  MapCheckpoint,
+  MapCoordinate,
+  MapLibre3DView,
+  MapLibre3DViewRef,
+} from "@/components/map/MapLibre3DView";
 import { Colors, Radius, Shadows } from "@/constants/theme";
 import { useApp } from "@/context/AppContext";
-import { MapLibre3DView, MapCoordinate, MapCheckpoint, MapLibre3DViewRef } from "@/components/map/MapLibre3DView";
-import { DifficultyLevel, PersonalTrail } from "@/types";
-import { GpsProcessor, GpsPoint } from "@/utils/gpsProcessor";
+import { generateUUID, recordingDatabase } from "@/services/storage";
+import {
+  DifficultyLevel,
+  PersonalTrail,
+  PersonalTrailRoutePoint,
+  RawGpsSample,
+  mapRejectReason,
+} from "@/types";
+import {
+  GpsPoint,
+  GpsProcessor,
+  distanceMeters,
+} from "@/utils/gpsProcessor";
+import { Ionicons } from "@expo/vector-icons";
+import * as Location from "expo-location";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  Alert,
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
 
 interface LiveTrailRecorderModalProps {
   visible: boolean;
@@ -44,26 +66,50 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
   const [currentSpeedKmh, setCurrentSpeedKmh] = useState(0);
   const [elevationGainM, setElevationGainM] = useState(0);
 
+  // Nhịp độ trung bình (Pace: phút:giây / km) theo phong cách Strava
+  const averagePace = useMemo(() => {
+    if (distanceKm < 0.05 || elapsedSeconds === 0) {
+      return "--:--";
+    }
+    const paceSecondsPerKm = elapsedSeconds / distanceKm;
+    if (!isFinite(paceSecondsPerKm) || paceSecondsPerKm > 3600) {
+      return "--:--";
+    }
+    const minutes = Math.floor(paceSecondsPerKm / 60);
+    const seconds = Math.floor(paceSecondsPerKm % 60);
+    return `${minutes}:${seconds < 10 ? "0" : ""}${seconds}`;
+  }, [distanceKm, elapsedSeconds]);
+
   // Dữ liệu GPS
-  const [recordedCoordinates, setRecordedCoordinates] = useState<GpsPoint[]>([]);
-  const [currentPosition, setCurrentPosition] = useState<MapCoordinate | null>(null);
+  const [recordedCoordinates, setRecordedCoordinates] = useState<GpsPoint[]>(
+    [],
+  );
+  const [currentPosition, setCurrentPosition] = useState<MapCoordinate | null>(
+    null,
+  );
   const [checkpoints, setCheckpoints] = useState<MapCheckpoint[]>([]);
-  const [gpsStatus, setGpsStatus] = useState<"SEARCHING" | "READY" | "DENIED" | "SIMULATED">("SEARCHING");
+  const [gpsStatus, setGpsStatus] = useState<
+    "SEARCHING" | "READY" | "DENIED" | "SIMULATED"
+  >("SEARCHING");
   const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
 
   // Modal lưu cung đường
   const [showSaveForm, setShowSaveForm] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [trailName, setTrailName] = useState("");
   const [trailRegion, setTrailRegion] = useState("Lâm Đồng");
   const [trailDifficulty] = useState<DifficultyLevel>("Trung bình");
   const [trailDescription, setTrailDescription] = useState("");
 
-  const locationSubscription = useRef<Location.LocationSubscription | null>(null);
+  const locationSubscription = useRef<Location.LocationSubscription | null>(
+    null,
+  );
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mapRef = useRef<MapLibre3DViewRef>(null);
   const gpsProcessorRef = useRef(new GpsProcessor());
   const isPausedRef = useRef(false);
   const isRecordingRef = useRef(false);
+  const currentRecordingIdRef = useRef<string | null>(null);
 
   // Hàm xác định toạ độ GPS tức thì của người dùng (chỉ dùng để hiển thị ban đầu, không đưa vào bản ghi thật)
   const detectCurrentLocation = async (): Promise<MapCoordinate | null> => {
@@ -146,6 +192,7 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
   const resetSession = () => {
     isRecordingRef.current = false;
     isPausedRef.current = false;
+    currentRecordingIdRef.current = null;
     if (locationSubscription.current) {
       locationSubscription.current.remove();
       locationSubscription.current = null;
@@ -175,23 +222,6 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, [isRecording, isPaused]);
-
-  // Tự động định vị ngay khi mở modal
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    if (visible) {
-      timer = setTimeout(() => {
-        detectCurrentLocation();
-      }, 0);
-    }
-    return () => {
-      if (timer) clearTimeout(timer);
-      if (locationSubscription.current) {
-        locationSubscription.current.remove();
-        locationSubscription.current = null;
-      }
-    };
-  }, [visible]);
 
   // Yêu cầu quyền vị trí và lắng nghe GPS
   const startLocationTracking = async () => {
@@ -225,14 +255,50 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
           {
             accuracy: targetAccuracy,
             distanceInterval: 1, // Nhận sự kiện di chuyển từ 1 mét
-            timeInterval: 1000, // Cập nhật nhịp tim 1 giây / lần
+            timeInterval: 3000, // Cập nhật nhịp tim 3 giây / lần
           },
           (location) => {
             if (!isRecordingRef.current || isPausedRef.current) return;
 
+            const recId = currentRecordingIdRef.current;
             const result = gpsProcessorRef.current.process(location);
+            const raw = result.rawPoint;
             setGpsAccuracy(location.coords.accuracy ?? null);
 
+            // 1. Lưu RAW GPS SAMPLE vào SQLite dùng result.rawPoint và mapRejectReason
+            if (recId && raw && Number.isFinite(raw.recordedAt)) {
+              const rawSample: RawGpsSample = {
+                clientSampleId: generateUUID(),
+                clientRecordingId: recId,
+                latitude: raw.latitude,
+                longitude: raw.longitude,
+                recordedAt: new Date(raw.recordedAt).toISOString(),
+                accuracyM: raw.accuracyM ?? null,
+                altitudeM: raw.altitudeM ?? null,
+                altitudeAccuracyM: raw.altitudeAccuracyM ?? null,
+                speedMps: raw.speedMps ?? null,
+                headingDeg: raw.headingDeg ?? null,
+                segmentId:
+                  result.point?.segmentId ??
+                  gpsProcessorRef.current.getCurrentSegmentId(),
+                accepted: result.accepted,
+                rejectReason: mapRejectReason(result.reason),
+              };
+
+              recordingDatabase.insertRawSample(rawSample).catch((err) => {
+                console.warn(
+                  "[LiveTrailRecorder] Error inserting raw sample:",
+                  err,
+                );
+              });
+            }
+
+            // Đồng bộ segmentId nếu processor tự động tách segment do gap > 15s
+            if (result.isNewSegment && recId) {
+              recordingDatabase.incrementSegmentId(recId).catch(console.warn);
+            }
+
+            // 2. Điểm bị filter từ chối -> không đưa vào tuyến live và telemetry
             if (!result.accepted || !result.point) {
               return;
             }
@@ -242,9 +308,7 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
               latitude: pt.latitude,
               longitude: pt.longitude,
               elevation:
-                pt.elevation != null
-                  ? Math.round(pt.elevation)
-                  : undefined,
+                pt.elevation != null ? Math.round(pt.elevation) : undefined,
             };
 
             setCurrentPosition(currentCoord);
@@ -257,7 +321,10 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
         );
         return true;
       } catch (watchErr) {
-        console.warn("[LiveTrailRecorder] watchPositionAsync failed:", watchErr);
+        console.warn(
+          "[LiveTrailRecorder] watchPositionAsync failed:",
+          watchErr,
+        );
         return false;
       }
     } catch (e) {
@@ -265,6 +332,161 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
       return false;
     }
   };
+
+  // Tự động định vị ngay khi mở modal và kiểm tra khôi phục phiên ghi dở dang từ SQLite (Crash Recovery)
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    if (visible) {
+      timer = setTimeout(() => {
+        detectCurrentLocation();
+      }, 0);
+
+      // Kiểm tra phiên ghi dở dang nếu modal vừa mở và chưa đang ghi
+      if (!isRecordingRef.current) {
+        recordingDatabase
+          .getActiveRecording()
+          .then(async (active) => {
+            if (active) {
+              Alert.alert(
+                "Khôi phục phiên ghi?",
+                `Tìm thấy phiên ghi dở dang lúc ${new Date(active.startedAt).toLocaleTimeString("vi-VN")}. Bạn có muốn tiếp tục hành trình không?`,
+                [
+                  {
+                    text: "Hủy phiên cũ",
+                    style: "destructive",
+                    onPress: () => {
+                      recordingDatabase
+                        .deleteRecording(active.clientRecordingId)
+                        .catch(console.warn);
+                    },
+                  },
+                  {
+                    text: "Tiếp tục ghi",
+                    onPress: async () => {
+                      currentRecordingIdRef.current = active.clientRecordingId;
+                      const acceptedSamples =
+                        await recordingDatabase.getAcceptedPoints(
+                          active.clientRecordingId,
+                        );
+                      const savedCps = await recordingDatabase.getCheckpoints(
+                        active.clientRecordingId,
+                      );
+
+                      const restoredPoints: GpsPoint[] = acceptedSamples.map(
+                        (s) => ({
+                          latitude: s.latitude,
+                          longitude: s.longitude,
+                          elevation: s.altitudeM ?? undefined,
+                          timestamp: new Date(s.recordedAt).getTime(),
+                          accuracy: s.accuracyM ?? 10,
+                          altitudeAccuracy: s.altitudeAccuracyM ?? undefined,
+                          speed: s.speedMps ?? undefined,
+                          segmentId: s.segmentId,
+                        }),
+                      );
+
+                      setRecordedCoordinates(restoredPoints);
+                      if (restoredPoints.length > 0) {
+                        const last = restoredPoints[restoredPoints.length - 1];
+                        setCurrentPosition({
+                          latitude: last.latitude,
+                          longitude: last.longitude,
+                          elevation: last.elevation,
+                        });
+                      }
+
+                      // Khôi phục bộ đếm khoảng cách, độ cao và trạng thái processor
+                      let totalDistM = 0;
+                      let totalElevM = 0;
+                      let maxSeg = active.nextSegmentId || 0;
+                      for (let i = 1; i < restoredPoints.length; i++) {
+                        const prev = restoredPoints[i - 1];
+                        const curr = restoredPoints[i];
+                        if (prev.segmentId === curr.segmentId) {
+                          totalDistM += distanceMeters(prev, curr);
+                        }
+                        if (
+                          curr.elevation != null &&
+                          prev.elevation != null &&
+                          curr.elevation > prev.elevation
+                        ) {
+                          totalElevM += curr.elevation - prev.elevation;
+                        }
+                        if (curr.segmentId > maxSeg) {
+                          maxSeg = curr.segmentId;
+                        }
+                      }
+
+                      const lastPt =
+                        restoredPoints.length > 0
+                          ? restoredPoints[restoredPoints.length - 1]
+                          : null;
+
+                      gpsProcessorRef.current.restoreSnapshot({
+                        currentSegmentId: maxSeg,
+                        distanceM: totalDistM,
+                        elevationGainM: totalElevM,
+                        lastPoint: lastPt,
+                        lastObservedTimestamp: lastPt?.timestamp ?? 0,
+                        smoothedElevation: lastPt?.elevation ?? null,
+                        elevationAnchor: lastPt?.elevation ?? null,
+                      });
+
+                      // Bắt đầu segment mới sau khi khôi phục (không nối xuyên qua thời gian app đóng)
+                      gpsProcessorRef.current.breakSegment();
+                      recordingDatabase
+                        .incrementSegmentId(active.clientRecordingId)
+                        .catch(console.warn);
+
+                      // Cập nhật telemetry UI
+                      setDistanceKm(totalDistM / 1000);
+                      setElevationGainM(Math.round(totalElevM));
+
+                      // Khôi phục thời gian ghi ước tính
+                      const startedTime = new Date(active.startedAt).getTime();
+                      if (!isNaN(startedTime) && lastPt) {
+                        const durationSec = Math.max(
+                          0,
+                          Math.floor((lastPt.timestamp - startedTime) / 1000),
+                        );
+                        setElapsedSeconds(durationSec);
+                      }
+
+                      setCheckpoints(
+                        savedCps.map((c) => ({
+                          id: c.clientCheckpointId,
+                          order: c.order,
+                          name: c.name,
+                          latitude: c.latitude ?? 0,
+                          longitude: c.longitude ?? 0,
+                          elevation: c.elevationLiveM ?? undefined,
+                          status: "COMPLETED",
+                        })),
+                      );
+
+                      setIsRecording(true);
+                      isRecordingRef.current = true;
+                      const paused = active.status === "PAUSED";
+                      setIsPaused(paused);
+                      isPausedRef.current = paused;
+                      startLocationTracking();
+                    },
+                  },
+                ],
+              );
+            }
+          })
+          .catch(console.warn);
+      }
+    }
+    return () => {
+      if (timer) clearTimeout(timer);
+      if (locationSubscription.current) {
+        locationSubscription.current.remove();
+        locationSubscription.current = null;
+      }
+    };
+  }, [visible]);
 
   const handleStart = async () => {
     gpsProcessorRef.current.reset();
@@ -275,6 +497,11 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
     setElapsedSeconds(0);
     setCheckpoints([]);
 
+    // Khởi tạo phiên ghi mới trong SQLite
+    const newRecId = generateUUID();
+    currentRecordingIdRef.current = newRecId;
+    await recordingDatabase.createRecording(newRecId, new Date().toISOString());
+
     isPausedRef.current = false;
     isRecordingRef.current = true;
     setIsFollowingUser(true);
@@ -282,6 +509,8 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
     const started = await startLocationTracking();
     if (!started) {
       isRecordingRef.current = false;
+      recordingDatabase.deleteRecording(newRecId).catch(console.warn);
+      currentRecordingIdRef.current = null;
       Alert.alert(
         "Không thể ghi GPS",
         "Vui lòng kiểm tra quyền vị trí và dịch vụ định vị GPS.",
@@ -307,7 +536,11 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
   const handleCenterOnUser = useCallback(() => {
     setIsFollowingUser(true);
     if (currentPosition && mapRef.current) {
-      mapRef.current.centerOnUser(currentPosition.longitude, currentPosition.latitude, 16.5);
+      mapRef.current.centerOnUser(
+        currentPosition.longitude,
+        currentPosition.latitude,
+        16.5,
+      );
     } else {
       detectCurrentLocation();
     }
@@ -318,155 +551,200 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
     isPausedRef.current = nextPaused;
     setIsPaused(nextPaused);
 
-    if (!nextPaused) {
+    const recId = currentRecordingIdRef.current;
+    if (recId) {
+      recordingDatabase
+        .updateRecordingStatus(recId, nextPaused ? "PAUSED" : "RECORDING")
+        .catch(console.warn);
+
+      if (!nextPaused) {
+        recordingDatabase.incrementSegmentId(recId).catch(console.warn);
+        gpsProcessorRef.current.breakSegment();
+      }
+    } else if (!nextPaused) {
       gpsProcessorRef.current.breakSegment();
     }
   };
 
-  const handleAddCheckpoint = () => {
-    if (!currentPosition) {
-      Alert.alert("Chưa có vị trí", "Đang chờ bắt tín hiệu GPS...");
-      return;
-    }
-
-    const order = checkpoints.length + 1;
-    const newCp: MapCheckpoint = {
-      id: `cp-rec-${Date.now()}`,
-      order,
-      name: `Cột mốc CP${order}`,
-      latitude: currentPosition.latitude,
-      longitude: currentPosition.longitude,
-      elevation: currentPosition.elevation,
-      status: "COMPLETED",
-    };
-
-    setCheckpoints((prev) => [...prev, newCp]);
-    Alert.alert("Đã lưu Checkpoint", `Đã đánh dấu ${newCp.name} tại toạ độ hiện tại.`);
-  };
 
   const handleStopAndSave = () => {
+    // Ngắt subscription GPS để dừng nhận điểm mới
+    locationSubscription.current?.remove();
+    locationSubscription.current = null;
+
     isPausedRef.current = true;
     setIsPaused(true);
-    if (recordedCoordinates.length < 2) {
-      Alert.alert(
-        "Cung đường quá ngắn",
-        "Bạn cần di chuyển ghi nhận ít nhất vài điểm GPS để lưu thành cung đường hoàn chỉnh.",
-      );
-      return;
+
+    const recId = currentRecordingIdRef.current;
+    if (recId) {
+      recordingDatabase
+        .updateRecordingStatus(recId, "PAUSED")
+        .catch(console.warn);
     }
 
     setTrailName(`Cung đường ngày ${new Date().toLocaleDateString("vi-VN")}`);
     setShowSaveForm(true);
   };
 
-  const handleConfirmSave = () => {
+  const handleConfirmSave = async () => {
+    if (isSaving) return;
+
     if (!trailName.trim()) {
       Alert.alert("Vui lòng nhập tên", "Hãy đặt tên cho cung đường của bạn.");
       return;
     }
 
-    const durationMin = Math.round(elapsedSeconds / 60);
-    const durationStr =
-      durationMin >= 60
-        ? `${Math.floor(durationMin / 60)} giờ ${durationMin % 60} phút`
-        : `${Math.max(1, durationMin)} phút`;
+    // BỎ TẠO ĐIỂM GIẢ: Yêu cầu ít nhất 2 toạ độ GPS thực tế
+    if (recordedCoordinates.length < 2) {
+      Alert.alert(
+        "Chưa đủ dữ liệu GPS",
+        "Bạn cần di chuyển và ghi nhận ít nhất 2 toạ độ GPS thực tế để tạo cung đường hợp lệ.",
+      );
+      return;
+    }
 
-    // Phân chia toạ độ thành các segments riêng biệt (tránh nối đường qua khoảng Pause / GPS gap)
-    const gpsSegments: [number, number, number?][][] = [];
-    const segmentsMap = new Map<number, [number, number, number?][]>();
-    for (const c of recordedCoordinates) {
-      const segId = c.segmentId ?? 0;
-      if (!segmentsMap.has(segId)) {
-        segmentsMap.set(segId, []);
-      }
-      segmentsMap.get(segId)!.push([
-        c.longitude,
-        c.latitude,
-        c.elevation != null ? Math.round(c.elevation) : undefined,
-      ]);
-    }
-    for (const seg of segmentsMap.values()) {
-      if (seg.length >= 2) {
-        gpsSegments.push(seg);
-      }
-    }
-    if (gpsSegments.length === 0) {
-      for (const seg of segmentsMap.values()) {
-        if (seg.length > 0) {
-          gpsSegments.push(seg);
+    setIsSaving(true);
+
+    try {
+      const durationMin = Math.round(elapsedSeconds / 60);
+      const durationStr =
+        durationMin >= 60
+          ? `${Math.floor(durationMin / 60)} giờ ${durationMin % 60} phút`
+          : `${Math.max(1, durationMin)} phút`;
+
+      const effectiveDistanceKm = Number(distanceKm.toFixed(3));
+
+      // Gom nhóm segment hợp lệ từ GPS thực tế (MultiLineString)
+      const segmentsMap = new Map<number, [number, number, number?][]>();
+      for (const c of recordedCoordinates) {
+        const segId = c.segmentId ?? 0;
+        if (!segmentsMap.has(segId)) {
+          segmentsMap.set(segId, []);
         }
-      }
-    }
-
-    // Toạ độ phẳng đồng bộ với segments hợp lệ
-    const flatPoints: [number, number, number?][] = [];
-    for (const seg of gpsSegments) {
-      flatPoints.push(...seg);
-    }
-    const gpsRouteCoords: [number, number, number?][] =
-      flatPoints.length > 0
-        ? flatPoints
-        : recordedCoordinates.map((c) => [
+        segmentsMap
+          .get(segId)!
+          .push([
             c.longitude,
             c.latitude,
             c.elevation != null ? Math.round(c.elevation) : undefined,
           ]);
+      }
 
-    const finalCheckpoints = checkpoints;
-
-    // Chuyển đổi sang format PersonalTrail của TrekGo
-    const newTrail = createPersonalTrail({
-      name: trailName.trim(),
-      region: trailRegion,
-      difficulty: trailDifficulty,
-      distanceKm: Number(distanceKm.toFixed(3)),
-      elevationGainM: Math.round(elevationGainM),
-      duration: durationStr,
-      terrainType: "Rừng & Đồi dốc",
-      description: trailDescription.trim() || `Cung đường ghi nhận thực tế vào ngày ${new Date().toLocaleDateString("vi-VN")}`,
-      routePreset: "RIDGE",
-      submitForVerification: false,
-      gpsRoute: gpsRouteCoords,
-      gpsSegments: gpsSegments,
-      routePoints: recordedCoordinates.map((c, idx) => ({
-        id: `rp-${idx}`,
-        lat: c.latitude,
-        lng: c.longitude,
-        elevation: c.elevation != null ? Math.round(c.elevation) : undefined,
-        segmentId: c.segmentId,
-        x: Math.round(50 + (idx / Math.max(1, recordedCoordinates.length - 1)) * 300),
-        y: Math.round(300 - (idx / Math.max(1, recordedCoordinates.length - 1)) * 200),
-      })),
-      checkpoints: finalCheckpoints.map((cp, idx) => ({
-        id: cp.id,
-        order: idx + 1,
-        name: cp.name,
-        elevation: cp.elevation != null ? Math.round(cp.elevation) : null,
-        distanceFromStartKm: Number(((idx + 1) * (distanceKm / Math.max(1, finalCheckpoints.length + 1))).toFixed(3)),
-        status: "PENDING" as const,
-        coords: {
-          x: Math.round(50 + ((idx + 1) / (finalCheckpoints.length + 2)) * 300),
-          y: Math.round(300 - ((idx + 1) / (finalCheckpoints.length + 2)) * 200),
-        },
-        realCoords: {
-          lat: cp.latitude,
-          lon: cp.longitude,
-        },
-      })),
-    });
-
-    // Dọn dẹp
-    resetSession();
-    setShowSaveForm(false);
-    onClose();
-    onSaved?.(newTrail.id, newTrail);
-
-    setTimeout(() => {
-      Alert.alert(
-        "Ghi nhận thành công!",
-        `Cung đường "${newTrail.name}" (${distanceKm} km) đã được lưu vào Cung Đường Cá Nhân và lưu trữ ngoại tuyến trên thiết bị của bạn.`,
+      const validSegments = Array.from(segmentsMap.values()).filter(
+        (seg) => seg.length >= 2,
       );
-    }, 400);
+      const gpsSegments: [number, number, number?][][] =
+        validSegments.length > 0
+          ? validSegments
+          : [
+              recordedCoordinates.map(
+                (c): [number, number, number?] => [
+                  c.longitude,
+                  c.latitude,
+                  c.elevation != null ? Math.round(c.elevation) : undefined,
+                ],
+              ),
+            ];
+
+      const flatPoints: [number, number, number?][] = [];
+      for (const seg of gpsSegments) {
+        flatPoints.push(...seg);
+      }
+      const gpsRouteCoords: [number, number, number?][] =
+        flatPoints.length > 0
+          ? flatPoints
+          : recordedCoordinates.map(
+              (c): [number, number, number?] => [
+                c.longitude,
+                c.latitude,
+                c.elevation != null ? Math.round(c.elevation) : undefined,
+              ],
+            );
+
+      const finalRoutePoints: PersonalTrailRoutePoint[] =
+        recordedCoordinates.map((c, idx) => ({
+          id: `rp-${idx}`,
+          lat: c.latitude,
+          lng: c.longitude,
+          elevation: c.elevation != null ? Math.round(c.elevation) : undefined,
+          segmentId: c.segmentId,
+          x: Math.round(
+            50 + (idx / Math.max(1, recordedCoordinates.length - 1)) * 300,
+          ),
+          y: Math.round(
+            300 - (idx / Math.max(1, recordedCoordinates.length - 1)) * 200,
+          ),
+        }));
+
+      const finalCheckpoints = checkpoints;
+      const recId = currentRecordingIdRef.current;
+
+      // 1. Cập nhật SQLite trước và đưa vào Outbox đồng bộ
+      if (recId) {
+        await recordingDatabase.updateRecordingStatus(recId, "STOPPED_LOCAL", {
+          endedAt: new Date().toISOString(),
+        });
+
+        await recordingDatabase.enqueueOutbox(recId, "CREATE_TRAIL", {
+          title: trailName.trim(),
+          description: trailDescription.trim(),
+          difficulty: trailDifficulty,
+          distanceKm: effectiveDistanceKm,
+          elevationGainM: Math.round(elevationGainM),
+          duration: durationStr,
+          checkpoints: finalCheckpoints,
+        });
+      }
+
+      // 2. Chuyển đổi sang format PersonalTrail của TrekGo
+      const newTrail = createPersonalTrail({
+        name: trailName.trim(),
+        region: trailRegion,
+        difficulty: trailDifficulty,
+        distanceKm: effectiveDistanceKm,
+        elevationGainM: Math.round(elevationGainM),
+        duration: durationStr,
+        terrainType: "Rừng & Đồi dốc",
+        description:
+          trailDescription.trim() ||
+          `Cung đường ghi nhận thực tế vào ngày ${new Date().toLocaleDateString("vi-VN")}`,
+        routePreset: "RIDGE",
+        submitForVerification: false,
+        gpsRoute: gpsRouteCoords,
+        gpsSegments: gpsSegments,
+        clientRecordingId: recId || undefined,
+        routePoints: finalRoutePoints,
+        checkpoints: [],
+      });
+
+      // 3. Liên kết PersonalTrail.id vào SQLite recording để đồng bộ và xóa an toàn
+      if (recId) {
+        await recordingDatabase.updateRecordingStatus(recId, "STOPPED_LOCAL", {
+          serverPersonalTrailId: newTrail.id,
+        });
+      }
+
+      // 4. Dọn dẹp session
+      resetSession();
+      setShowSaveForm(false);
+      setIsSaving(false);
+      onClose();
+      onSaved?.(newTrail.id, newTrail);
+
+      setTimeout(() => {
+        Alert.alert(
+          "Ghi nhận thành công!",
+          `Cung đường "${newTrail.name}" (${effectiveDistanceKm} km) đã được lưu vào SQLite trên thiết bị của bạn.`,
+        );
+      }, 400);
+    } catch (saveErr) {
+      console.warn("[LiveTrailRecorder] Save error:", saveErr);
+      Alert.alert(
+        "Lưu cung đường thất bại",
+        "Có lỗi khi lưu dữ liệu vào bộ nhớ máy. Vui lòng bấm lưu lại.",
+      );
+      setIsSaving(false);
+    }
   };
 
   const handleCancel = () => {
@@ -480,6 +758,11 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
             text: "Hủy bỏ",
             style: "destructive",
             onPress: () => {
+              if (currentRecordingIdRef.current) {
+                recordingDatabase
+                  .deleteRecording(currentRecordingIdRef.current)
+                  .catch(console.warn);
+              }
               resetSession();
               onClose();
             },
@@ -513,11 +796,13 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
       if (!segmentsMap.has(segId)) {
         segmentsMap.set(segId, []);
       }
-      segmentsMap.get(segId)!.push([
-        c.longitude,
-        c.latitude,
-        c.elevation != null ? Math.round(c.elevation) : undefined,
-      ]);
+      segmentsMap
+        .get(segId)!
+        .push([
+          c.longitude,
+          c.latitude,
+          c.elevation != null ? Math.round(c.elevation) : undefined,
+        ]);
     }
     return Array.from(segmentsMap.values()).filter((seg) => seg.length > 0);
   }, [recordedCoordinates]);
@@ -533,9 +818,18 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
 
           <View style={styles.headerCenter}>
             <View style={styles.recBadge}>
-              <View style={[styles.recDot, isRecording && !isPaused && styles.recDotActive]} />
+              <View
+                style={[
+                  styles.recDot,
+                  isRecording && !isPaused && styles.recDotActive,
+                ]}
+              />
               <Text style={styles.recTitle}>
-                {isRecording ? (isPaused ? "ĐÃ TẠM DỪNG" : "LIVE TREKGO TRACK") : "CHUẨN BỊ GHI CUNG ĐƯỜNG"}
+                {isRecording
+                  ? isPaused
+                    ? "ĐÃ TẠM DỪNG"
+                    : "LIVE TREKGO TRACK"
+                  : "CHUẨN BỊ GHI CUNG ĐƯỜNG"}
               </Text>
             </View>
           </View>
@@ -559,7 +853,7 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
             />
             <Text style={styles.gpsStatusText} numberOfLines={1}>
               {gpsStatus === "READY" && currentPosition
-                ? `GPS Tốt ${gpsAccuracy ? `(±${Math.round(gpsAccuracy)}m)` : ""} · ${currentPosition.latitude.toFixed(4)}°N, ${currentPosition.longitude.toFixed(4)}°E`
+                ? `GPS ${gpsAccuracy ? `(±${Math.round(gpsAccuracy)}m)` : ""} · ${currentPosition.latitude.toFixed(4)}°N, ${currentPosition.longitude.toFixed(4)}°E`
                 : gpsStatus === "SEARCHING"
                   ? "Đang dò sóng vệ tinh GPS..."
                   : gpsStatus === "DENIED"
@@ -580,9 +874,17 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
               activeOpacity={0.8}
             >
               <Ionicons
-                name={isFollowingUser && isRecording && !isPaused ? "navigate" : "locate"}
+                name={
+                  isFollowingUser && isRecording && !isPaused
+                    ? "navigate"
+                    : "locate"
+                }
                 size={13}
-                color={isFollowingUser && isRecording && !isPaused ? "#0c2000" : "#ffffff"}
+                color={
+                  isFollowingUser && isRecording && !isPaused
+                    ? "#0c2000"
+                    : "#ffffff"
+                }
               />
               <Text
                 style={[
@@ -592,7 +894,9 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
                     : styles.gpsLocateTextInactive,
                 ]}
               >
-                {isFollowingUser && isRecording && !isPaused ? "Bám GPS" : "Định vị"}
+                {isFollowingUser && isRecording && !isPaused
+                  ? "Bám GPS"
+                  : "Định vị"}
               </Text>
             </TouchableOpacity>
           </View>
@@ -602,8 +906,11 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
         <View style={styles.mapContainer}>
           <MapLibre3DView
             ref={mapRef}
-            height={320}
-            center={currentPosition ? [currentPosition.longitude, currentPosition.latitude] : [108.529, 11.5831]}
+            center={
+              currentPosition
+                ? [currentPosition.longitude, currentPosition.latitude]
+                : [108.529, 11.5831]
+            }
             is3D={false}
             pitch={0}
             minZoom={10}
@@ -621,50 +928,66 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
           />
         </View>
 
-        {/* 3. Strava Telemetry Metrics Dashboard */}
+        {/* 3. Compact Telemetry Dashboard */}
         <View style={styles.dashboard}>
-          {/* Main Elapsed Time */}
-          <View style={styles.timeSection}>
-            <Text style={styles.metricLabel}>THỜI GIAN DI CHUYỂN</Text>
-            <Text style={styles.timeValue}>{formatTime(elapsedSeconds)}</Text>
-          </View>
-
-          {/* Metric Grid */}
-          <View style={styles.metricGrid}>
-            <View style={styles.metricCard}>
-              <Text style={styles.metricLabel}>QUÃNG ĐƯỜNG</Text>
-              <Text style={styles.metricValue}>{distanceKm.toFixed(2)}</Text>
-              <Text style={styles.metricUnit}>km</Text>
+          {/* Row 1: Primary Stats (Thời gian di chuyển & Quãng đường) */}
+          <View style={styles.primaryStatsRow}>
+            <View style={styles.primaryStatBox}>
+              <Text style={styles.compactMetricLabel}>THỜI GIAN</Text>
+              <Text style={styles.primaryStatValue}>
+                {formatTime(elapsedSeconds)}
+              </Text>
             </View>
 
-            <View style={styles.metricCard}>
-              <Text style={styles.metricLabel}>TỐC ĐỘ</Text>
-              <Text style={styles.metricValue}>{currentSpeedKmh.toFixed(1)}</Text>
-              <Text style={styles.metricUnit}>km/h</Text>
-            </View>
+            <View style={styles.statDivider} />
 
-            <View style={styles.metricCard}>
-              <Text style={styles.metricLabel}>ĐỘ CAO LŨY KẾ</Text>
-              <Text style={styles.metricValue}>+{elevationGainM}</Text>
-              <Text style={styles.metricUnit}>m</Text>
-            </View>
-
-            <View style={styles.metricCard}>
-              <Text style={styles.metricLabel}>ĐIỂM CHECKPOINT</Text>
-              <Text style={styles.metricValue}>{checkpoints.length}</Text>
-              <Text style={styles.metricUnit}>mốc</Text>
+            <View style={styles.primaryStatBox}>
+              <Text style={styles.compactMetricLabel}>QUÃNG ĐƯỜNG</Text>
+              <View style={styles.primaryValueWithUnit}>
+                <Text style={styles.primaryStatValue}>
+                  {distanceKm.toFixed(2)}
+                </Text>
+                <Text style={styles.primaryStatUnit}>km</Text>
+              </View>
             </View>
           </View>
 
-          {/* Current GPS Coordinates & Real Elevation Info Card */}
-          <View style={styles.gpsCoordCard}>
-            <Ionicons name="navigate-circle" size={15} color={Colors.primary} />
-            <Text style={styles.gpsCoordText}>
+          {/* Row 2: Secondary Stats (Tốc độ, Độ cao lũy kế, Nhịp độ) */}
+          <View style={styles.secondaryStatsRow}>
+            <View style={styles.secondaryStatBox}>
+              <Text style={styles.compactSubLabel}>TỐC ĐỘ</Text>
+              <Text style={styles.secondaryStatValue}>
+                {currentSpeedKmh.toFixed(1)}{" "}
+                <Text style={styles.secondaryStatUnit}>km/h</Text>
+              </Text>
+            </View>
+
+            <View style={styles.secondaryStatBox}>
+              <Text style={styles.compactSubLabel}>ĐỘ CAO +</Text>
+              <Text style={styles.secondaryStatValue}>
+                +{elevationGainM}{" "}
+                <Text style={styles.secondaryStatUnit}>m</Text>
+              </Text>
+            </View>
+
+            <View style={styles.secondaryStatBox}>
+              <Text style={styles.compactSubLabel}>NHỊP ĐỘ</Text>
+              <Text style={styles.secondaryStatValue}>
+                {averagePace}{" "}
+                <Text style={styles.secondaryStatUnit}>/km</Text>
+              </Text>
+            </View>
+          </View>
+
+          {/* Current GPS Coordinates & Real Elevation Info Subline */}
+          {/* <View style={styles.gpsCoordCard}>
+            <Ionicons name="navigate-circle" size={13} color={Colors.primary} />
+            <Text style={styles.gpsCoordText} numberOfLines={1}>
               {currentPosition
-                ? `Vị trí: ${currentPosition.latitude.toFixed(5)}°B, ${currentPosition.longitude.toFixed(5)}°Đ · Độ cao: ${currentPosition.elevation != null ? `${Math.round(currentPosition.elevation)}m` : "Đang lấy..."}`
+                ? `Vị trí: ${currentPosition.latitude.toFixed(4)}°B, ${currentPosition.longitude.toFixed(4)}°Đ · Cao: ${currentPosition.elevation != null ? `${Math.round(currentPosition.elevation)}m` : "--"}`
                 : "Đang kết nối tín hiệu vệ tinh GPS..."}
             </Text>
-          </View>
+          </View> */}
         </View>
 
         {/* 4. Controls Footer */}
@@ -680,20 +1003,10 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
             </TouchableOpacity>
           ) : (
             <View style={styles.activeControlsRow}>
-              {/* Add Checkpoint Button */}
-              <TouchableOpacity
-                style={styles.secondaryActionBtn}
-                onPress={handleAddCheckpoint}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="flag" size={18} color="#fed018" />
-                <Text style={styles.secondaryActionText}>Mốc CP</Text>
-              </TouchableOpacity>
-
               {/* Pause / Resume Button */}
               <TouchableOpacity
                 style={[
-                  styles.primaryActionBtn,
+                  styles.pauseResumeBtn,
                   isPaused ? styles.resumeBtn : styles.pauseBtn,
                 ]}
                 onPress={handlePauseResume}
@@ -701,9 +1014,17 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
               >
                 <Ionicons
                   name={isPaused ? "play" : "pause"}
-                  size={24}
+                  size={20}
                   color={isPaused ? "#0c2000" : "#ffffff"}
                 />
+                <Text
+                  style={[
+                    styles.pauseResumeText,
+                    { color: isPaused ? "#0c2000" : "#ffffff" },
+                  ]}
+                >
+                  {isPaused ? "Tiếp tục" : "Tạm dừng"}
+                </Text>
               </TouchableOpacity>
 
               {/* Stop & Save Button */}
@@ -725,10 +1046,14 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
             <View style={styles.saveModalCard}>
               <Text style={styles.saveModalTitle}>Lưu Cung Đường Cá Nhân</Text>
               <Text style={styles.saveModalSubtitle}>
-                {distanceKm} km · {formatTime(elapsedSeconds)} · +{elevationGainM}m độ cao
+                {distanceKm} km · {formatTime(elapsedSeconds)} · +
+                {elevationGainM}m độ cao
               </Text>
 
-              <ScrollView style={{ maxHeight: 280 }} showsVerticalScrollIndicator={false}>
+              <ScrollView
+                style={{ maxHeight: 280 }}
+                showsVerticalScrollIndicator={false}
+              >
                 <Text style={styles.inputLabel}>TÊN CUNG ĐƯỜNG</Text>
                 <TextInput
                   style={styles.textInput}
@@ -761,16 +1086,23 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
               <View style={styles.saveModalActions}>
                 <TouchableOpacity
                   style={styles.saveCancelBtn}
-                  onPress={() => setShowSaveForm(false)}
+                  onPress={() => {
+                    setShowSaveForm(false);
+                    startLocationTracking();
+                  }}
+                  disabled={isSaving}
                 >
                   <Text style={styles.saveCancelText}>Quay lại</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={styles.saveSubmitBtn}
+                  style={[styles.saveSubmitBtn, isSaving && { opacity: 0.6 }]}
                   onPress={handleConfirmSave}
+                  disabled={isSaving}
                 >
-                  <Text style={styles.saveSubmitText}>Lưu & Đồng bộ</Text>
+                  <Text style={styles.saveSubmitText}>
+                    {isSaving ? "Đang lưu..." : "Lưu & Đồng bộ"}
+                  </Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -849,7 +1181,7 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
   mapContainer: {
-    height: 320,
+    flex: 1,
     width: "100%",
   },
   gpsStatusBar: {
@@ -953,72 +1285,107 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    marginTop: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: "rgba(20, 25, 18, 0.7)",
-    borderRadius: Radius.md,
+    marginTop: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    backgroundColor: "rgba(20, 25, 18, 0.5)",
+    borderRadius: Radius.sm,
     borderWidth: 1,
-    borderColor: "rgba(56, 239, 125, 0.2)",
+    borderColor: "rgba(56, 239, 125, 0.18)",
   },
   gpsCoordText: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "600",
     color: "#9fe870",
     fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+    flex: 1,
   },
   dashboard: {
-    flex: 1,
     paddingHorizontal: 16,
-    paddingTop: 16,
+    paddingTop: 10,
+    paddingBottom: 8,
     backgroundColor: "#0d150c",
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255, 255, 255, 0.08)",
   },
-  timeSection: {
-    alignItems: "center",
-    paddingVertical: 12,
-    backgroundColor: "rgba(20, 25, 18, 0.6)",
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.08)",
-  },
-  timeValue: {
-    fontSize: 38,
-    fontWeight: "900",
-    color: "#ffffff",
-    fontFamily: Platform.OS === "ios" ? "Helvetica Neue" : "monospace",
-    letterSpacing: 1.5,
-  },
-  metricGrid: {
+  primaryStatsRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-    marginTop: 12,
-  },
-  metricCard: {
-    width: "48%",
-    backgroundColor: "rgba(20, 25, 18, 0.6)",
-    padding: 12,
-    borderRadius: Radius.lg,
+    alignItems: "center",
+    backgroundColor: "rgba(20, 25, 18, 0.7)",
+    borderRadius: Radius.md,
     borderWidth: 1,
     borderColor: "rgba(255, 255, 255, 0.08)",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
   },
-  metricLabel: {
+  primaryStatBox: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  statDivider: {
+    width: 1,
+    height: 30,
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
+  },
+  compactMetricLabel: {
     fontSize: 9,
     color: "#9fe870",
     fontWeight: "800",
     letterSpacing: 0.6,
+    marginBottom: 2,
   },
-  metricValue: {
-    fontSize: 22,
+  primaryStatValue: {
+    fontSize: 24,
     fontWeight: "900",
     color: "#ffffff",
-    marginTop: 4,
+    fontFamily: Platform.OS === "ios" ? "Helvetica Neue" : "monospace",
+    letterSpacing: 0.5,
   },
-  metricUnit: {
-    fontSize: 10,
+  primaryValueWithUnit: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 4,
+  },
+  primaryStatUnit: {
+    fontSize: 12,
+    fontWeight: "800",
     color: "#8a9486",
+  },
+  secondaryStatsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 6,
+    gap: 8,
+  },
+  secondaryStatBox: {
+    flex: 1,
+    backgroundColor: "rgba(20, 25, 18, 0.5)",
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    borderRadius: Radius.sm,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.06)",
+    alignItems: "center",
+  },
+  compactSubLabel: {
+    fontSize: 8,
+    color: "#8a9486",
+    fontWeight: "800",
+    letterSpacing: 0.5,
+    marginBottom: 2,
+  },
+  secondaryStatValue: {
+    fontSize: 13,
+    fontWeight: "900",
+    color: "#ffffff",
+    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+  },
+  secondaryStatUnit: {
+    fontSize: 9,
     fontWeight: "700",
-    marginTop: -2,
+    color: "#8a9486",
   },
   footer: {
     padding: 16,
@@ -1047,55 +1414,48 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 14,
+    gap: 12,
   },
-  secondaryActionBtn: {
+  pauseResumeBtn: {
     flex: 1,
-    height: 48,
+    height: 50,
     borderRadius: Radius.full,
-    backgroundColor: "rgba(30, 35, 28, 0.85)",
-    alignItems: "center",
-    justifyContent: "center",
     flexDirection: "row",
-    gap: 6,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.15)",
-  },
-  secondaryActionText: {
-    color: "#fed018",
-    fontSize: 12,
-    fontWeight: "800",
-  },
-  primaryActionBtn: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
     alignItems: "center",
     justifyContent: "center",
+    gap: 8,
     ...Shadows.tactical,
   },
   pauseBtn: {
     backgroundColor: "#ba1a1a",
+    borderWidth: 1,
+    borderColor: "#ef4444",
   },
   resumeBtn: {
     backgroundColor: Colors.primary,
   },
+  pauseResumeText: {
+    fontSize: 13,
+    fontWeight: "800",
+    letterSpacing: 0.3,
+  },
   finishActionBtn: {
     flex: 1,
-    height: 48,
+    height: 50,
     borderRadius: Radius.full,
     backgroundColor: "#1b4d24",
     alignItems: "center",
     justifyContent: "center",
     flexDirection: "row",
-    gap: 6,
+    gap: 8,
     borderWidth: 1,
     borderColor: "#38ef7d",
   },
   finishActionText: {
     color: "#ffffff",
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "800",
+    letterSpacing: 0.3,
   },
   saveModalBackdrop: {
     ...StyleSheet.absoluteFill,

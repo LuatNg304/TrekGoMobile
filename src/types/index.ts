@@ -104,6 +104,7 @@ export interface PersonalTrail {
   gpsRoute?: [number, number, number?][]; // [lng, lat, elev?][] toạ độ GPS thực tế của cung đường đã đi (chuẩn 3D GeoJSON)
   gpsSegments?: [number, number, number?][][]; // Phân đoạn khi Pause/Resume hoặc mất tín hiệu GPS
   checkpoints: Checkpoint[];
+  clientRecordingId?: string; // ID phiên ghi SQLite local_recordings (nếu tạo từ Live Trail Recorder)
   createdAt: string;
   updatedAt: string;
 }
@@ -123,6 +124,7 @@ export interface CreatePersonalTrailInput {
   gpsSegments?: [number, number, number?][][];
   checkpoints: Checkpoint[];
   submitForVerification: boolean;
+  clientRecordingId?: string;
 }
 
 export type CommunityAuthorRole = "TREKKER" | "LEADER";
@@ -450,3 +452,5 @@ export interface LiveNavTelemetry {
   deviationMeters: number;
   isWarningDismissed: boolean;
 }
+
+export * from "./recording";

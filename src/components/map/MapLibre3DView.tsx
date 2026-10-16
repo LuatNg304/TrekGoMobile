@@ -78,7 +78,7 @@ export interface MapLibre3DViewRef {
 const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
   (
     {
-      height = 360,
+      height,
       center = [108.529, 11.5831], // Mặc định Lâm Đồng / Tà Năng
       zoom = 13.5,
       minZoom = 10,
@@ -826,7 +826,12 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
     const webViewSource = useMemo(() => ({ html: htmlContent }), [htmlContent]);
 
     return (
-      <View style={[styles.container, { height }]}>
+      <View
+        style={[
+          styles.container,
+          height !== undefined ? { height } : { flex: 1 },
+        ]}
+      >
         <WebView
           ref={webViewRef}
           originWhitelist={["*"]}

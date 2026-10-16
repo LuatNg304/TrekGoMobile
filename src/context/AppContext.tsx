@@ -33,8 +33,9 @@ import {
 import { useAuth } from "@/features/auth/AuthContext";
 import {
   accountStorage,
-  offlineMapStorage,
   OfflineMapPackage,
+  offlineMapStorage,
+  recordingDatabase,
   trailStorage,
 } from "@/services/storage";
 
@@ -115,6 +116,7 @@ interface AppContextType {
   ) => void;
   submitPersonalTrail: (trailId: string) => void;
   deletePersonalTrail: (trailId: string) => void;
+  clearAllDatabaseData: () => Promise<void>;
 
   communityPosts: CommunityPost[];
   communityProfiles: CommunityProfile[];
@@ -198,12 +200,15 @@ const initialGroupTrips: GroupTrip[] = [
     endDate: "18/10/2026",
     duration: "3 ngày 2 đêm",
     difficulty: "Trung bình",
-    imageUrl: "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=1200&q=80",
-    description: "Nhóm nhỏ ưu tiên trải nghiệm chậm, săn mây bình minh và cắm trại trên sống lưng đồi cỏ.",
+    imageUrl:
+      "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=1200&q=80",
+    description:
+      "Nhóm nhỏ ưu tiên trải nghiệm chậm, săn mây bình minh và cắm trại trên sống lưng đồi cỏ.",
     organizer: {
       id: "community-leader-linh",
       name: "Trần Gia Linh",
-      avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=240&q=80",
+      avatar:
+        "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=240&q=80",
       role: "LEADER",
       verified: true,
       badge: "Verified Leader",
@@ -215,11 +220,36 @@ const initialGroupTrips: GroupTrip[] = [
     joinMode: "APPROVAL",
     joinStatus: "NONE",
     tags: ["Săn mây", "Cắm trại", "Chụp ảnh"],
-    requirements: ["Thể lực trung bình", "Có giày trekking", "Không bệnh tim mạch nặng"],
+    requirements: [
+      "Thể lực trung bình",
+      "Có giày trekking",
+      "Không bệnh tim mạch nặng",
+    ],
     members: [
-      { id: "community-leader-linh", name: "Trần Gia Linh", avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=240&q=80", fitnessLevel: "ADVANCED", role: "ORGANIZER" },
-      { id: "group-member-1", name: "Hoàng Nam", avatar: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=240&q=80", fitnessLevel: "INTERMEDIATE", role: "MEMBER" },
-      { id: "group-member-2", name: "Bảo Ngọc", avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=240&q=80", fitnessLevel: "INTERMEDIATE", role: "MEMBER" },
+      {
+        id: "community-leader-linh",
+        name: "Trần Gia Linh",
+        avatar:
+          "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=240&q=80",
+        fitnessLevel: "ADVANCED",
+        role: "ORGANIZER",
+      },
+      {
+        id: "group-member-1",
+        name: "Hoàng Nam",
+        avatar:
+          "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=240&q=80",
+        fitnessLevel: "INTERMEDIATE",
+        role: "MEMBER",
+      },
+      {
+        id: "group-member-2",
+        name: "Bảo Ngọc",
+        avatar:
+          "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=240&q=80",
+        fitnessLevel: "INTERMEDIATE",
+        role: "MEMBER",
+      },
     ],
   },
   {
@@ -231,12 +261,15 @@ const initialGroupTrips: GroupTrip[] = [
     endDate: "25/10/2026",
     duration: "2 ngày 1 đêm",
     difficulty: "Khó",
-    imageUrl: "https://images.unsplash.com/photo-1551632811-561732d1e306?auto=format&fit=crop&w=1200&q=80",
-    description: "Đoàn dành cho trekker đã có kinh nghiệm, tốc độ ổn định và ưu tiên an toàn rừng già.",
+    imageUrl:
+      "https://images.unsplash.com/photo-1551632811-561732d1e306?auto=format&fit=crop&w=1200&q=80",
+    description:
+      "Đoàn dành cho trekker đã có kinh nghiệm, tốc độ ổn định và ưu tiên an toàn rừng già.",
     organizer: {
       id: "community-leader-minh",
       name: "Lê Nhật Minh",
-      avatar: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=240&q=80",
+      avatar:
+        "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=240&q=80",
       role: "LEADER",
       verified: true,
       badge: "Top Organizer",
@@ -248,9 +281,20 @@ const initialGroupTrips: GroupTrip[] = [
     joinMode: "APPROVAL",
     joinStatus: "PENDING",
     tags: ["Rừng già", "Đỉnh cao", "Thử thách"],
-    requirements: ["Đã hoàn thành ít nhất 2 cung", "Thể lực khá", "Mang áo mưa cá nhân"],
+    requirements: [
+      "Đã hoàn thành ít nhất 2 cung",
+      "Thể lực khá",
+      "Mang áo mưa cá nhân",
+    ],
     members: [
-      { id: "community-leader-minh", name: "Lê Nhật Minh", avatar: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=240&q=80", fitnessLevel: "ADVANCED", role: "ORGANIZER" },
+      {
+        id: "community-leader-minh",
+        name: "Lê Nhật Minh",
+        avatar:
+          "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=240&q=80",
+        fitnessLevel: "ADVANCED",
+        role: "ORGANIZER",
+      },
     ],
   },
   {
@@ -262,12 +306,15 @@ const initialGroupTrips: GroupTrip[] = [
     endDate: "01/11/2026",
     duration: "Trong ngày",
     difficulty: "Dễ",
-    imageUrl: "https://images.unsplash.com/photo-1486911278844-a81c5267e227?auto=format&fit=crop&w=1200&q=80",
-    description: "Chuyến làm quen trekking với nhịp độ nhẹ, phù hợp người mới và nhóm bạn nhỏ.",
+    imageUrl:
+      "https://images.unsplash.com/photo-1486911278844-a81c5267e227?auto=format&fit=crop&w=1200&q=80",
+    description:
+      "Chuyến làm quen trekking với nhịp độ nhẹ, phù hợp người mới và nhóm bạn nhỏ.",
     organizer: {
       id: "community-user-thao",
       name: "Nguyễn Thanh Thảo",
-      avatar: "https://images.unsplash.com/photo-1527980965255-d3b416303d12?auto=format&fit=crop&w=240&q=80",
+      avatar:
+        "https://images.unsplash.com/photo-1527980965255-d3b416303d12?auto=format&fit=crop&w=240&q=80",
       role: "TREKKER",
       verified: false,
     },
@@ -278,9 +325,20 @@ const initialGroupTrips: GroupTrip[] = [
     joinMode: "INSTANT",
     joinStatus: "NONE",
     tags: ["Người mới", "Trong ngày", "Kết bạn"],
-    requirements: ["Sức khỏe ổn định", "Mang tối thiểu 1.5L nước", "Có mặt đúng giờ"],
+    requirements: [
+      "Sức khỏe ổn định",
+      "Mang tối thiểu 1.5L nước",
+      "Có mặt đúng giờ",
+    ],
     members: [
-      { id: "community-user-thao", name: "Nguyễn Thanh Thảo", avatar: "https://images.unsplash.com/photo-1527980965255-d3b416303d12?auto=format&fit=crop&w=240&q=80", fitnessLevel: "INTERMEDIATE", role: "ORGANIZER" },
+      {
+        id: "community-user-thao",
+        name: "Nguyễn Thanh Thảo",
+        avatar:
+          "https://images.unsplash.com/photo-1527980965255-d3b416303d12?auto=format&fit=crop&w=240&q=80",
+        fitnessLevel: "INTERMEDIATE",
+        role: "ORGANIZER",
+      },
     ],
   },
 ];
@@ -299,7 +357,8 @@ const initialUserNotifications: UserNotification[] = [
     id: "notification-rental-1",
     category: "RENTAL",
     title: "Đơn thuê đang được chuẩn bị",
-    message: "Kho đã tiếp nhận đơn và đang chuẩn bị thiết bị cho chuyến đi của bạn.",
+    message:
+      "Kho đã tiếp nhận đơn và đang chuẩn bị thiết bị cho chuyến đi của bạn.",
     createdAt: "1 giờ trước",
     isRead: false,
     route: "/(tabs)/rental",
@@ -326,7 +385,8 @@ const initialUserNotifications: UserNotification[] = [
     id: "notification-trail-2",
     category: "PERSONAL_TRAIL",
     title: "Cần chỉnh sửa cung đường",
-    message: "Admin yêu cầu bổ sung checkpoint và mô tả an toàn trước khi duyệt lại.",
+    message:
+      "Admin yêu cầu bổ sung checkpoint và mô tả an toàn trước khi duyệt lại.",
     createdAt: "3 ngày trước",
     isRead: true,
     route: "/personal-trails",
@@ -340,91 +400,6 @@ function formatNow() {
 function normalizeInviteCode(value: string) {
   return value.trim().toUpperCase();
 }
-
-const initialPersonalTrails: PersonalTrail[] = [
-  {
-    id: "personal-trail-dinh-pinhatt",
-    ownerId: mockUserProfile.id,
-    name: "Đường mòn săn hoàng hôn Pinhatt",
-    region: "Đà Lạt, Lâm Đồng",
-    difficulty: "Trung bình",
-    distanceKm: 8.6,
-    elevationGainM: 420,
-    duration: "1 ngày",
-    terrainType: "Rừng thông & Sống núi",
-    description:
-      "Route cá nhân xuyên rừng thông lên điểm ngắm hồ Tuyền Lâm và đỉnh Pinhatt.",
-    visibility: "PRIVATE",
-    verificationStatus: "DRAFT",
-    routePreset: "RIDGE",
-    routePoints: [
-      { id: "route-1", x: 42, y: 304 },
-      { id: "route-2", x: 112, y: 252 },
-      { id: "route-3", x: 208, y: 196 },
-      { id: "route-4", x: 294, y: 116 },
-      { id: "route-5", x: 356, y: 62 },
-    ],
-    checkpoints: [
-      {
-        id: "personal-cp-1",
-        order: 1,
-        name: "Bìa rừng thông",
-        elevation: 1450,
-        distanceFromStartKm: 0,
-        status: "PENDING",
-        coords: { x: 42, y: 304 },
-      },
-      {
-        id: "personal-cp-2",
-        order: 2,
-        name: "Điểm ngắm hồ Tuyền Lâm",
-        elevation: 1620,
-        distanceFromStartKm: 4.2,
-        status: "PENDING",
-        coords: { x: 208, y: 196 },
-      },
-    ],
-    createdAt: "01/10/2026",
-    updatedAt: "01/10/2026",
-  },
-  {
-    id: "personal-trail-suoi-vang",
-    ownerId: mockUserProfile.id,
-    name: "Suối Vàng – Đồi cỏ hồng",
-    region: "Lạc Dương, Lâm Đồng",
-    difficulty: "Dễ",
-    distanceKm: 5.4,
-    elevationGainM: 180,
-    duration: "Nửa ngày",
-    terrainType: "Đồi cỏ & Đường đất",
-    description:
-      "Cung đường ngắn dành cho nhóm mới bắt đầu, có nhiều điểm dừng chụp ảnh.",
-    visibility: "PRIVATE",
-    verificationStatus: "REJECTED",
-    rejectionReason:
-      "Cần bổ sung checkpoint nguồn nước và mô tả lối thoát khẩn cấp.",
-    routePreset: "FOREST",
-    routePoints: [
-      { id: "route-a", x: 38, y: 292 },
-      { id: "route-b", x: 126, y: 238 },
-      { id: "route-c", x: 230, y: 172 },
-      { id: "route-d", x: 346, y: 86 },
-    ],
-    checkpoints: [
-      {
-        id: "personal-cp-a",
-        order: 1,
-        name: "Bãi gửi xe Suối Vàng",
-        elevation: 1380,
-        distanceFromStartKm: 0,
-        status: "PENDING",
-        coords: { x: 38, y: 292 },
-      },
-    ],
-    createdAt: "29/09/2026",
-    updatedAt: "30/09/2026",
-  },
-];
 
 const initialCommunityPosts: CommunityPost[] = [
   {
@@ -550,7 +525,8 @@ const initialCommunityProfiles: CommunityProfile[] = [
       "https://images.unsplash.com/photo-1464278533981-50106e6176b1?auto=format&fit=crop&w=1200&q=80",
     role: mockUserProfile.role,
     verified: mockUserProfile.role === "LEADER",
-    badge: mockUserProfile.role === "LEADER" ? "Verified Leader" : "Trail Explorer",
+    badge:
+      mockUserProfile.role === "LEADER" ? "Verified Leader" : "Trail Explorer",
     bio: "Yêu những cung đường nhiều cây xanh, thích ghi lại checklist và kinh nghiệm cho người mới.",
     location: "TP. Hồ Chí Minh",
     joinedAt: "Tham gia từ 08/2026",
@@ -625,7 +601,8 @@ const initialCommunityNotifications: CommunityNotification[] = [
     id: "community-notification-safety",
     type: "SAFETY",
     title: "Cảnh báo tuyến Pinhatt",
-    message: "Gió mạnh và mây thấp tại đoạn sống núi. Kiểm tra bài cập nhật trước khi khởi hành.",
+    message:
+      "Gió mạnh và mây thấp tại đoạn sống núi. Kiểm tra bài cập nhật trước khi khởi hành.",
     createdAt: "20 phút trước",
     isRead: false,
     postId: "community-post-pinhatt",
@@ -691,9 +668,9 @@ export const AppProvider: React.FC<{
     initialTrekkerAccount,
   );
   const [groupTrips, setGroupTrips] = useState<GroupTrip[]>(initialGroupTrips);
-  const [userNotifications, setUserNotifications] = useState<UserNotification[]>(
-    initialUserNotifications,
-  );
+  const [userNotifications, setUserNotifications] = useState<
+    UserNotification[]
+  >(initialUserNotifications);
   const [savedTrailIds, setSavedTrailIds] = useState<string[]>([
     "trail-pinhatt",
   ]);
@@ -701,15 +678,13 @@ export const AppProvider: React.FC<{
   const [trips, setTrips] = useState<Trip[]>(mockTrips);
   const [trails, setTrails] = useState<Trail[]>(mockTrails);
 
-  const [personalTrails, setPersonalTrails] = useState<PersonalTrail[]>(
-    initialPersonalTrails,
-  );
+  const [personalTrails, setPersonalTrails] = useState<PersonalTrail[]>([]);
   const [communityPosts, setCommunityPosts] = useState<CommunityPost[]>(
     initialCommunityPosts,
   );
-  const [communityProfiles, setCommunityProfiles] = useState<CommunityProfile[]>(
-    initialCommunityProfiles,
-  );
+  const [communityProfiles, setCommunityProfiles] = useState<
+    CommunityProfile[]
+  >(initialCommunityProfiles);
   const [communityNotifications, setCommunityNotifications] = useState<
     CommunityNotification[]
   >(initialCommunityNotifications);
@@ -761,7 +736,13 @@ export const AppProvider: React.FC<{
         }
         if (storedPersonalTrails) {
           setPersonalTrails(storedPersonalTrails);
+        } else {
+          setPersonalTrails([]);
         }
+        // Chạy migration sang SQLite (nếu chưa chạy) cho các trail cá nhân cũ
+        recordingDatabase.migrateFromAsyncStorage().catch((err) => {
+          console.warn("[AppContext] Lỗi migration SQLite:", err);
+        });
         if (storedOfflinePackages) {
           setOfflinePackages(storedOfflinePackages);
         }
@@ -830,10 +811,22 @@ export const AppProvider: React.FC<{
   const joinGroupTrip = (groupTripId: string): GroupTripActionResult => {
     const selected = groupTrips.find((trip) => trip.id === groupTripId);
 
-    if (!selected) return { ok: false, message: "Không tìm thấy chuyến ghép đoàn." };
-    if (selected.joinStatus === "JOINED") return { ok: true, message: "Bạn đã tham gia chuyến này.", status: "JOINED" };
-    if (selected.joinStatus === "PENDING") return { ok: true, message: "Yêu cầu của bạn đang chờ duyệt.", status: "PENDING" };
-    if (selected.currentMembers >= selected.maxMembers) return { ok: false, message: "Chuyến đi đã đủ thành viên." };
+    if (!selected)
+      return { ok: false, message: "Không tìm thấy chuyến ghép đoàn." };
+    if (selected.joinStatus === "JOINED")
+      return {
+        ok: true,
+        message: "Bạn đã tham gia chuyến này.",
+        status: "JOINED",
+      };
+    if (selected.joinStatus === "PENDING")
+      return {
+        ok: true,
+        message: "Yêu cầu của bạn đang chờ duyệt.",
+        status: "PENDING",
+      };
+    if (selected.currentMembers >= selected.maxMembers)
+      return { ok: false, message: "Chuyến đi đã đủ thành viên." };
 
     const nextStatus = selected.joinMode === "INSTANT" ? "JOINED" : "PENDING";
     setGroupTrips((current) =>
@@ -843,7 +836,10 @@ export const AppProvider: React.FC<{
           : {
               ...trip,
               joinStatus: nextStatus,
-              currentMembers: nextStatus === "JOINED" ? trip.currentMembers + 1 : trip.currentMembers,
+              currentMembers:
+                nextStatus === "JOINED"
+                  ? trip.currentMembers + 1
+                  : trip.currentMembers,
               members:
                 nextStatus === "JOINED"
                   ? [
@@ -871,7 +867,9 @@ export const AppProvider: React.FC<{
     };
   };
 
-  const cancelGroupTripRequest = (groupTripId: string): GroupTripActionResult => {
+  const cancelGroupTripRequest = (
+    groupTripId: string,
+  ): GroupTripActionResult => {
     setGroupTrips((current) =>
       current.map((trip) =>
         trip.id === groupTripId && trip.joinStatus === "PENDING"
@@ -895,7 +893,11 @@ export const AppProvider: React.FC<{
           : trip,
       ),
     );
-    return { ok: true, message: "Bạn đã rời chuyến ghép đoàn.", status: "NONE" };
+    return {
+      ok: true,
+      message: "Bạn đã rời chuyến ghép đoàn.",
+      status: "NONE",
+    };
   };
 
   const markUserNotificationRead = (notificationId: string) => {
@@ -1277,6 +1279,7 @@ export const AppProvider: React.FC<{
       gpsRoute: input.gpsRoute || [],
       gpsSegments: input.gpsSegments || [],
       checkpoints: input.checkpoints,
+      clientRecordingId: input.clientRecordingId,
       createdAt: now,
       updatedAt: now,
     };
@@ -1317,8 +1320,12 @@ export const AppProvider: React.FC<{
           rejectionReason: undefined,
           routePreset: input.routePreset,
           routePoints: input.routePoints,
-          gpsRoute: input.gpsRoute !== undefined ? input.gpsRoute : trail.gpsRoute,
-          gpsSegments: input.gpsSegments !== undefined ? input.gpsSegments : trail.gpsSegments,
+          gpsRoute:
+            input.gpsRoute !== undefined ? input.gpsRoute : trail.gpsRoute,
+          gpsSegments:
+            input.gpsSegments !== undefined
+              ? input.gpsSegments
+              : trail.gpsSegments,
           checkpoints: input.checkpoints.map((checkpoint, index) => ({
             ...checkpoint,
             order: index + 1,
@@ -1355,6 +1362,14 @@ export const AppProvider: React.FC<{
       trailStorage.savePersonalTrails(next);
       return next;
     });
+
+    // Xóa triệt để khỏi SQLite (personal_trails + cascading local_recordings)
+    trailStorage.deletePersonalTrail(trailId).catch(console.warn);
+  };
+
+  const clearAllDatabaseData = async () => {
+    await trailStorage.clearAllData();
+    setPersonalTrails([]);
   };
 
   const createCommunityPost = (input: CreateCommunityPostInput) => {
@@ -1438,8 +1453,7 @@ export const AppProvider: React.FC<{
                 avatar: user.avatar,
                 role: user.role,
                 verified: user.role === "LEADER",
-                badge:
-                  user.role === "LEADER" ? "Verified Leader" : "Trekker",
+                badge: user.role === "LEADER" ? "Verified Leader" : "Trekker",
               },
               content: normalizedContent,
               createdAt: "Vừa xong",
@@ -1536,8 +1550,7 @@ export const AppProvider: React.FC<{
     }
 
     const totalRentalFee = cart.reduce(
-      (total, entry) =>
-        total + entry.item.dailyRate * entry.quantity * days,
+      (total, entry) => total + entry.item.dailyRate * entry.quantity * days,
       0,
     );
 
@@ -1673,9 +1686,7 @@ export const AppProvider: React.FC<{
   const confirmRentalDepositRefund = (orderId: string) => {
     setRentalOrders((current) =>
       current.map((entry) =>
-        entry.id === orderId
-          ? { ...entry, status: "DEPOSIT_REFUNDED" }
-          : entry,
+        entry.id === orderId ? { ...entry, status: "DEPOSIT_REFUNDED" } : entry,
       ),
     );
 
@@ -1819,6 +1830,7 @@ export const AppProvider: React.FC<{
         updatePersonalTrail,
         submitPersonalTrail,
         deletePersonalTrail,
+        clearAllDatabaseData,
         communityPosts,
         communityProfiles,
         communityNotifications,

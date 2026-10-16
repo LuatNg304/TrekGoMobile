@@ -11,9 +11,21 @@ export interface GpsPoint {
   segmentId: number;
 }
 
+export interface RawGpsPoint {
+  latitude: number;
+  longitude: number;
+  recordedAt: number; // Unix timestamp ms
+  accuracyM?: number | null;
+  altitudeM?: number | null;
+  altitudeAccuracyM?: number | null;
+  speedMps?: number | null;
+  headingDeg?: number | null;
+}
+
 export type ProcessResult = {
   accepted: boolean;
   reason?: string;
+  rawPoint?: RawGpsPoint;
   point?: GpsPoint;
   addedDistanceM: number;
   distanceM: number;
@@ -22,11 +34,21 @@ export type ProcessResult = {
   isNewSegment?: boolean;
 };
 
+export interface GpsProcessorSnapshot {
+  currentSegmentId: number;
+  distanceM: number;
+  elevationGainM: number;
+  lastObservedTimestamp: number;
+  lastPoint: GpsPoint | null;
+  smoothedElevation: number | null;
+  elevationAnchor: number | null;
+}
+
 export const GPS_CONFIG = {
   maxAccuracyM: 25,
   minMovementM: 5,
   maxWalkingSpeedMs: 4.5, // ~16.2 km/h (giới hạn tốc độ trekking/chạy địa hình)
-  maxPointAgeMs: 15000,
+  maxPointAgeMs: 45000,
   maxTrackingGapMs: 15000, // 15 giây: khoảng trống GPS quá lâu sẽ tách segment mới
   elevationAccuracyM: 15,
   elevationAlpha: 0.2, // Trọng số bộ lọc EMA làm mượt độ cao
@@ -62,6 +84,10 @@ export class GpsProcessor {
     return this.currentSegmentId;
   }
 
+  setCurrentSegmentId(id: number) {
+    this.currentSegmentId = Math.max(0, Math.floor(id));
+  }
+
   reset() {
     this.currentSegmentId = 0;
     this.lastPoint = null;
@@ -80,13 +106,62 @@ export class GpsProcessor {
     this.elevationAnchor = null;
   }
 
+  getSnapshot(): GpsProcessorSnapshot {
+    return {
+      currentSegmentId: this.currentSegmentId,
+      distanceM: this.distanceM,
+      elevationGainM: this.elevationGainM,
+      lastObservedTimestamp: this.lastObservedTimestamp,
+      lastPoint: this.lastPoint ? { ...this.lastPoint } : null,
+      smoothedElevation: this.smoothedElevation,
+      elevationAnchor: this.elevationAnchor,
+    };
+  }
+
+  restoreSnapshot(snapshot: Partial<GpsProcessorSnapshot>) {
+    if (snapshot.currentSegmentId != null && Number.isFinite(snapshot.currentSegmentId)) {
+      this.currentSegmentId = Math.max(0, Math.floor(snapshot.currentSegmentId));
+    }
+    if (snapshot.distanceM != null && Number.isFinite(snapshot.distanceM) && snapshot.distanceM >= 0) {
+      this.distanceM = snapshot.distanceM;
+    }
+    if (snapshot.elevationGainM != null && Number.isFinite(snapshot.elevationGainM) && snapshot.elevationGainM >= 0) {
+      this.elevationGainM = snapshot.elevationGainM;
+    }
+    if (snapshot.lastObservedTimestamp != null && Number.isFinite(snapshot.lastObservedTimestamp)) {
+      this.lastObservedTimestamp = snapshot.lastObservedTimestamp;
+    }
+    if (snapshot.lastPoint) {
+      this.lastPoint = { ...snapshot.lastPoint };
+    }
+    if (snapshot.smoothedElevation != null && Number.isFinite(snapshot.smoothedElevation)) {
+      this.smoothedElevation = snapshot.smoothedElevation;
+    }
+    if (snapshot.elevationAnchor != null && Number.isFinite(snapshot.elevationAnchor)) {
+      this.elevationAnchor = snapshot.elevationAnchor;
+    }
+  }
+
   process(loc: Location.LocationObject): ProcessResult {
     const c = loc.coords;
     const timestamp = loc.timestamp;
     const accuracy = c.accuracy;
+
+    const rawPoint: RawGpsPoint = {
+      latitude: c.latitude,
+      longitude: c.longitude,
+      recordedAt: timestamp,
+      accuracyM: c.accuracy ?? null,
+      altitudeM: c.altitude ?? null,
+      altitudeAccuracyM: c.altitudeAccuracy ?? null,
+      speedMps: c.speed ?? null,
+      headingDeg: c.heading ?? null,
+    };
+
     const reject = (reason: string): ProcessResult => ({
       accepted: false,
       reason,
+      rawPoint,
       addedDistanceM: 0,
       distanceM: this.distanceM,
       elevationGainM: this.elevationGainM,
@@ -225,6 +300,7 @@ export class GpsProcessor {
 
     return {
       accepted: true,
+      rawPoint,
       point: acceptedPoint,
       addedDistanceM,
       distanceM: this.distanceM,
