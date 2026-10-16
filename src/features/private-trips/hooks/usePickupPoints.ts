@@ -20,33 +20,17 @@ export function usePickupPoints(destinationId?: string, autoFetch = true) {
       setError(null);
       try {
         const res = await getPickupPoints(targetId, page);
-        if (Array.isArray(res) && res.length > 0) {
-          setPickupPoints(res);
-          return res;
-        }
-
-        // Fallback default pickup points if destination has no pickup points
-        const defaultPoints: PickupPointOption[] = [
-          {
-            id: "cf010000-0000-4000-8000-000000001002",
-            name: "Bến xe Miền Đông Mới - Cổng 3",
-          },
-          {
-            id: "cf010000-0000-4000-8000-000000002002",
-            name: "Ngã tư Hàng Xanh - Cây xăng Petrolimex",
-          },
-        ];
-        setPickupPoints(defaultPoints);
-        return defaultPoints;
+        const points = Array.isArray(res) ? res : [];
+        setPickupPoints(points);
+        return points;
       } catch (err: any) {
-        const defaultPoints: PickupPointOption[] = [
-          {
-            id: "cf010000-0000-4000-8000-000000001002",
-            name: "Bến xe Miền Đông Mới - Cổng 3",
-          },
-        ];
-        setPickupPoints(defaultPoints);
-        return defaultPoints;
+        const msg =
+          err instanceof ApiError
+            ? err.message
+            : "Không thể tải danh sách điểm tập kết.";
+        setError(msg);
+        setPickupPoints([]);
+        return [];
       } finally {
         setLoading(false);
       }

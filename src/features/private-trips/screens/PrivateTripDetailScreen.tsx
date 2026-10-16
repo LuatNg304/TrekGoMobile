@@ -12,13 +12,12 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import {
-  CancelTripModal,
-  InviteShareModal,
-  PrivateTripHero,
-  PrivateTripPickupCard,
-  PrivateTripRouteTimeline,
-} from "../components";
+import { CancelTripModal } from "../components/CancelTripModal";
+import { EditPrivateTripModal } from "../components/EditPrivateTripModal";
+import { InviteShareModal } from "../components/InviteShareModal";
+import { PrivateTripHero } from "../components/PrivateTripHero";
+import { PrivateTripPickupCard } from "../components/PrivateTripPickupCard";
+import { PrivateTripRouteTimeline } from "../components/PrivateTripRouteTimeline";
 import { useCancelPrivateTrip } from "../hooks/useCancelPrivateTrip";
 import { usePrivateTripDetail } from "../hooks/usePrivateTripDetail";
 import { useTripInvitation } from "../hooks/useTripInvitation";
@@ -44,11 +43,14 @@ export function PrivateTripDetailScreen({
     inviteData,
     loading: generatingInvite,
     generateInvite,
+    revokeInvite,
   } = useTripInvitation();
 
   // Modals state
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [revokingInvite, setRevokingInvite] = useState(false);
 
   async function handleOpenInviteModal() {
     if (!trip) return;
@@ -78,6 +80,43 @@ export function PrivateTripDetailScreen({
         err?.message || "Không thể tạo mã mới lúc này.",
       );
     }
+  }
+
+  async function handleRevokeInvite() {
+    if (!trip) return;
+
+    Alert.alert(
+      "Xác nhận thu hồi",
+      "Bạn có chắc chắn muốn thu hồi link mời hiện tại? Bạn bè sẽ không thể dùng link này để tham gia nữa.",
+      [
+        { text: "Hủy", style: "cancel" },
+        {
+          text: "Thu hồi ngay",
+          style: "destructive",
+          onPress: async () => {
+            setRevokingInvite(true);
+            try {
+              const res = await revokeInvite(trip.id, trip.version);
+              setTrip((prev) =>
+                prev ? { ...prev, version: res.tripVersion } : prev,
+              );
+              setShowInviteModal(false);
+              Alert.alert(
+                "Đã thu hồi",
+                "Mã mời hiện tại đã được thu hồi thành công.",
+              );
+            } catch (err: any) {
+              Alert.alert(
+                "Lỗi thu hồi",
+                err?.message || "Không thể thu hồi mã mời lúc này.",
+              );
+            } finally {
+              setRevokingInvite(false);
+            }
+          },
+        },
+      ],
+    );
   }
 
   async function handleConfirmCancel(reason: string) {
@@ -214,6 +253,17 @@ export function PrivateTripDetailScreen({
               <Text style={styles.roomButtonText}>Vào phòng chờ chuyến đi</Text>
             </TouchableOpacity>
 
+            {isHost && trip.status === "OPEN" && new Date(trip.startAt).getTime() > Date.now() ? (
+              <TouchableOpacity
+                style={styles.editTripButton}
+                onPress={() => setShowEditModal(true)}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="create-outline" size={18} color={Colors.primaryDark} />
+                <Text style={styles.editTripButtonText}>Chỉnh sửa thông tin chuyến</Text>
+              </TouchableOpacity>
+            ) : null}
+
             {isHost ? (
               <TouchableOpacity
                 style={styles.cancelTripButton}
@@ -241,10 +291,24 @@ export function PrivateTripDetailScreen({
         inviteCode={inviteData?.inviteCode}
         inviteUrl={inviteData?.inviteUrl}
         tripTitle={trip.title}
+        tripId={trip.id}
+        expectedVersion={trip.version}
         loading={generatingInvite}
+        revoking={revokingInvite}
         onClose={() => setShowInviteModal(false)}
         onGenerateNewCode={handleRegenerateInvite}
+        onRevoke={isHost ? handleRevokeInvite : undefined}
       />
+
+      {showEditModal && (
+        <EditPrivateTripModal
+          visible={showEditModal}
+          trip={trip}
+          activeMemberCount={1}
+          onClose={() => setShowEditModal(false)}
+          onSuccess={(updated) => setTrip(updated)}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -355,5 +419,21 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700",
     color: "#DC2626",
+  },
+  editTripButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 13,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.surfaceContainerHigh,
+    borderWidth: 1,
+    borderColor: Colors.surfaceContainerHighest,
+  },
+  editTripButtonText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: Colors.primaryDark,
   },
 });

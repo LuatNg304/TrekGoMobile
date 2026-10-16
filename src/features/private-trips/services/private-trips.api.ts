@@ -7,7 +7,10 @@ import type {
   LeaveTripResponse,
   PickupPointOption,
   PrivateTrip,
+  PurchaseTrailPayload,
+  PurchaseTrailResponse,
   RemoveMemberResponse,
+  TrailAccessResponse,
   TripMember,
   TripRoomData,
   UpdatePrivateTripPayload,
@@ -25,10 +28,53 @@ export async function getSystemTrailAccesses(page = 1) {
   return apiRequest<any[]>(`/api/v1/me/trail-accesses?page=${page}`);
 }
 
-/** GET /system-trails — Lấy danh sách cung đường hệ thống khả dụng */
-export async function getSystemTrails(page = 1, pageSize = 20) {
-  return apiRequest<{ items: any[] }>(
-    `/api/v1/system-trails?page=${page}&pageSize=${pageSize}`,
+/** GET /system-trails?destinationId={uuid}&page=1&pageSize=20 — Lấy danh sách cung đường hệ thống theo địa điểm */
+export async function getSystemTrails(
+  destinationId?: string,
+  page = 1,
+  pageSize = 20,
+) {
+  const query = new URLSearchParams();
+  if (destinationId) query.set("destinationId", destinationId);
+  query.set("page", String(page));
+  query.set("pageSize", String(pageSize));
+  return apiRequest<{ items: any[] }>(`/api/v1/system-trails?${query.toString()}`);
+}
+
+/** GET /system-trails/{idOrCode} — Lấy chi tiết cung đường hệ thống (3D Map) */
+export async function getSystemTrailDetail(idOrCode: string) {
+  return apiRequest<any>(
+    `/api/v1/system-trails/${encodeURIComponent(idOrCode)}`,
+  );
+}
+
+/** GET /trails/{trailId}/access — Kiểm tra quyền truy cập của User với System Trail */
+export async function checkTrailAccess(trailId: string) {
+  return apiRequest<TrailAccessResponse>(`/api/v1/trails/${trailId}/access`);
+}
+
+/** POST /trails/{trailId}/purchase — Mua quyền sử dụng System Trail */
+export async function purchaseTrailAccess(
+  trailId: string,
+  payload: PurchaseTrailPayload = { paymentMethod: "QR" },
+  idempotencyKey?: string,
+) {
+  const key =
+    idempotencyKey ||
+    (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `idemp-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`);
+
+  return apiRequest<PurchaseTrailResponse>(
+    `/api/v1/trails/${trailId}/purchase`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "idempotency-key": key,
+      },
+      body: JSON.stringify(payload),
+    },
   );
 }
 

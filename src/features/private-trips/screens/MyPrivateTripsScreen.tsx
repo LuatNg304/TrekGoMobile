@@ -1,14 +1,17 @@
-import { Colors, Radius } from "@/constants/theme";
+import { Colors, Radius, Shadows } from "@/constants/theme";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
+  Modal,
   RefreshControl,
   SafeAreaView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -24,6 +27,10 @@ export function MyPrivateTripsScreen() {
 
   const { trips, loading, error, refetch } = useMyPrivateTrips(true);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Invite code input modal
+  const [showCodeModal, setShowCodeModal] = useState(false);
+  const [inviteCodeInput, setInviteCodeInput] = useState("");
 
   async function handleRefresh() {
     setRefreshing(true);
@@ -61,20 +68,45 @@ export function MyPrivateTripsScreen() {
     } as any);
   }
 
+  function handleOpenInvitePreview() {
+    const code = inviteCodeInput.trim();
+    if (!code) {
+      Alert.alert("Chưa nhập mã", "Vui lòng nhập mã mời Private Trip.");
+      return;
+    }
+    setShowCodeModal(false);
+    setInviteCodeInput("");
+    router.push({
+      pathname: "/invite/[code]",
+      params: { code },
+    } as any);
+  }
+
   return (
     <SafeAreaView style={styles.safeArea}>
       {/* Header Bar */}
       <View style={styles.headerBar}>
         <Text style={styles.headerTitle}>Chuyến đi riêng của tôi</Text>
 
-        <TouchableOpacity
-          style={styles.createButton}
-          onPress={handleCreateTrip}
-          activeOpacity={0.85}
-        >
-          <Ionicons name="add" size={20} color="#FFFFFF" />
-          <Text style={styles.createButtonText}>Tạo chuyến</Text>
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity
+            style={styles.codeButton}
+            onPress={() => setShowCodeModal(true)}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="key-outline" size={16} color={Colors.primaryDark} />
+            <Text style={styles.codeButtonText}>Nhập mã</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.createButton}
+            onPress={handleCreateTrip}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="add" size={18} color="#FFFFFF" />
+            <Text style={styles.createButtonText}>Tạo chuyến</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Tabs */}
@@ -190,6 +222,52 @@ export function MyPrivateTripsScreen() {
           }
         />
       )}
+
+      {/* Invite Code Input Modal */}
+      <Modal
+        visible={showCodeModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowCodeModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalDialog}>
+            <View style={styles.modalIconBox}>
+              <Ionicons name="mail-unread-outline" size={28} color={Colors.primaryDark} />
+            </View>
+            <Text style={styles.modalTitle}>Nhập mã mời Private Trip</Text>
+            <Text style={styles.modalSubtitle}>
+              Nhập mã mời hoặc chuỗi ký tự được bạn bè chia sẻ để xem thông tin chuyến đi.
+            </Text>
+
+            <TextInput
+              style={styles.modalInput}
+              placeholder="Ví dụ: abc123xy"
+              placeholderTextColor={Colors.onSurfaceVariant}
+              value={inviteCodeInput}
+              onChangeText={setInviteCodeInput}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+
+            <View style={styles.modalBtnRow}>
+              <TouchableOpacity
+                style={styles.modalCancelBtn}
+                onPress={() => setShowCodeModal(false)}
+              >
+                <Text style={styles.modalCancelBtnText}>Hủy</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.modalConfirmBtn}
+                onPress={handleOpenInvitePreview}
+              >
+                <Text style={styles.modalConfirmBtnText}>Xem lời mời</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -209,9 +287,30 @@ const styles = StyleSheet.create({
     borderBottomColor: Colors.surfaceContainer,
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: "800",
     color: Colors.onSurface,
+  },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  codeButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.surfaceContainerLow,
+    borderWidth: 1,
+    borderColor: Colors.surfaceContainer,
+  },
+  codeButtonText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: Colors.primaryDark,
   },
   createButton: {
     flexDirection: "row",
@@ -223,6 +322,86 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.primaryDark,
   },
   createButtonText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 20,
+  },
+  modalDialog: {
+    width: "100%",
+    maxWidth: 340,
+    backgroundColor: Colors.surfaceContainerLowest,
+    borderRadius: Radius.xl,
+    padding: 20,
+    alignItems: "center",
+    ...Shadows.hover,
+  },
+  modalIconBox: {
+    width: 52,
+    height: 52,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.primaryContainer,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: Colors.onSurface,
+    marginBottom: 6,
+    textAlign: "center",
+  },
+  modalSubtitle: {
+    fontSize: 12,
+    color: Colors.onSurfaceVariant,
+    textAlign: "center",
+    lineHeight: 16,
+    marginBottom: 16,
+  },
+  modalInput: {
+    width: "100%",
+    height: 44,
+    borderWidth: 1,
+    borderColor: Colors.surfaceContainer,
+    borderRadius: Radius.md,
+    paddingHorizontal: 12,
+    fontSize: 14,
+    color: Colors.onSurface,
+    backgroundColor: Colors.surfaceContainerLow,
+    marginBottom: 16,
+  },
+  modalBtnRow: {
+    flexDirection: "row",
+    width: "100%",
+    gap: 10,
+  },
+  modalCancelBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: Radius.full,
+    alignItems: "center",
+    backgroundColor: Colors.surfaceContainerLow,
+  },
+  modalCancelBtnText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: Colors.onSurfaceVariant,
+  },
+  modalConfirmBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: Radius.full,
+    alignItems: "center",
+    backgroundColor: Colors.primaryDark,
+  },
+  modalConfirmBtnText: {
     fontSize: 13,
     fontWeight: "700",
     color: "#FFFFFF",

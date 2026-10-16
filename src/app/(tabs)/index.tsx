@@ -1,4 +1,3 @@
-import { CreatePrivateTripModal } from "@/components/CreatePrivateTripModal";
 import { TopHeader } from "@/components/TopHeader";
 import { TripPrepModal } from "@/components/TripPrepModal";
 import { Colors, Radius, Shadows } from "@/constants/theme";
@@ -24,7 +23,6 @@ export default function HomeScreen() {
   const { user, activeTrip, trails } = useApp();
 
   const [tripPrepVisible, setTripPrepVisible] = useState(false);
-  const [createPrivateVisible, setCreatePrivateVisible] = useState(false);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -242,7 +240,7 @@ export default function HomeScreen() {
 
           <TouchableOpacity
             style={styles.shortcutItem}
-            onPress={() => setCreatePrivateVisible(true)}
+            onPress={() => router.push("/private-trips/create" as Href)}
             activeOpacity={0.8}
           >
             <View
@@ -370,11 +368,6 @@ export default function HomeScreen() {
         trip={activeTrip}
         onClose={() => setTripPrepVisible(false)}
         onStartNavigation={() => router.push("/navigation")}
-      />
-
-      <CreatePrivateTripModal
-        visible={createPrivateVisible}
-        onClose={() => setCreatePrivateVisible(false)}
       />
     </SafeAreaView>
   );

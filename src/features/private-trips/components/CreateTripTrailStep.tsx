@@ -1,8 +1,9 @@
 import { Colors, Radius, Shadows } from "@/constants/theme";
 import { Ionicons } from "@expo/vector-icons";
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Modal,
   ScrollView,
   StyleSheet,
   Text,
@@ -11,7 +12,9 @@ import {
 } from "react-native";
 import { usePersonalTrails } from "../hooks/usePersonalTrails";
 import { useSystemTrailAccesses } from "../hooks/useSystemTrailAccesses";
+import { getSystemTrails } from "../services/private-trips.api";
 import type { CheckpointItem, PrivateTrailSource } from "../types";
+import { PurchaseTrailModal } from "./PurchaseTrailModal";
 
 export interface CreateTripTrailStepProps {
   trails?: PrivateTrailSource[];
@@ -29,7 +32,32 @@ export function CreateTripTrailStep({
   // If trails are not passed from parent, use real API hooks
   const shouldFetch = !propTrails;
   const { personalTrails, loading: loadingPersonal } = usePersonalTrails(shouldFetch);
-  const { trailAccesses, loading: loadingSystem } = useSystemTrailAccesses(shouldFetch);
+  const {
+    trailAccesses,
+    loading: loadingSystem,
+    refetch: refetchSystem,
+  } = useSystemTrailAccesses(shouldFetch);
+
+  const [buyingTrail, setBuyingTrail] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
+  const [showCatalogModal, setShowCatalogModal] = useState(false);
+  const [catalogTrails, setCatalogTrails] = useState<any[]>([]);
+  const [loadingCatalog, setLoadingCatalog] = useState(false);
+
+  async function handleOpenCatalog() {
+    setShowCatalogModal(true);
+    setLoadingCatalog(true);
+    try {
+      const res = await getSystemTrails();
+      setCatalogTrails(res?.items || []);
+    } catch {
+      setCatalogTrails([]);
+    } finally {
+      setLoadingCatalog(false);
+    }
+  }
 
   const trails = useMemo(() => {
     if (propTrails) return propTrails;
@@ -39,15 +67,21 @@ export function CreateTripTrailStep({
     // Map personal trails from API GET /me/personal-trails
     if (Array.isArray(personalTrails)) {
       personalTrails.forEach((item: any) => {
-        const points: CheckpointItem[] = (
+        const rawPoints = (
           item.personalCheckpointsViaPersonalTrailId || []
-        ).map((cp: any) => ({
-          id: cp.id,
-          name: cp.name,
-          sequence: cp.sequence,
-          latitude: cp.latitude,
-          longitude: cp.longitude,
-        }));
+        ).slice();
+        rawPoints.sort(
+          (a: any, b: any) => (a.sequence ?? 0) - (b.sequence ?? 0),
+        );
+        const points: CheckpointItem[] = rawPoints.map(
+          (cp: any, idx: number) => ({
+            id: cp.id,
+            name: cp.name || `Trạm ${idx + 1}`,
+            sequence: cp.sequence ?? idx + 1,
+            latitude: cp.latitude,
+            longitude: cp.longitude,
+          }),
+        );
 
         combined.push({
           id: item.id,
@@ -65,20 +99,27 @@ export function CreateTripTrailStep({
         const st = item.systemTrail;
         if (!st) return;
 
-        const activePoints: CheckpointItem[] = (
+        const rawPoints = (
           st.trailCheckpointsViaSystemTrailId || []
-        )
-          .filter((tcp: any) => tcp.checkpoint?.status === "ACTIVE")
-          .map((tcp: any) => ({
-            id: tcp.checkpoint.id,
-            name: tcp.checkpoint.name,
-            sequence: tcp.sequence,
-            latitude: tcp.checkpoint.latitude,
-            longitude: tcp.checkpoint.longitude,
+        ).slice();
+        rawPoints.sort(
+          (a: any, b: any) => (a.sequence ?? 0) - (b.sequence ?? 0),
+        );
+
+        const activePoints: CheckpointItem[] = rawPoints
+          .filter(
+            (tcp: any) => !tcp.checkpoint || tcp.checkpoint.status === "ACTIVE",
+          )
+          .map((tcp: any, idx: number) => ({
+            id: tcp.checkpointId || tcp.checkpoint?.id || tcp.id,
+            name: tcp.checkpoint?.name || tcp.name || `Trạm ${idx + 1}`,
+            sequence: tcp.sequence ?? idx + 1,
+            latitude: tcp.checkpoint?.latitude ?? tcp.latitude,
+            longitude: tcp.checkpoint?.longitude ?? tcp.longitude,
           }));
 
         combined.push({
-          id: st.id,
+          id: item.systemTrailId || st.id,
           type: "SYSTEM",
           name: st.name || "Cung đường hệ thống",
           destinationId: st.destinationId,
@@ -110,11 +151,112 @@ export function CreateTripTrailStep({
           Bạn cần tạo Cung đường cá nhân hoặc mua quyền truy cập Cung đường hệ
           thống trước khi tạo Private Trip.
         </Text>
+
+        <TouchableOpacity
+          style={styles.browseSystemBtn}
+          onPress={handleOpenCatalog}
+          activeOpacity={0.85}
+        >
+          <Ionicons name="cart-outline" size={18} color="#FFFFFF" />
+          <Text style={styles.browseSystemBtnText}>
+            Mua quyền Cung đường hệ thống
+          </Text>
+        </TouchableOpacity>
+
+        {/* Catalog Modal */}
+        {renderCatalogModal()}
+
+        {/* Purchase Modal */}
+        {buyingTrail ? (
+          <PurchaseTrailModal
+            visible={Boolean(buyingTrail)}
+            trailId={buyingTrail.id}
+            trailName={buyingTrail.name}
+            onClose={() => setBuyingTrail(null)}
+            onAccessGranted={() => {
+              void refetchSystem();
+              setShowCatalogModal(false);
+            }}
+          />
+        ) : null}
       </View>
     );
   }
 
   const selectedTrail = trails.find((t) => t.id === selectedTrailId);
+
+  function renderCatalogModal() {
+    return (
+      <Modal
+        visible={showCatalogModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowCatalogModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.catalogContainer}>
+            <View style={styles.catalogHeader}>
+              <Text style={styles.catalogTitle}>Cung đường hệ thống TrekGo</Text>
+              <TouchableOpacity
+                style={styles.closeBtn}
+                onPress={() => setShowCatalogModal(false)}
+              >
+                <Ionicons
+                  name="close"
+                  size={20}
+                  color={Colors.onSurfaceVariant}
+                />
+              </TouchableOpacity>
+            </View>
+
+            {loadingCatalog ? (
+              <View style={styles.catalogLoading}>
+                <ActivityIndicator size="small" color={Colors.primaryDark} />
+                <Text style={styles.catalogLoadingText}>
+                  Đang tải danh sách cung đường...
+                </Text>
+              </View>
+            ) : catalogTrails.length === 0 ? (
+              <View style={styles.catalogLoading}>
+                <Text style={styles.catalogLoadingText}>
+                  Chưa có cung đường hệ thống nào.
+                </Text>
+              </View>
+            ) : (
+              <ScrollView
+                style={styles.catalogList}
+                showsVerticalScrollIndicator={false}
+              >
+                {catalogTrails.map((st) => (
+                  <TouchableOpacity
+                    key={st.id}
+                    style={styles.catalogCard}
+                    onPress={() =>
+                      setBuyingTrail({
+                        id: st.id,
+                        name: st.name || "Cung đường hệ thống",
+                      })
+                    }
+                  >
+                    <View style={styles.catalogInfo}>
+                      <Text style={styles.catalogTrailName}>{st.name}</Text>
+                      <Text style={styles.catalogTrailSub}>
+                        {st.destination?.name || "Địa điểm"} · {st.distanceKm || "8"} km
+                      </Text>
+                    </View>
+                    <View style={styles.unlockBtn}>
+                      <Ionicons name="key-outline" size={14} color="#FFFFFF" />
+                      <Text style={styles.unlockBtnText}>Mở khóa</Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -185,6 +327,21 @@ export function CreateTripTrailStep({
             </TouchableOpacity>
           );
         })}
+
+        {/* Button to unlock more system trails */}
+        <TouchableOpacity
+          style={styles.moreTrailsBtn}
+          onPress={handleOpenCatalog}
+        >
+          <Ionicons
+            name="add-circle-outline"
+            size={18}
+            color={Colors.primaryDark}
+          />
+          <Text style={styles.moreTrailsBtnText}>
+            Mua thêm quyền Cung đường hệ thống khác
+          </Text>
+        </TouchableOpacity>
       </ScrollView>
 
       {/* Preview selected trail checkpoints */}
@@ -202,6 +359,23 @@ export function CreateTripTrailStep({
             ))}
           </View>
         </View>
+      ) : null}
+
+      {/* Catalog Modal */}
+      {renderCatalogModal()}
+
+      {/* Purchase Modal */}
+      {buyingTrail ? (
+        <PurchaseTrailModal
+          visible={Boolean(buyingTrail)}
+          trailId={buyingTrail.id}
+          trailName={buyingTrail.name}
+          onClose={() => setBuyingTrail(null)}
+          onAccessGranted={() => {
+            void refetchSystem();
+            setShowCatalogModal(false);
+          }}
+        />
       ) : null}
     </View>
   );
@@ -348,5 +522,127 @@ const styles = StyleSheet.create({
   checkpointChipName: {
     fontSize: 11,
     color: Colors.onSurface,
+  },
+  browseSystemBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.primaryDark,
+    marginTop: 8,
+  },
+  browseSystemBtnText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
+  moreTrailsBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 12,
+    borderRadius: Radius.md,
+    borderWidth: 1.5,
+    borderStyle: "dashed",
+    borderColor: Colors.primaryDark,
+    backgroundColor: Colors.surfaceContainerLowest,
+    marginTop: 4,
+    marginBottom: 8,
+  },
+  moreTrailsBtnText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: Colors.primaryDark,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "flex-end",
+  },
+  catalogContainer: {
+    maxHeight: "75%",
+    backgroundColor: Colors.surface,
+    borderTopLeftRadius: Radius.xl,
+    borderTopRightRadius: Radius.xl,
+    paddingTop: 16,
+    paddingBottom: 24,
+    ...Shadows.hover,
+  },
+  catalogHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.surfaceContainer,
+  },
+  catalogTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: Colors.onSurface,
+  },
+  closeBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.surfaceContainerHigh,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  catalogLoading: {
+    paddingVertical: 30,
+    alignItems: "center",
+    gap: 8,
+  },
+  catalogLoadingText: {
+    fontSize: 13,
+    color: Colors.onSurfaceVariant,
+  },
+  catalogList: {
+    paddingHorizontal: 20,
+    paddingTop: 12,
+  },
+  catalogCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: 12,
+    borderRadius: Radius.lg,
+    backgroundColor: Colors.surfaceContainerLowest,
+    borderWidth: 1,
+    borderColor: Colors.surfaceContainer,
+    marginBottom: 10,
+  },
+  catalogInfo: {
+    flex: 1,
+  },
+  catalogTrailName: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: Colors.onSurface,
+  },
+  catalogTrailSub: {
+    fontSize: 11,
+    color: Colors.onSurfaceVariant,
+    marginTop: 2,
+  },
+  unlockBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.primaryDark,
+  },
+  unlockBtnText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#FFFFFF",
   },
 });

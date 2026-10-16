@@ -1,6 +1,6 @@
 import { Colors, Radius, Shadows } from "@/constants/theme";
 import { useAuth } from "@/features/auth/AuthContext";
-import { BookingModal } from "@/features/bookings/components";
+import { BookingParticipantsModal } from "@/features/bookings/components";
 import {
   TripHeroSection,
   TripLeaderInfo,
@@ -48,11 +48,10 @@ export function PublicTripDetailScreen({
     (bookingId: string) => {
       setBookingVisible(false);
       refetch();
-      Alert.alert(
-        "Đặt chỗ thành công! 🎉",
-        `Mã booking: ${bookingId}\n\nKiểm tra chi tiết tại mục Chuyến của tôi.`,
-        [{ text: "Xem chuyến", onPress: () => router.push("/(tabs)/trips") }],
-      );
+      router.push({
+        pathname: "/bookings/[id]",
+        params: { id: bookingId },
+      } as any);
     },
     [refetch, router],
   );
@@ -169,10 +168,9 @@ export function PublicTripDetailScreen({
 
       {/* Booking Modal */}
       {accessToken && bookingVisible && (
-        <BookingModal
+        <BookingParticipantsModal
           visible={bookingVisible}
-          trip={trip}
-          accessToken={accessToken}
+          trip={trip as any}
           onClose={() => setBookingVisible(false)}
           onSuccess={handleBookingSuccess}
         />

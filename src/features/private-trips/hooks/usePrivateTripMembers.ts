@@ -5,7 +5,9 @@ import type { TripMember } from "../types";
 
 export function usePrivateTripMembers(
   tripId?: string,
-  params: { page?: number; pageSize?: number; status?: string } = {},
+  params: { page?: number; pageSize?: number; status?: string } = {
+    status: "ACTIVE",
+  },
   autoFetch = true,
 ) {
   const [members, setMembers] = useState<TripMember[]>([]);
@@ -26,7 +28,11 @@ export function usePrivateTripMembers(
       setLoading(true);
       setError(null);
       try {
-        const res = await getPrivateTripMembers(targetId, params);
+        const queryParams = {
+          status: "ACTIVE",
+          ...params,
+        };
+        const res = await getPrivateTripMembers(targetId, queryParams);
         setMembers(res.items ?? []);
         setTotal(res.total ?? 0);
         setActiveCount(res.activeMemberCount ?? 0);

@@ -13,3 +13,5 @@ export * from "./TripRoomActions";
 export * from "./TripRoomHeader";
 export * from "./TripRoomMemberItem";
 export * from "./TripRoomMemberList";
+export * from "./EditPrivateTripModal";
+export * from "./PurchaseTrailModal";

@@ -12,12 +12,10 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import {
-  InviteShareModal,
-  TripRoomActions,
-  TripRoomHeader,
-  TripRoomMemberList,
-} from "../components";
+import { InviteShareModal } from "../components/InviteShareModal";
+import { TripRoomActions } from "../components/TripRoomActions";
+import { TripRoomHeader } from "../components/TripRoomHeader";
+import { TripRoomMemberList } from "../components/TripRoomMemberList";
 import { useLeavePrivateTrip } from "../hooks/useLeavePrivateTrip";
 import { usePrivateTripMembers } from "../hooks/usePrivateTripMembers";
 import { usePrivateTripRoom } from "../hooks/usePrivateTripRoom";
@@ -40,6 +38,7 @@ export function PrivateTripRoomScreen({
   // Use custom hooks for real API integration
   const {
     roomData,
+    setRoomData,
     loading: loadingRoom,
     error: roomError,
     refetch: refetchRoom,
@@ -52,13 +51,15 @@ export function PrivateTripRoomScreen({
   } = usePrivateTripMembers(tripId);
 
   const { removeMember } = useRemoveTripMember();
-  const { leaveTrip } = useLeavePrivateTrip();
+  const { leaveTrip, loading: leavingTrip } = useLeavePrivateTrip();
   const {
     inviteData,
     loading: generatingInvite,
     generateInvite,
+    revokeInvite,
   } = useTripInvitation();
 
+  const [revokingInvite, setRevokingInvite] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
 
   const loading = loadingRoom || loadingMembers;
@@ -147,16 +148,74 @@ export function PrivateTripRoomScreen({
   }
 
   async function handleOpenInvite() {
-    if (!tripId) return;
+    if (!tripId || !roomData) return;
     setShowInviteModal(true);
 
     if (!inviteData) {
       try {
-        await generateInvite(tripId, 1);
+        const res = await generateInvite(tripId, roomData.trip.version);
+        setRoomData((prev) =>
+          prev
+            ? { ...prev, trip: { ...prev.trip, version: res.tripVersion } }
+            : prev,
+        );
       } catch (err: any) {
         Alert.alert("Lỗi", err?.message || "Không thể tạo mã mời.");
       }
     }
+  }
+
+  async function handleRegenerateInvite() {
+    if (!tripId || !roomData) return;
+    try {
+      const res = await generateInvite(tripId, roomData.trip.version);
+      setRoomData((prev) =>
+        prev
+          ? { ...prev, trip: { ...prev.trip, version: res.tripVersion } }
+          : prev,
+      );
+    } catch (err: any) {
+      Alert.alert("Lỗi tạo lại mã", err?.message || "Không thể tạo mã mới.");
+    }
+  }
+
+  async function handleRevokeInvite() {
+    if (!tripId || !roomData) return;
+
+    Alert.alert(
+      "Xác nhận thu hồi",
+      "Bạn có chắc chắn muốn thu hồi link mời hiện tại? Bạn bè sẽ không thể dùng link này để tham gia nữa.",
+      [
+        { text: "Hủy", style: "cancel" },
+        {
+          text: "Thu hồi ngay",
+          style: "destructive",
+          onPress: async () => {
+            setRevokingInvite(true);
+            try {
+              const res = await revokeInvite(tripId, roomData.trip.version);
+              setRoomData((prev) =>
+                prev
+                  ? { ...prev, trip: { ...prev.trip, version: res.tripVersion } }
+                  : prev,
+              );
+              setShowInviteModal(false);
+              Alert.alert(
+                "Đã thu hồi",
+                "Mã mời hiện tại đã được thu hồi thành công.",
+              );
+            } catch (err: any) {
+              Alert.alert(
+                "Lỗi thu hồi",
+                err?.message || "Không thể thu hồi mã mời lúc này.",
+              );
+            } finally {
+              setRevokingInvite(false);
+            }
+          },
+        },
+      ],
+    );
   }
 
   if (loading && !roomData) {
@@ -239,6 +298,7 @@ export function PrivateTripRoomScreen({
         <TripRoomActions
           isHost={roomData.viewer.isHost}
           permissions={roomData.permissions}
+          leaving={leavingTrip}
           onInvite={handleOpenInvite}
           onLeave={handleLeaveTrip}
         />
@@ -250,8 +310,13 @@ export function PrivateTripRoomScreen({
         inviteCode={inviteData?.inviteCode}
         inviteUrl={inviteData?.inviteUrl}
         tripTitle={roomData.trip.title}
+        tripId={tripId}
+        expectedVersion={roomData.trip.version}
         loading={generatingInvite}
+        revoking={revokingInvite}
         onClose={() => setShowInviteModal(false)}
+        onGenerateNewCode={handleRegenerateInvite}
+        onRevoke={roomData.viewer.isHost ? handleRevokeInvite : undefined}
       />
     </SafeAreaView>
   );

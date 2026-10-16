@@ -12,11 +12,9 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import {
-  CreateTripBasicInfoStep,
-  CreateTripConfigStep,
-  CreateTripTrailStep,
-} from "../components";
+import { CreateTripBasicInfoStep } from "../components/CreateTripBasicInfoStep";
+import { CreateTripConfigStep } from "../components/CreateTripConfigStep";
+import { CreateTripTrailStep } from "../components/CreateTripTrailStep";
 import { useCreatePrivateTrip } from "../hooks/useCreatePrivateTrip";
 import type { PrivateTrailSource } from "../types";
 
@@ -103,11 +101,16 @@ function toValidIsoDate(val: string, defaultDaysFromNow = 7): string {
       return;
     }
 
+    if (!selectedTrail.points || selectedTrail.points.length === 0) {
+      Alert.alert(
+        "Thiếu trạm dừng",
+        "Cung đường này chưa có trạm dừng (checkpoint). Vui lòng chọn cung đường khác hợp lệ.",
+      );
+      return;
+    }
+
     try {
-      const checkpointIds =
-        selectedTrail.points.length > 0
-          ? selectedTrail.points.map((p) => p.id)
-          : ["0d6eabdb-2dee-4b97-8543-25a241c3cc82"];
+      const checkpointIds = selectedTrail.points.map((p) => p.id);
 
       const validStartAt = toValidIsoDate(startAt, 7);
       const validEndAt = toValidIsoDate(endAt, 8);

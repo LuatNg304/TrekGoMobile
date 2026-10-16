@@ -38,8 +38,8 @@ export function TripRoomMemberList({
 
   const { removeMember, loading: removing } = useRemoveTripMember();
 
-  const members = propMembers || apiMembers;
-  const activeMembers = members.filter((m) => m.status === "ACTIVE");
+  const members = propMembers || apiMembers || [];
+  const activeMembers = members.filter((m) => m && m.status === "ACTIVE");
 
   async function handleRemove(member: TripMember) {
     if (onRemoveMember) {

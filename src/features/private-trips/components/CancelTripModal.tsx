@@ -39,19 +39,21 @@ export function CancelTripModal({
   const loading = propLoading || hookLoading;
 
   async function handleConfirm() {
-    if (!reason.trim()) {
-      return;
-    }
+    const trimmedReason = reason.trim() || undefined;
 
     if (onConfirm) {
-      onConfirm(reason.trim());
+      onConfirm(trimmedReason || "");
       return;
     }
 
     // Direct hook execution if tripId and expectedVersion provided
     if (tripId && expectedVersion !== undefined) {
       try {
-        const cancelled = await cancelTrip(tripId, expectedVersion, reason.trim());
+        const cancelled = await cancelTrip(
+          tripId,
+          expectedVersion,
+          trimmedReason || "",
+        );
         setReason("");
         onClose();
         onSuccess?.(cancelled);
@@ -88,7 +90,7 @@ export function CancelTripModal({
             viên đã tham gia. Không thể khôi phục sau khi hủy.
           </Text>
 
-          <Text style={styles.inputLabel}>Lý do hủy (bắt buộc):</Text>
+          <Text style={styles.inputLabel}>Lý do hủy (không bắt buộc):</Text>
           <TextInput
             style={styles.input}
             placeholder="Ví dụ: Thời tiết xấu, kế hoạch cá nhân thay đổi..."
@@ -113,10 +115,10 @@ export function CancelTripModal({
             <TouchableOpacity
               style={[
                 styles.confirmButton,
-                (!reason.trim() || loading) && styles.disabledButton,
+                loading && styles.disabledButton,
               ]}
               onPress={handleConfirm}
-              disabled={!reason.trim() || loading}
+              disabled={loading}
             >
               {loading ? (
                 <ActivityIndicator size="small" color="#FFFFFF" />

@@ -1,17 +1,23 @@
 import { useCallback, useRef, useState } from "react";
 import {
-  createBooking,
+  bookingApiService,
   generateIdempotencyKey,
-  type Booking,
-  type CreateBookingInput,
 } from "@/features/bookings/services/booking.api";
+import type { BookingDetail, Participant } from "@/features/bookings/types";
 import { ApiError } from "@/lib/api-client";
+
+export interface CreateBookingInput {
+  participantCount: number;
+  participants: Participant[];
+}
+
+export type Booking = BookingDetail;
 
 export function useCreateBooking() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<string | null>(null);
-  const [booking, setBooking] = useState<Booking | null>(null);
+  const [booking, setBooking] = useState<BookingDetail | null>(null);
 
   const idempotencyKeyRef = useRef<string>(generateIdempotencyKey());
 
@@ -31,17 +37,16 @@ export function useCreateBooking() {
     async (
       tripId: string,
       input: CreateBookingInput,
-      accessToken: string,
-    ): Promise<Booking> => {
+      _accessToken?: string,
+    ): Promise<BookingDetail> => {
       setLoading(true);
       setError(null);
       setErrorCode(null);
 
       try {
-        const result = await createBooking(
+        const result = await bookingApiService.createBooking(
           tripId,
-          input,
-          accessToken,
+          input.participants,
           idempotencyKeyRef.current,
         );
         setBooking(result);
@@ -71,6 +76,5 @@ export function useCreateBooking() {
     booking,
     reset,
     regenerateKey,
-    idempotencyKey: idempotencyKeyRef.current,
   };
 }

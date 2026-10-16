@@ -63,9 +63,9 @@ export function PrivateTripRouteTimeline({
 
               <View style={styles.nodeContent}>
                 <Text style={styles.checkpointName}>{item.name}</Text>
-                {item.latitude && item.longitude ? (
+                {item.latitude != null && item.longitude != null && !isNaN(Number(item.latitude)) && !isNaN(Number(item.longitude)) ? (
                   <Text style={styles.checkpointCoords}>
-                    {item.latitude.toFixed(4)}, {item.longitude.toFixed(4)}
+                    {Number(item.latitude).toFixed(4)}, {Number(item.longitude).toFixed(4)}
                   </Text>
                 ) : null}
               </View>

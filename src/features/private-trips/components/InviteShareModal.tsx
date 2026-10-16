@@ -21,8 +21,10 @@ export interface InviteShareModalProps {
   inviteUrl?: string;
   tripTitle?: string;
   loading?: boolean;
+  revoking?: boolean;
   onClose: () => void;
   onGenerateNewCode?: () => void;
+  onRevoke?: () => void;
   onInviteGenerated?: (inviteCode: string, tripVersion: number) => void;
 }
 
@@ -34,8 +36,10 @@ export function InviteShareModal({
   inviteUrl: propInviteUrl,
   tripTitle,
   loading: propLoading = false,
+  revoking = false,
   onClose,
   onGenerateNewCode,
+  onRevoke,
   onInviteGenerated,
 }: InviteShareModalProps) {
   const {
@@ -151,6 +155,27 @@ export function InviteShareModal({
                   color={Colors.primaryDark}
                 />
                 <Text style={styles.regenerateButtonText}>Tạo mã mới</Text>
+              </TouchableOpacity>
+            ) : null}
+
+            {onRevoke ? (
+              <TouchableOpacity
+                style={styles.revokeButton}
+                onPress={onRevoke}
+                disabled={loading || revoking}
+              >
+                {revoking ? (
+                  <ActivityIndicator size="small" color="#DC2626" />
+                ) : (
+                  <View style={styles.buttonInner}>
+                    <Ionicons
+                      name="trash-outline"
+                      size={16}
+                      color="#DC2626"
+                    />
+                    <Text style={styles.revokeButtonText}>Thu hồi link mời</Text>
+                  </View>
+                )}
               </TouchableOpacity>
             ) : null}
           </View>
@@ -269,5 +294,26 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
     color: Colors.primaryDark,
+  },
+  revokeButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: Radius.full,
+    backgroundColor: "#FEE2E2",
+    marginTop: 2,
+  },
+  revokeButtonText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#DC2626",
+  },
+  buttonInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
   },
 });

@@ -1,99 +1,59 @@
 import { Colors, Radius } from "@/constants/theme";
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from "react-native";
-import { useLeavePrivateTrip } from "../hooks/useLeavePrivateTrip";
+import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import type { TripRoomPermissions } from "../types";
 
 export interface TripRoomActionsProps {
   tripId?: string;
   expectedMemberVersion?: number;
   isHost: boolean;
-  permissions: TripRoomPermissions;
+  permissions?: TripRoomPermissions;
+  leaving?: boolean;
   onInvite: () => void;
   onLeave?: () => void;
   onLeaveSuccess?: () => void;
 }
 
 export function TripRoomActions({
-  tripId,
-  expectedMemberVersion,
   isHost,
   permissions,
+  leaving = false,
   onInvite,
   onLeave,
-  onLeaveSuccess,
 }: TripRoomActionsProps) {
-  const { leaveTrip, loading: leaving } = useLeavePrivateTrip();
-
-  function handleLeave() {
-    if (onLeave) {
-      onLeave();
-      return;
-    }
-
-    if (!tripId || expectedMemberVersion === undefined) return;
-
-    Alert.alert(
-      "Rời khỏi chuyến đi",
-      "Bạn có chắc chắn muốn rời khỏi chuyến đi này? Bạn sẽ không còn quyền truy cập thông tin phòng chờ.",
-      [
-        { text: "Ở lại", style: "cancel" },
-        {
-          text: "Rời chuyến",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              await leaveTrip(tripId, expectedMemberVersion);
-              Alert.alert("Đã rời chuyến", "Bạn đã rời khỏi đoàn thành công.");
-              onLeaveSuccess?.();
-            } catch (err: any) {
-              if (err?.code === "MEMBERSHIP_VERSION_CONFLICT") {
-                Alert.alert(
-                  "Xung đột phiên bản",
-                  "Trạng thái thành viên vừa thay đổi trên máy chủ.",
-                );
-              } else {
-                Alert.alert("Lỗi", err?.message || "Không thể rời chuyến lúc này.");
-              }
-            }
-          },
-        },
-      ],
-    );
-  }
+  const canInvite = Boolean(isHost && permissions?.canInvite);
+  const canLeave = Boolean(!isHost && permissions?.canLeave);
 
   return (
     <View style={styles.container}>
       {/* Host actions */}
-      {isHost && permissions.canInvite ? (
-        <TouchableOpacity style={styles.primaryButton} onPress={onInvite}>
+      {canInvite ? (
+        <TouchableOpacity
+          style={styles.primaryButton}
+          onPress={() => onInvite?.()}
+          activeOpacity={0.8}
+        >
           <Ionicons name="person-add" size={18} color="#FFFFFF" />
           <Text style={styles.primaryButtonText}>Mời thêm bạn bè</Text>
         </TouchableOpacity>
       ) : null}
 
       {/* Member actions */}
-      {!isHost && permissions.canLeave ? (
+      {canLeave ? (
         <TouchableOpacity
           style={[styles.dangerButton, leaving && styles.disabledButton]}
-          onPress={handleLeave}
+          onPress={() => onLeave?.()}
           disabled={leaving}
+          activeOpacity={0.8}
         >
           {leaving ? (
             <ActivityIndicator size="small" color="#DC2626" />
           ) : (
-            <>
+            <View style={styles.buttonInner}>
               <Ionicons name="exit-outline" size={18} color="#DC2626" />
               <Text style={styles.dangerButtonText}>Rời khỏi chuyến đi</Text>
-            </>
+            </View>
           )}
         </TouchableOpacity>
       ) : null}
@@ -134,6 +94,12 @@ const styles = StyleSheet.create({
   },
   disabledButton: {
     opacity: 0.6,
+  },
+  buttonInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
   },
   dangerButtonText: {
     fontSize: 15,

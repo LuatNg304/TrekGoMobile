@@ -82,16 +82,26 @@ export interface TripRoomPermissions {
 export interface TripRoomData {
   trip: {
     id: string;
+    tripType: "PRIVATE";
     title: string;
+    description: string | null;
     status: TripStatus;
+    version: number;
     startAt: string;
     endAt: string;
     capacity: number;
     activeMemberCount: number;
-    pickupPoint?: PickupPointOption;
+    pickupPoint?: PickupPointOption & {
+      latitude?: string;
+      longitude?: string;
+    };
   };
   viewer: TripRoomViewer;
   permissions: TripRoomPermissions;
+  rental?: {
+    eligible: boolean;
+    reason: string;
+  };
   plannedRoutes?: any[];
   requiredCheckpoints?: CheckpointItem[];
 }
@@ -186,4 +196,31 @@ export interface RemoveMemberResponse {
   memberVersion: number;
   tripVersion: number;
   changed: boolean;
+}
+
+// ─── Trail Access & Purchase Types ──────────────────────────────────────────
+
+export interface TrailAccessResponse {
+  hasAccess: boolean;
+  accessId: string | null;
+  purchasedAt: string | null;
+}
+
+export interface PurchaseTrailPayload {
+  paymentMethod: "QR" | "REDIRECT";
+  gateway?: "momo" | "vnpay";
+}
+
+export interface PurchaseTrailResponse {
+  trailAccessId: string;
+  accessStatus: "ACTIVE" | "PENDING_PAYMENT";
+  paymentId: string | null;
+  invoiceId: string | null;
+  amount: string;
+  currency: string;
+  checkout: {
+    paymentUrl?: string;
+    qrCode?: string;
+    expiresAt?: string;
+  } | null;
 }

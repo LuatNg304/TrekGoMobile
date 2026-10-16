@@ -25,12 +25,14 @@ export function usePreviewTripInvite(inviteCode?: string, autoFetch = true) {
         setPreview(res);
         return res;
       } catch (err: any) {
+        const isGone = err instanceof ApiError && err.status === 410;
         const codeErr = err instanceof ApiError ? err.code : null;
-        setErrorCode(codeErr ?? null);
-        const msg =
-          err instanceof ApiError
-            ? err.message
-            : "Không thể tải thông tin lời mời tham gia.";
+        setErrorCode(codeErr ?? (isGone ? "INVITATION_GONE" : null));
+        const msg = isGone
+          ? "Lời mời này đã hết hạn hoặc đã bị chủ phòng thu hồi."
+          : err instanceof ApiError
+          ? err.message
+          : "Không thể tải thông tin lời mời tham gia.";
         setError(msg);
         return null;
       } finally {
