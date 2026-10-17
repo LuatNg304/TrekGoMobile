@@ -346,7 +346,7 @@ export interface UserProfile {
   name: string;
   email: string;
   avatar: string;
-  role: 'TREKKER' | 'LEADER' | 'STAFF_DELIVERY';
+  role: "TREKKER" | "LEADER";
   completedTripsCount: number;
   totalDistanceKm: number;
   unlockedTrailsCount: number;
