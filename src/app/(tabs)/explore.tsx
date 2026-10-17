@@ -1,4 +1,3 @@
-import { CreatePrivateTripModal } from "@/components/CreatePrivateTripModal";
 import { TacticalMap } from "@/components/TacticalMap";
 import { TopHeader } from "@/components/TopHeader";
 import { Colors, Radius, Shadows } from "@/constants/theme";
@@ -6,7 +5,7 @@ import { useApp } from "@/context/AppContext";
 import { Trail } from "@/types";
 import { Ionicons } from "@expo/vector-icons";
 import { Href, useRouter } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Image,
   ScrollView,
@@ -24,28 +23,59 @@ export default function ExploreScreen() {
 
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedFilter, setSelectedFilter] = useState<string>("Tất cả");
-  const [selectedTrail, setSelectedTrail] = useState<Trail>(trails[0]);
+<<<<<<< HEAD
+  const [selectedTrailId, setSelectedTrailId] = useState<string | null>(null);
+=======
+  const [selectedTrail, setSelectedTrail] = useState<Trail | undefined>(
+    trails[0],
+  );
   const [createPrivateModalVisible, setCreatePrivateModalVisible] =
     useState(false);
+>>>>>>> b01d2abbfe2fefaefa41b9ce85ef70edb018fb6f
+
+  useEffect(() => {
+    if (!selectedTrail && trails.length > 0) {
+      setSelectedTrail(trails[0]);
+    }
+  }, [trails, selectedTrail]);
+
+  const activeTrail = selectedTrail || trails[0];
 
   const filters = ["Tất cả", "Gần bạn", "Dễ", "Trung bình", "Khó", "Đã sở hữu"];
 
-  const filteredTrails = trails.filter((trail) => {
-    if (selectedFilter === "Đã sở hữu") return trail.isUnlocked;
+  const safeTrails = Array.isArray(trails)
+    ? trails.filter((t): t is Trail => Boolean(t && t.id))
+    : [];
+
+  const filteredTrails = safeTrails.filter((trail) => {
+    if (!trail) return false;
+    if (selectedFilter === "Đã sở hữu") return Boolean(trail.isUnlocked);
     if (selectedFilter !== "Tất cả" && selectedFilter !== "Gần bạn") {
       return trail.difficulty === selectedFilter;
     }
     if (searchQuery.trim()) {
       return (
-        trail.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        trail.region.toLowerCase().includes(searchQuery.toLowerCase())
+        trail.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        trail.region?.toLowerCase().includes(searchQuery.toLowerCase())
       );
     }
     return true;
   });
 
+  const selectedTrail: Trail | undefined =
+    safeTrails.find((t) => t.id === selectedTrailId) ||
+    filteredTrails[0] ||
+    safeTrails[0];
+
   const handleUnlock = () => {
-    unlockTrail(selectedTrail.id);
+<<<<<<< HEAD
+    if (selectedTrail?.id) {
+      unlockTrail(selectedTrail.id);
+=======
+    if (activeTrail) {
+      unlockTrail(activeTrail.id);
+>>>>>>> b01d2abbfe2fefaefa41b9ce85ef70edb018fb6f
+    }
   };
 
   return (
@@ -114,177 +144,239 @@ export default function ExploreScreen() {
           </ScrollView>
         </View>
 
+        {/* Public Trips Entry Banner */}
+        <TouchableOpacity
+          style={styles.publicTripsBanner}
+          onPress={() => router.push("/public-trips" as Href)}
+          activeOpacity={0.88}
+        >
+          <View style={styles.publicTripsBannerLeft}>
+            <View style={styles.publicTripsIconBox}>
+              <Ionicons name="compass" size={20} color={Colors.primaryDark} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.publicTripsBannerTitle}>Chuyến đi công khai</Text>
+              <Text style={styles.publicTripsBannerSub}>
+                Khám phá & tham gia các đoàn trekking đang mở chỗ
+              </Text>
+            </View>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={Colors.primaryDark} />
+        </TouchableOpacity>
+
         {/* 2. Main Trail Canvas Card */}
-        <View style={styles.mainTrailCard}>
-          {/* Hero Image */}
-          <View style={styles.trailHeroWrapper}>
-            <Image
-              source={{ uri: selectedTrail.imageUrl }}
-              style={styles.trailHeroImage}
-            />
-            <View style={styles.heroOverlay} />
-
-            {/* Top Badges */}
-            <View style={styles.offlineGpsBadge}>
-              <View style={styles.pulseDot} />
-              <Text style={styles.offlineGpsText}>Offline GPS 3D</Text>
+<<<<<<< HEAD
+        {!selectedTrail ? (
+          <View style={styles.emptyCard}>
+            <View style={styles.emptyIconCircle}>
+              <Ionicons name="map-outline" size={36} color={Colors.primaryDark} />
             </View>
-
-            <View style={styles.ratingBadge}>
-              <Ionicons name="star" size={13} color="#fed018" />
-              <Text style={styles.ratingText}>
-                {selectedTrail.rating} ({selectedTrail.reviewCount})
-              </Text>
-            </View>
-
-            {/* Bottom Hero Info */}
-            <View style={styles.heroInfoBottom}>
-              <View style={styles.categoryTagsRow}>
-                <View style={styles.categoryTag}>
-                  <Text style={styles.categoryTagText}>
-                    {selectedTrail.terrainType}
-                  </Text>
-                </View>
-                <View
-                  style={[styles.categoryTag, { backgroundColor: "#fed018" }]}
-                >
-                  <Text style={[styles.categoryTagText, { color: "#4a3b1c" }]}>
-                    {selectedTrail.difficulty}
-                  </Text>
-                </View>
-              </View>
-
-              <Text style={styles.trailTitle}>{selectedTrail.name}</Text>
-              <Text style={styles.trailSubtitle}>
-                📍 {selectedTrail.region}
-              </Text>
-            </View>
-          </View>
-
-          {/* Bento Telemetry Grid */}
-          <View style={styles.bentoGrid}>
-            <View style={styles.bentoTile}>
-              <View style={styles.bentoIconBg}>
-                <Ionicons
-                  name="git-commit"
-                  size={16}
-                  color={Colors.primaryDark}
-                />
-              </View>
-              <View>
-                <Text style={styles.bentoLabel}>KHOẢNG CÁCH</Text>
-                <Text style={styles.bentoValue}>
-                  {selectedTrail.distanceKm} km
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.bentoTile}>
-              <View style={styles.bentoIconBg}>
-                <Ionicons name="time" size={16} color={Colors.secondary} />
-              </View>
-              <View>
-                <Text style={styles.bentoLabel}>THỜI GIAN</Text>
-                <Text style={styles.bentoValue}>{selectedTrail.duration}</Text>
-              </View>
-            </View>
-
-            <View style={styles.bentoTile}>
-              <View style={styles.bentoIconBg}>
-                <Ionicons name="trending-up" size={16} color="#725c00" />
-              </View>
-              <View>
-                <Text style={styles.bentoLabel}>ĐỘ CAO LŨY KẾ</Text>
-                <Text style={styles.bentoValue}>
-                  +{selectedTrail.elevationGainM}m
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.bentoTile}>
-              <View style={styles.bentoIconBg}>
-                <Ionicons name="flag" size={16} color={Colors.primaryDark} />
-              </View>
-              <View>
-                <Text style={styles.bentoLabel}>CHECKPOINTS</Text>
-                <Text style={styles.bentoValue}>5 Mốc GPS</Text>
-              </View>
-            </View>
-          </View>
-
-          {/* Interactive Topo Route Map Preview */}
-          <View style={styles.mapSectionCard}>
-            <View style={styles.mapHeaderRow}>
-              <View
-                style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
-              >
-                <Ionicons name="map" size={16} color={Colors.primaryDark} />
-                <Text style={styles.mapHeaderTitle}>
-                  Bản đồ địa hình & Tuyến GPS
-                </Text>
-              </View>
-              <View style={styles.contourBadge}>
-                <Text style={styles.contourText}>Contour 25m</Text>
-              </View>
-            </View>
-
-            <TacticalMap
-              isOnRoute={true}
-              height={220}
-              checkpoints={selectedTrail.checkpoints}
-              interactive={false}
-            />
-          </View>
-
-          {/* Trail Description */}
-          <View style={styles.descSection}>
-            <Text style={styles.descTitle}>Tổng quan hành trình</Text>
-            <Text style={styles.descBody}>{selectedTrail.description}</Text>
-          </View>
-
-          {/* Actions CTA */}
-          <View style={styles.ctaRow}>
-            {selectedTrail.isUnlocked ? (
-              <>
-                <TouchableOpacity
-                  style={styles.primaryCta}
-                  onPress={() => router.push("/navigation")}
-                  activeOpacity={0.85}
-                >
-                  <Ionicons
-                    name="navigate"
-                    size={18}
-                    color={Colors.onPrimary}
-                  />
-                  <Text style={styles.primaryCtaText}>
-                    Vào Chế Độ GPS Trekking
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.secondaryCta}
-                  onPress={() => setCreatePrivateModalVisible(true)}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons name="people" size={18} color={Colors.onSurface} />
-                  <Text style={styles.secondaryCtaText}>Tạo Private Trip</Text>
-                </TouchableOpacity>
-              </>
-            ) : (
+            <Text style={styles.emptyCardTitle}>Chưa có cung đường khám phá</Text>
+            <Text style={styles.emptyCardSub}>
+              Hệ thống chưa có sẵn tuyến đường nào trong danh mục này. Bạn có thể tự tạo Private Trip hoặc khám phá các chuyến đi công khai.
+            </Text>
+            <View style={styles.emptyActionsRow}>
               <TouchableOpacity
-                style={styles.unlockCta}
-                onPress={handleUnlock}
+                style={styles.emptyPrimaryCta}
+                onPress={() => router.push("/private-trips/create" as any)}
                 activeOpacity={0.85}
               >
-                <Ionicons name="lock-open" size={20} color={Colors.onPrimary} />
-                <Text style={styles.unlockCtaText}>
-                  Mở Khóa Bản Đồ GPS Toàn Tuyến (
-                  {selectedTrail.price.toLocaleString("vi-VN")} đ)
-                </Text>
+                <Ionicons name="add-circle-outline" size={16} color="#FFFFFF" />
+                <Text style={styles.emptyPrimaryCtaText}>Tạo Private Trip</Text>
               </TouchableOpacity>
-            )}
+              <TouchableOpacity
+                style={styles.emptySecondaryCta}
+                onPress={() => router.push("/public-trips" as Href)}
+                activeOpacity={0.85}
+=======
+        {activeTrail ? (
+          <View style={styles.mainTrailCard}>
+            {/* Hero Image */}
+            <View style={styles.trailHeroWrapper}>
+              <Image
+                source={{ uri: activeTrail.imageUrl }}
+                style={styles.trailHeroImage}
+              />
+              <View style={styles.heroOverlay} />
+
+              {/* Top Badges */}
+              <View style={styles.offlineGpsBadge}>
+                <View style={styles.pulseDot} />
+                <Text style={styles.offlineGpsText}>Offline GPS 3D</Text>
+              </View>
+
+              <View style={styles.ratingBadge}>
+                <Ionicons name="star" size={13} color="#fed018" />
+                <Text style={styles.ratingText}>
+                  {activeTrail.rating} ({activeTrail.reviewCount})
+                </Text>
+              </View>
+
+              {/* Bottom Hero Info */}
+              <View style={styles.heroInfoBottom}>
+                <View style={styles.categoryTagsRow}>
+                  <View style={styles.categoryTag}>
+                    <Text style={styles.categoryTagText}>
+                      {activeTrail.terrainType}
+                    </Text>
+                  </View>
+                  <View
+                    style={[styles.categoryTag, { backgroundColor: "#fed018" }]}
+                  >
+                    <Text style={[styles.categoryTagText, { color: "#4a3b1c" }]}>
+                      {activeTrail.difficulty}
+                    </Text>
+                  </View>
+                </View>
+
+                <Text style={styles.trailTitle}>{activeTrail.name}</Text>
+                <Text style={styles.trailSubtitle}>
+                  📍 {activeTrail.region}
+                </Text>
+              </View>
+            </View>
+
+            {/* Bento Telemetry Grid */}
+            <View style={styles.bentoGrid}>
+              <View style={styles.bentoTile}>
+                <View style={styles.bentoIconBg}>
+                  <Ionicons
+                    name="git-commit"
+                    size={16}
+                    color={Colors.primaryDark}
+                  />
+                </View>
+                <View>
+                  <Text style={styles.bentoLabel}>KHOẢNG CÁCH</Text>
+                  <Text style={styles.bentoValue}>
+                    {activeTrail.distanceKm} km
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.bentoTile}>
+                <View style={styles.bentoIconBg}>
+                  <Ionicons name="time" size={16} color={Colors.secondary} />
+                </View>
+                <View>
+                  <Text style={styles.bentoLabel}>THỜI GIAN</Text>
+                  <Text style={styles.bentoValue}>{activeTrail.duration}</Text>
+                </View>
+              </View>
+
+              <View style={styles.bentoTile}>
+                <View style={styles.bentoIconBg}>
+                  <Ionicons name="trending-up" size={16} color="#725c00" />
+                </View>
+                <View>
+                  <Text style={styles.bentoLabel}>ĐỘ CAO LŨY KẾ</Text>
+                  <Text style={styles.bentoValue}>
+                    +{activeTrail.elevationGainM}m
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.bentoTile}>
+                <View style={styles.bentoIconBg}>
+                  <Ionicons name="flag" size={16} color={Colors.primaryDark} />
+                </View>
+                <View>
+                  <Text style={styles.bentoLabel}>CHECKPOINTS</Text>
+                  <Text style={styles.bentoValue}>
+                    {activeTrail.checkpoints.length} Mốc GPS
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            {/* Interactive Topo Route Map Preview */}
+            <View style={styles.mapSectionCard}>
+              <View style={styles.mapHeaderRow}>
+                <View
+                  style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+                >
+                  <Ionicons name="map" size={16} color={Colors.primaryDark} />
+                  <Text style={styles.mapHeaderTitle}>
+                    Bản đồ địa hình & Tuyến GPS
+                  </Text>
+                </View>
+                <View style={styles.contourBadge}>
+                  <Text style={styles.contourText}>Contour 25m</Text>
+                </View>
+              </View>
+
+              <TacticalMap
+                isOnRoute={true}
+                height={220}
+                checkpoints={activeTrail.checkpoints}
+                interactive={false}
+              />
+            </View>
+
+            {/* Trail Description */}
+            <View style={styles.descSection}>
+              <Text style={styles.descTitle}>Tổng quan hành trình</Text>
+              <Text style={styles.descBody}>{activeTrail.description}</Text>
+            </View>
+
+            {/* Actions CTA */}
+            <View style={styles.ctaRow}>
+              {activeTrail.isUnlocked ? (
+                <>
+                  <TouchableOpacity
+                    style={styles.primaryCta}
+                    onPress={() => router.push("/navigation")}
+                    activeOpacity={0.85}
+                  >
+                    <Ionicons
+                      name="navigate"
+                      size={18}
+                      color={Colors.onPrimary}
+                    />
+                    <Text style={styles.primaryCtaText}>
+                      Vào Chế Độ GPS Trekking
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.secondaryCta}
+                    onPress={() => setCreatePrivateModalVisible(true)}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="people" size={18} color={Colors.onSurface} />
+                    <Text style={styles.secondaryCtaText}>Tạo Private Trip</Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <TouchableOpacity
+                  style={styles.unlockCta}
+                  onPress={handleUnlock}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="lock-open" size={20} color={Colors.onPrimary} />
+                  <Text style={styles.unlockCtaText}>
+                    Mở Khóa Bản Đồ GPS Toàn Tuyến (
+                    {activeTrail.price.toLocaleString("vi-VN")} đ)
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
-        </View>
+        ) : (
+          <View style={styles.emptyTrailCard}>
+            <Ionicons
+              name="map-outline"
+              size={42}
+              color={Colors.onSurfaceVariant}
+            />
+            <Text style={styles.emptyTrailTitle}>
+              Chưa có dữ liệu cung đường
+            </Text>
+            <Text style={styles.emptyTrailSub}>
+              Hệ thống chưa tải được danh sách cung đường hoặc danh sách đang trống.
+            </Text>
+          </View>
+        )}
 
         {/* 3. Other Trails List */}
         <View style={styles.otherTrailsSection}>
@@ -297,54 +389,274 @@ export default function ExploreScreen() {
                 key={t.id}
                 style={[
                   styles.otherTrailItem,
-                  selectedTrail.id === t.id && styles.otherTrailItemSelected,
+                  activeTrail?.id === t.id && styles.otherTrailItemSelected,
                 ]}
                 onPress={() => setSelectedTrail(t)}
                 activeOpacity={0.8}
+>>>>>>> b01d2abbfe2fefaefa41b9ce85ef70edb018fb6f
               >
-                <Image
-                  source={{ uri: t.imageUrl }}
-                  style={styles.otherTrailThumb}
-                />
-                <View style={styles.otherTrailInfo}>
-                  <Text style={styles.otherTrailName}>{t.name}</Text>
-                  <Text style={styles.otherTrailRegion}>{t.region}</Text>
-                  <View style={styles.otherTrailMetaRow}>
-                    <Text style={styles.otherTrailMeta}>{t.distanceKm} km</Text>
-                    <Text style={styles.otherTrailMeta}>•</Text>
-                    <Text style={styles.otherTrailMeta}>
-                      +{t.elevationGainM}m
-                    </Text>
-                    <Text style={styles.otherTrailMeta}>•</Text>
-                    <Text style={styles.otherTrailDifficulty}>
-                      {t.difficulty}
-                    </Text>
-                  </View>
+                <Ionicons name="compass-outline" size={16} color={Colors.primaryDark} />
+                <Text style={styles.emptySecondaryCtaText}>Public Tours</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : (
+          <View style={styles.mainTrailCard}>
+            {/* Hero Image */}
+            <View style={styles.trailHeroWrapper}>
+              <Image
+                source={{
+                  uri:
+                    selectedTrail.imageUrl && selectedTrail.imageUrl.trim()
+                      ? selectedTrail.imageUrl
+                      : "https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=800&q=80",
+                }}
+                style={styles.trailHeroImage}
+              />
+              <View style={styles.heroOverlay} />
+
+              {/* Top Badges */}
+              <View style={styles.offlineGpsBadge}>
+                <View style={styles.pulseDot} />
+                <Text style={styles.offlineGpsText}>Offline GPS 3D</Text>
+              </View>
+
+              <View style={styles.ratingBadge}>
+                <Ionicons name="star" size={13} color="#fed018" />
+                <Text style={styles.ratingText}>
+                  {selectedTrail.rating ?? 5.0} ({selectedTrail.reviewCount ?? 0})
+                </Text>
+              </View>
+
+              {/* Bottom Hero Info */}
+              <View style={styles.heroInfoBottom}>
+                <View style={styles.categoryTagsRow}>
+                  {selectedTrail.terrainType ? (
+                    <View style={styles.categoryTag}>
+                      <Text style={styles.categoryTagText}>
+                        {selectedTrail.terrainType}
+                      </Text>
+                    </View>
+                  ) : null}
+                  {selectedTrail.difficulty ? (
+                    <View
+                      style={[styles.categoryTag, { backgroundColor: "#fed018" }]}
+                    >
+                      <Text style={[styles.categoryTagText, { color: "#4a3b1c" }]}>
+                        {selectedTrail.difficulty}
+                      </Text>
+                    </View>
+                  ) : null}
                 </View>
-                <View style={styles.trailStatusCol}>
-                  <Text style={styles.trailPrice}>
-                    {t.isUnlocked ? "Đã mở" : `${t.price / 1000}k`}
-                  </Text>
+
+                <Text style={styles.trailTitle}>{selectedTrail.name}</Text>
+                <Text style={styles.trailSubtitle}>
+                  📍 {selectedTrail.region || "Việt Nam"}
+                </Text>
+              </View>
+            </View>
+
+            {/* Bento Telemetry Grid */}
+            <View style={styles.bentoGrid}>
+              <View style={styles.bentoTile}>
+                <View style={styles.bentoIconBg}>
                   <Ionicons
+<<<<<<< HEAD
+                    name="git-commit"
+=======
                     name={
-                      selectedTrail.id === t.id
+                      activeTrail?.id === t.id
                         ? "chevron-down"
                         : "chevron-forward"
                     }
+>>>>>>> b01d2abbfe2fefaefa41b9ce85ef70edb018fb6f
                     size={16}
-                    color={Colors.onSurfaceVariant}
+                    color={Colors.primaryDark}
                   />
                 </View>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-      </ScrollView>
+                <View>
+                  <Text style={styles.bentoLabel}>KHOẢNG CÁCH</Text>
+                  <Text style={styles.bentoValue}>
+                    {selectedTrail.distanceKm ?? 0} km
+                  </Text>
+                </View>
+              </View>
 
-      <CreatePrivateTripModal
-        visible={createPrivateModalVisible}
-        onClose={() => setCreatePrivateModalVisible(false)}
-      />
+              <View style={styles.bentoTile}>
+                <View style={styles.bentoIconBg}>
+                  <Ionicons name="time" size={16} color={Colors.secondary} />
+                </View>
+                <View>
+                  <Text style={styles.bentoLabel}>THỜI GIAN</Text>
+                  <Text style={styles.bentoValue}>
+                    {selectedTrail.duration || "Trong ngày"}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.bentoTile}>
+                <View style={styles.bentoIconBg}>
+                  <Ionicons name="trending-up" size={16} color="#725c00" />
+                </View>
+                <View>
+                  <Text style={styles.bentoLabel}>ĐỘ CAO LŨY KẾ</Text>
+                  <Text style={styles.bentoValue}>
+                    +{selectedTrail.elevationGainM ?? 0}m
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.bentoTile}>
+                <View style={styles.bentoIconBg}>
+                  <Ionicons name="flag" size={16} color={Colors.primaryDark} />
+                </View>
+                <View>
+                  <Text style={styles.bentoLabel}>CHECKPOINTS</Text>
+                  <Text style={styles.bentoValue}>
+                    {selectedTrail.checkpoints?.length ?? 0} Mốc GPS
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            {/* Interactive Topo Route Map Preview */}
+            <View style={styles.mapSectionCard}>
+              <View style={styles.mapHeaderRow}>
+                <View
+                  style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+                >
+                  <Ionicons name="map" size={16} color={Colors.primaryDark} />
+                  <Text style={styles.mapHeaderTitle}>
+                    Bản đồ địa hình & Tuyến GPS
+                  </Text>
+                </View>
+                <View style={styles.contourBadge}>
+                  <Text style={styles.contourText}>Contour 25m</Text>
+                </View>
+              </View>
+
+              <TacticalMap
+                isOnRoute={true}
+                height={220}
+                checkpoints={selectedTrail.checkpoints || []}
+                interactive={false}
+              />
+            </View>
+
+            {/* Trail Description */}
+            <View style={styles.descSection}>
+              <Text style={styles.descTitle}>Tổng quan hành trình</Text>
+              <Text style={styles.descBody}>
+                {selectedTrail.description || "Chưa có mô tả chi tiết cho cung đường này."}
+              </Text>
+            </View>
+
+            {/* Actions CTA */}
+            <View style={styles.ctaRow}>
+              {selectedTrail.isUnlocked ? (
+                <>
+                  <TouchableOpacity
+                    style={styles.primaryCta}
+                    onPress={() => router.push("/navigation")}
+                    activeOpacity={0.85}
+                  >
+                    <Ionicons
+                      name="navigate"
+                      size={18}
+                      color={Colors.onPrimary}
+                    />
+                    <Text style={styles.primaryCtaText}>
+                      Vào Chế Độ GPS Trekking
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.secondaryCta}
+                    onPress={() => router.push("/private-trips/create" as any)}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="people" size={18} color={Colors.onSurface} />
+                    <Text style={styles.secondaryCtaText}>Tạo Private Trip</Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <TouchableOpacity
+                  style={styles.unlockCta}
+                  onPress={handleUnlock}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="lock-open" size={20} color={Colors.onPrimary} />
+                  <Text style={styles.unlockCtaText}>
+                    Mở Khóa Bản Đồ GPS Toàn Tuyến (
+                    {(selectedTrail.price ?? 0).toLocaleString("vi-VN")} đ)
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        )}
+
+        {/* 3. Other Trails List */}
+        {filteredTrails.length > 0 ? (
+          <View style={styles.otherTrailsSection}>
+            <Text style={styles.otherTrailsTitle}>
+              Các Cung Đường Khác ({filteredTrails.length})
+            </Text>
+            <View style={styles.otherTrailsList}>
+              {filteredTrails.map((t) => (
+                <TouchableOpacity
+                  key={t.id}
+                  style={[
+                    styles.otherTrailItem,
+                    selectedTrail?.id === t.id && styles.otherTrailItemSelected,
+                  ]}
+                  onPress={() => setSelectedTrailId(t.id)}
+                  activeOpacity={0.8}
+                >
+                  <Image
+                    source={{
+                      uri:
+                        t.imageUrl && t.imageUrl.trim()
+                          ? t.imageUrl
+                          : "https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=400&q=80",
+                    }}
+                    style={styles.otherTrailThumb}
+                  />
+                  <View style={styles.otherTrailInfo}>
+                    <Text style={styles.otherTrailName}>{t.name}</Text>
+                    <Text style={styles.otherTrailRegion}>{t.region}</Text>
+                    <View style={styles.otherTrailMetaRow}>
+                      <Text style={styles.otherTrailMeta}>{t.distanceKm} km</Text>
+                      <Text style={styles.otherTrailMeta}>•</Text>
+                      <Text style={styles.otherTrailMeta}>
+                        +{t.elevationGainM}m
+                      </Text>
+                      <Text style={styles.otherTrailMeta}>•</Text>
+                      <Text style={styles.otherTrailDifficulty}>
+                        {t.difficulty}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={styles.trailStatusCol}>
+                    <Text style={styles.trailPrice}>
+                      {t.isUnlocked ? "Đã mở" : `${(t.price ?? 0) / 1000}k`}
+                    </Text>
+                    <Ionicons
+                      name={
+                        selectedTrail?.id === t.id
+                          ? "chevron-down"
+                          : "chevron-forward"
+                      }
+                      size={16}
+                      color={Colors.onSurfaceVariant}
+                    />
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        ) : null}
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -702,4 +1014,139 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: Colors.onSurface,
   },
+  publicTripsBanner: {
+    marginHorizontal: 16,
+    marginTop: 4,
+    marginBottom: 14,
+    padding: 14,
+    borderRadius: Radius.xl,
+    backgroundColor: Colors.surfaceContainerLowest,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    ...Shadows.card,
+    borderWidth: 1,
+    borderColor: Colors.secondaryContainer,
+  },
+  publicTripsBannerLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    flex: 1,
+    marginRight: 8,
+  },
+  publicTripsIconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.secondaryContainer,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  publicTripsBannerTitle: {
+    fontSize: 14,
+    fontWeight: "900",
+    color: Colors.onSurface,
+  },
+  publicTripsBannerSub: {
+    fontSize: 11,
+    color: Colors.mute,
+    marginTop: 2,
+  },
+<<<<<<< HEAD
+  emptyCard: {
+    marginHorizontal: 16,
+    backgroundColor: Colors.surfaceContainerLowest,
+    borderRadius: Radius.xl,
+    padding: 24,
+    alignItems: "center",
+    ...Shadows.card,
+    marginBottom: 20,
+    marginTop: 10,
+  },
+  emptyIconCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.primaryContainer,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+  emptyCardTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: Colors.onSurface,
+    marginBottom: 6,
+    textAlign: "center",
+  },
+  emptyCardSub: {
+    fontSize: 12,
+    color: Colors.onSurfaceVariant,
+    textAlign: "center",
+    lineHeight: 18,
+    marginBottom: 18,
+  },
+  emptyActionsRow: {
+    flexDirection: "row",
+    gap: 10,
+    width: "100%",
+  },
+  emptyPrimaryCta: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.primaryDark,
+  },
+  emptyPrimaryCtaText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
+  emptySecondaryCta: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.surfaceContainerLow,
+    borderWidth: 1,
+    borderColor: Colors.surfaceContainer,
+  },
+  emptySecondaryCtaText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: Colors.primaryDark,
+=======
+  emptyTrailCard: {
+    marginHorizontal: 16,
+    backgroundColor: Colors.surfaceContainerLowest,
+    borderRadius: Radius.xl,
+    padding: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 24,
+    ...Shadows.card,
+  },
+  emptyTrailTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: Colors.onSurface,
+    marginTop: 12,
+    marginBottom: 6,
+  },
+  emptyTrailSub: {
+    fontSize: 13,
+    color: Colors.onSurfaceVariant,
+    textAlign: "center",
+    lineHeight: 18,
+>>>>>>> b01d2abbfe2fefaefa41b9ce85ef70edb018fb6f
+  },
 });
+

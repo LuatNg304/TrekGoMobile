@@ -49,7 +49,15 @@ export const TopHeader: React.FC<TopHeaderProps> = ({ subtitle = 'Home', onNotif
 
         {/* User avatar */}
         <View style={styles.avatarWrapper}>
-          <Image source={{ uri: user.avatar }} style={styles.avatarImage} />
+          {user.avatar && user.avatar.trim() ? (
+            <Image source={{ uri: user.avatar }} style={styles.avatarImage} />
+          ) : (
+            <Ionicons
+              name="person-circle-outline"
+              size={32}
+              color={Colors.onSurfaceVariant}
+            />
+          )}
         </View>
       </View>
     </View>

@@ -1,4 +1,3 @@
-import { CreatePrivateTripModal } from "@/components/CreatePrivateTripModal";
 import { TopHeader } from "@/components/TopHeader";
 import { TripPrepModal } from "@/components/TripPrepModal";
 import { Colors, Radius, Shadows } from "@/constants/theme";
@@ -24,7 +23,6 @@ export default function HomeScreen() {
   const { user, activeTrip, trails } = useApp();
 
   const [tripPrepVisible, setTripPrepVisible] = useState(false);
-  const [createPrivateVisible, setCreatePrivateVisible] = useState(false);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -57,6 +55,7 @@ export default function HomeScreen() {
         </View>
 
         {/* 2. UPCOMING TRIP HERO CARD (24px rounded card / Scandinavian fintech vibe) */}
+        {activeTrip.id ? (
         <View style={styles.heroCard}>
           {/* Card Image Banner */}
           <View style={styles.heroImageContainer}>
@@ -86,7 +85,7 @@ export default function HomeScreen() {
                 color={Colors.primary}
               />
               <Text style={styles.bookingText}>
-                {activeTrip.bookingCode || "#BK-8842"}
+                {activeTrip.bookingCode ?? ""}
               </Text>
             </View>
 
@@ -194,6 +193,15 @@ export default function HomeScreen() {
             </View>
           </View>
         </View>
+        ) : (
+          <View style={styles.heroCard}>
+            <View style={styles.heroBody}>
+              <Text style={styles.greetingSubtitle}>
+                Bạn chưa có chuyến đi nào sắp tới.
+              </Text>
+            </View>
+          </View>
+        )}
 
         {/* 3. QUICK ACTION SHORTCUTS (4 Items Rounded Icon Buttons) */}
         <View style={styles.shortcutsRow}>
@@ -215,14 +223,7 @@ export default function HomeScreen() {
 
           <TouchableOpacity
             style={styles.shortcutItem}
-            onPress={() =>
-              router.push({
-                pathname: "/trips/[id]",
-                params: {
-                  id: "trip-langbiang-public",
-                },
-              } as unknown as Href)
-            }
+            onPress={() => router.push("/public-trips" as Href)}
             activeOpacity={0.8}
           >
             <View
@@ -239,7 +240,7 @@ export default function HomeScreen() {
 
           <TouchableOpacity
             style={styles.shortcutItem}
-            onPress={() => setCreatePrivateVisible(true)}
+            onPress={() => router.push("/private-trips/create" as Href)}
             activeOpacity={0.8}
           >
             <View
@@ -367,11 +368,6 @@ export default function HomeScreen() {
         trip={activeTrip}
         onClose={() => setTripPrepVisible(false)}
         onStartNavigation={() => router.push("/navigation")}
-      />
-
-      <CreatePrivateTripModal
-        visible={createPrivateVisible}
-        onClose={() => setCreatePrivateVisible(false)}
       />
     </SafeAreaView>
   );

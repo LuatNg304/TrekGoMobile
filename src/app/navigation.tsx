@@ -1,23 +1,23 @@
-import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  Alert,
-} from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { StatusBar } from "expo-status-bar";
-import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { Colors, Radius, Shadows } from '@/constants/theme';
-import { TacticalMap } from '@/components/TacticalMap';
-import { RouteDeviationAlert } from '@/components/RouteDeviationAlert';
 import { CheckpointMissionModal } from '@/components/CheckpointMissionModal';
+import { RouteDeviationAlert } from '@/components/RouteDeviationAlert';
+import { TacticalMap } from '@/components/TacticalMap';
 import { TrekGoLogo } from '@/components/TrekGoLogo';
+import { Colors, Radius, Shadows } from '@/constants/theme';
 import { useApp } from '@/context/AppContext';
 import { Checkpoint } from '@/types';
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import { StatusBar } from "expo-status-bar";
+import { useState } from 'react';
+import {
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export default function NavigationScreen() {
   const router = useRouter();

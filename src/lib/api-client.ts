@@ -1,4 +1,5 @@
 import { Platform } from "react-native";
+import { readStoredAuth } from "@/features/auth/storage";
 
 const fallbackApiUrl = Platform.select({
   android: "http://10.0.2.2:3000",
@@ -54,17 +55,30 @@ function getErrorMessage(
 ) {
   const rawMessage = payload?.error?.message ?? payload?.message;
 
+  let baseMessage = "Yêu cầu chưa thể hoàn tất. Vui lòng thử lại.";
   if (Array.isArray(rawMessage)) {
-    return rawMessage[0] || "Dữ liệu không hợp lệ.";
+    baseMessage = rawMessage[0] || "Dữ liệu không hợp lệ.";
+  } else if (rawMessage) {
+    baseMessage = rawMessage;
+  } else {
+    baseMessage =
+      fallbackMessages?.[status] ?? defaultMessages[status] ?? baseMessage;
   }
 
-  if (rawMessage) return rawMessage;
+  const details = payload?.error?.details;
+  if (Array.isArray(details) && details.length > 0) {
+    const detailList = details
+      .map((d: any) =>
+        d?.message ? `${d.field ? `${d.field}: ` : ""}${d.message}` : null,
+      )
+      .filter(Boolean)
+      .join("\n• ");
+    if (detailList) {
+      return `${baseMessage}\n• ${detailList}`;
+    }
+  }
 
-  return (
-    fallbackMessages?.[status] ??
-    defaultMessages[status] ??
-    "Yêu cầu chưa thể hoàn tất. Vui lòng thử lại."
-  );
+  return baseMessage;
 }
 
 export async function apiRequest<T>(
@@ -93,8 +107,20 @@ export async function apiRequest<T>(
     requestHeaders.set("Content-Type", "application/json");
   }
 
-  if (accessToken) {
-    requestHeaders.set("Authorization", `Bearer ${accessToken}`);
+  let token = accessToken;
+  if (!token) {
+    try {
+      const stored = await readStoredAuth();
+      if (stored?.accessToken) {
+        token = stored.accessToken;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  if (token && !requestHeaders.has("Authorization")) {
+    requestHeaders.set("Authorization", `Bearer ${token}`);
   }
 
   try {

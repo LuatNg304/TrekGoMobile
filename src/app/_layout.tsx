@@ -1,13 +1,14 @@
+import { NetworkLoggerModal } from "@/components/common/NetworkLoggerModal";
+import { Colors } from "@/constants/theme";
+import { AppProvider, useApp } from "@/context/AppContext";
+import { AuthProvider, useAuth } from "@/features/auth/AuthContext";
+import { Stack, useRouter, useSegments, type Href } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { Stack, useRouter, useSegments } from "expo-router";
-import React, { useEffect } from "react";
+import { useEffect } from "react";
 import { ActivityIndicator, Platform, StyleSheet, Text, View } from "react-native";
 
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
-import { Colors } from "@/constants/theme";
-import { AppProvider } from "@/context/AppContext";
-import { AuthProvider, useAuth } from "@/features/auth/AuthContext";
 
 export default function RootLayout() {
   return (
@@ -24,19 +25,44 @@ export default function RootLayout() {
 function RootNavigator() {
   const router = useRouter();
   const segments = useSegments();
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, user } = useAuth();
+  const { authRole } = useApp();
 
   useEffect(() => {
     if (isLoading) return;
 
-    const isInAuthGroup = segments[0] === "auth";
+    const rootSegment = (segments[0] as string | undefined) || "";
+    const isInAuthGroup = rootSegment === "auth";
+    const isInFieldOps = rootSegment === "field-operations";
+    const isInTabs = rootSegment === "(tabs)";
 
-    if (!isAuthenticated && !isInAuthGroup) {
-      router.replace("/auth/login");
-    } else if (isAuthenticated && isInAuthGroup) {
-      router.replace("/(tabs)");
+    // Determine current effective role (from auth token or mock switcher)
+    const effectiveRole = user?.role || authRole;
+
+    if (!isAuthenticated && !authRole && !isInAuthGroup) {
+      router.replace("/auth/login" as Href);
+      return;
     }
-  }, [isAuthenticated, isLoading, router, segments]);
+
+    if (isAuthenticated || authRole) {
+      // Role-based routing when logged in
+      if (effectiveRole === "STAFF_DELIVERY") {
+        // Staff Delivery is dedicated to field-operations
+        if (isInAuthGroup || isInTabs) {
+          router.replace("/field-operations" as Href);
+        }
+      } else if (effectiveRole === "LEADER") {
+        if (isInAuthGroup) {
+          router.replace("/field-operations" as Href);
+        }
+      } else {
+        // Regular User / Trekker should not access field-operations
+        if (isInAuthGroup || isInFieldOps) {
+          router.replace("/(tabs)" as Href);
+        }
+      }
+    }
+  }, [isAuthenticated, isLoading, router, segments, user, authRole]);
 
   if (isLoading) {
     return (
@@ -50,16 +76,19 @@ function RootNavigator() {
 
   return (
     <View style={styles.container}>
-      <StatusBar style={isAuthenticated ? "dark" : "light"} />
+      <StatusBar style="dark" />
       <Stack
+        initialRouteName="index"
         screenOptions={{
           headerShown: false,
           contentStyle: { backgroundColor: Colors.surface },
           animation: Platform.OS === "ios" ? "default" : "fade",
         }}
       >
+        <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="auth" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="field-operations" options={{ headerShown: false }} />
         <Stack.Screen
           name="navigation"
           options={{
@@ -69,6 +98,7 @@ function RootNavigator() {
           }}
         />
       </Stack>
+      <NetworkLoggerModal />
     </View>
   );
 }
