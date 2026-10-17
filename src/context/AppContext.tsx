@@ -1,4 +1,7 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { Alert } from "react-native";
+import * as Network from "expo-network";
+import { ApiError } from "@/lib/api-client";
 
 import {
   CommunityNotification,
@@ -12,6 +15,7 @@ import {
   GroupTrip,
   LiveNavTelemetry,
   PersonalTrail,
+  PersonalTrailVerificationStatus,
   RentalOrder,
   SupportTicket,
   SupportTicketCategory,
@@ -30,6 +34,7 @@ import {
   mockTrips,
   mockUserProfile,
 } from "@/data/mockData";
+import { readStoredAuth } from "@/features/auth/storage";
 import { useAuth } from "@/features/auth/AuthContext";
 import {
   accountStorage,
@@ -37,7 +42,20 @@ import {
   offlineMapStorage,
   recordingDatabase,
   trailStorage,
+  syncService,
 } from "@/services/storage";
+import {
+  personalTrailApi,
+  convertBackendTrailToPersonalTrail,
+  mapDifficultyToBackend,
+} from "@/services/api/personalTrailApi";
+
+function isUUID(str?: string): boolean {
+  if (!str || typeof str !== "string") return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    str,
+  );
+}
 
 export interface RentalSettlement {
   orderId: string;
@@ -109,13 +127,17 @@ interface AppContextType {
   unlockTrail: (trailId: string) => void;
 
   personalTrails: PersonalTrail[];
-  createPersonalTrail: (input: CreatePersonalTrailInput) => PersonalTrail;
+  createPersonalTrail: (input: CreatePersonalTrailInput) => Promise<PersonalTrail>;
   updatePersonalTrail: (
     trailId: string,
     input: CreatePersonalTrailInput,
-  ) => void;
-  submitPersonalTrail: (trailId: string) => void;
-  deletePersonalTrail: (trailId: string) => void;
+  ) => Promise<void>;
+  submitPersonalTrail: (
+    trailId: string,
+    noteToAdmin?: string,
+  ) => Promise<boolean>;
+  deletePersonalTrail: (trailId: string) => Promise<void>;
+  refreshPersonalTrails: () => Promise<void>;
   clearAllDatabaseData: () => Promise<void>;
 
   communityPosts: CommunityPost[];
@@ -647,6 +669,12 @@ export const AppProvider: React.FC<{
   children: React.ReactNode;
 }> = ({ children }) => {
   const { user: authenticatedUser } = useAuth();
+  const accountIdRef = useRef(authenticatedUser?.id);
+  const trailRefreshRef = useRef(0);
+  useEffect(() => {
+    accountIdRef.current = authenticatedUser?.id;
+    return () => { trailRefreshRef.current += 1; };
+  }, [authenticatedUser?.id]);
   const [localUser, setUser] = useState<UserProfile>(mockUserProfile);
   const user: UserProfile = authenticatedUser
     ? {
@@ -717,13 +745,11 @@ export const AppProvider: React.FC<{
       try {
         const [
           storedSavedTrails,
-          storedPersonalTrails,
           storedOfflinePackages,
           storedAccount,
           storedCart,
         ] = await Promise.all([
           trailStorage.getSavedTrailIds(),
-          trailStorage.getPersonalTrails(),
           offlineMapStorage.getPackages(),
           accountStorage.getTrekkerAccount(),
           accountStorage.getRentalCart(),
@@ -733,11 +759,6 @@ export const AppProvider: React.FC<{
 
         if (storedSavedTrails) {
           setSavedTrailIds(storedSavedTrails);
-        }
-        if (storedPersonalTrails) {
-          setPersonalTrails(storedPersonalTrails);
-        } else {
-          setPersonalTrails([]);
         }
         // Chạy migration sang SQLite (nếu chưa chạy) cho các trail cá nhân cũ
         recordingDatabase.migrateFromAsyncStorage().catch((err) => {
@@ -763,10 +784,21 @@ export const AppProvider: React.FC<{
 
     hydrateStorage();
 
+    // Khởi động tiến trình tự động đồng bộ Outbox khi online (định kỳ 15s + khi app active)
+    syncService.startAutoSync(15_000);
+
     return () => {
       isMounted = false;
+      syncService.stopAutoSync();
     };
   }, []);
+
+  // Tự động kích hoạt đồng bộ outbox ngay khi người dùng đăng nhập thành công
+  useEffect(() => {
+    if (authenticatedUser) {
+      syncService.processSyncOutbox().catch(console.warn);
+    }
+  }, [authenticatedUser]);
 
   const activeTrip =
     trips.find(
@@ -1258,8 +1290,22 @@ export const AppProvider: React.FC<{
     );
   };
 
-  const createPersonalTrail = (input: CreatePersonalTrailInput) => {
-    const now = new Date().toLocaleDateString("vi-VN");
+  const createPersonalTrail = async (input: CreatePersonalTrailInput) => {
+    const now = new Date().toISOString();
+
+    const effectiveSegments: [number, number, number?][][] =
+      input.gpsSegments && input.gpsSegments.length > 0
+        ? input.gpsSegments
+        : input.gpsRoute && input.gpsRoute.length > 0
+          ? [input.gpsRoute]
+          : [];
+
+    const flatRoute: [number, number, number?][] =
+      input.gpsRoute ||
+      effectiveSegments.reduce<[number, number, number?][]>(
+        (acc, seg) => acc.concat(seg),
+        [],
+      );
 
     const newTrail: PersonalTrail = {
       id: `personal-trail-${Date.now()}`,
@@ -1275,97 +1321,261 @@ export const AppProvider: React.FC<{
       visibility: "PRIVATE",
       verificationStatus: input.submitForVerification ? "PENDING" : "DRAFT",
       routePreset: input.routePreset,
-      routePoints: input.routePoints,
-      gpsRoute: input.gpsRoute || [],
-      gpsSegments: input.gpsSegments || [],
-      checkpoints: input.checkpoints,
+      routePoints: input.routePoints || [],
+      gpsRoute: flatRoute,
+      gpsSegments: effectiveSegments,
+      checkpoints: input.checkpoints || [],
       clientRecordingId: input.clientRecordingId,
       createdAt: now,
       updatedAt: now,
     };
 
-    setPersonalTrails((current) => {
-      const next = [newTrail, ...current];
-      trailStorage.savePersonalTrails(next);
-      return next;
-    });
+    // SQLite là nguồn dữ liệu bền vững: chỉ cập nhật UI sau khi ghi thành công.
+    await recordingDatabase.savePersonalTrail(
+      newTrail,
+      newTrail.clientRecordingId,
+    );
+    setPersonalTrails((current) => [newTrail, ...current]);
 
     return newTrail;
   };
 
-  const updatePersonalTrail = (
+  const updatePersonalTrail = async (
     trailId: string,
     input: CreatePersonalTrailInput,
-  ) => {
-    setPersonalTrails((current) => {
-      const next: PersonalTrail[] = current.map((trail) => {
-        if (trail.id !== trailId) {
-          return trail;
-        }
+  ): Promise<void> => {
+    const trail = personalTrails.find((item) => item.id === trailId);
+    if (!trail) throw new Error("Không tìm thấy cung đường cần cập nhật.");
 
-        return {
-          ...trail,
-          name: input.name.trim(),
-          region: input.region.trim(),
-          difficulty: input.difficulty,
-          distanceKm: input.distanceKm,
-          elevationGainM: input.elevationGainM,
-          duration: input.duration.trim(),
-          terrainType: input.terrainType.trim(),
-          description: input.description.trim(),
-          visibility: "PRIVATE" as const,
-          verificationStatus: input.submitForVerification
-            ? ("PENDING" as const)
-            : ("DRAFT" as const),
-          rejectionReason: undefined,
-          routePreset: input.routePreset,
-          routePoints: input.routePoints,
-          gpsRoute:
-            input.gpsRoute !== undefined ? input.gpsRoute : trail.gpsRoute,
-          gpsSegments:
-            input.gpsSegments !== undefined
-              ? input.gpsSegments
-              : trail.gpsSegments,
-          checkpoints: input.checkpoints.map((checkpoint, index) => ({
-            ...checkpoint,
-            order: index + 1,
-          })),
-          updatedAt: new Date().toLocaleDateString("vi-VN"),
-        };
+    if (isUUID(trailId)) {
+      const ownerId = authenticatedUser?.id;
+      if (!ownerId) throw new Error("Vui lòng đăng nhập lại.");
+      const network = await Network.getNetworkStateAsync();
+      if (network.isConnected === false || network.isInternetReachable === false) {
+        throw new ApiError("Bạn đang offline. Vui lòng kết nối mạng để cập nhật cung đường.", 0, "OFFLINE");
+      }
+      const response = await personalTrailApi.updateTrail(trailId, {
+        title: input.name.trim(),
+        description: input.description.trim(),
+        duration: input.duration.trim(),
+        difficulty: mapDifficultyToBackend(input.difficulty),
+        visibility: "PRIVATE",
       });
-      trailStorage.savePersonalTrails(next);
-      return next;
-    });
+      if (!response.success) throw new Error(response.message || "Không thể cập nhật cung đường.");
+      const updated = convertBackendTrailToPersonalTrail({ ...response.data, id: trailId }, trail.ownerId);
+      ++trailRefreshRef.current;
+      await recordingDatabase.updateCachedServerPersonalTrail(ownerId, updated);
+      if (accountIdRef.current !== ownerId) return;
+      setPersonalTrails((current) => current.map((item) => item.id === trailId ? updated : item));
+      if (input.submitForVerification) {
+        const submission = await personalTrailApi.submitVerification(trailId);
+        if (!submission.success) throw new Error(submission.message || "Đã lưu thay đổi nhưng chưa gửi được xác minh.");
+        ++trailRefreshRef.current;
+        await recordingDatabase.updateCachedServerPersonalTrail(ownerId, {
+          ...updated, verificationStatus: "PENDING", rejectionReason: undefined,
+        });
+        if (accountIdRef.current !== ownerId) return;
+        setPersonalTrails((current) => current.map((item) => item.id === trailId
+          ? { ...item, verificationStatus: "PENDING", rejectionReason: undefined }
+          : item));
+      }
+      return;
+    }
+    if (input.submitForVerification) {
+      throw new Error("Cung đường chưa đồng bộ lên máy chủ. Vui lòng đồng bộ trước khi gửi xác minh.");
+    }
+
+    const effectiveSegments =
+      input.gpsSegments !== undefined
+        ? input.gpsSegments
+        : trail.gpsSegments;
+
+    const effectiveFlat =
+      input.gpsRoute !== undefined
+        ? input.gpsRoute
+        : effectiveSegments
+          ? effectiveSegments.reduce<[number, number, number?][]>(
+              (acc, seg) => acc.concat(seg),
+              [],
+            )
+          : trail.gpsRoute;
+
+    const updated: PersonalTrail = {
+      ...trail,
+      name: input.name.trim(),
+      region: input.region.trim(),
+      difficulty: input.difficulty,
+      distanceKm: input.distanceKm,
+      elevationGainM: input.elevationGainM,
+      duration: input.duration.trim(),
+      terrainType: input.terrainType.trim(),
+      description: input.description.trim(),
+      visibility: "PRIVATE" as const,
+      verificationStatus: input.submitForVerification
+        ? ("PENDING" as const)
+        : ("DRAFT" as const),
+      rejectionReason: undefined,
+      routePreset: input.routePreset ?? trail.routePreset,
+      routePoints: input.routePoints ?? trail.routePoints,
+      gpsRoute: effectiveFlat,
+      gpsSegments: effectiveSegments,
+      checkpoints: (input.checkpoints || trail.checkpoints || []).map(
+        (checkpoint, index) => ({
+          ...checkpoint,
+          order: index + 1,
+        }),
+      ),
+      updatedAt: new Date().toISOString(),
+    };
+    await recordingDatabase.savePersonalTrail(updated, updated.clientRecordingId);
+    setPersonalTrails((current) => current.map((item) => item.id === trailId ? updated : item));
   };
 
-  const submitPersonalTrail = (trailId: string) => {
-    setPersonalTrails((current) => {
-      const next: PersonalTrail[] = current.map((trail) =>
-        trail.id === trailId
-          ? {
-              ...trail,
-              visibility: "PRIVATE" as const,
-              verificationStatus: "PENDING" as const,
-              rejectionReason: undefined,
-              updatedAt: new Date().toLocaleDateString("vi-VN"),
-            }
-          : trail,
+  const submitPersonalTrail = async (
+    trailId: string,
+    noteToAdmin?: string,
+  ): Promise<boolean> => {
+    if (!isUUID(trailId)) {
+      console.warn(
+        `[AppContext] Không thể gửi xác minh trail ${trailId} vì chưa có UUID trên máy chủ.`,
       );
-      trailStorage.savePersonalTrails(next);
-      return next;
-    });
+      Alert.alert(
+        "Chưa thể gửi xác minh",
+        "Cung đường này chưa được đồng bộ hoàn tất lên máy chủ (chưa có mã định danh UUID). Vui lòng kết nối mạng và kéo xuống để làm mới (refresh) trước khi gửi xác minh.",
+      );
+      return false;
+    }
+
+    try {
+      const res = await personalTrailApi.submitVerification(trailId, {
+        noteToAdmin,
+      });
+
+      const updatedStatus =
+        (res?.data?.verificationStatus as PersonalTrailVerificationStatus) ||
+        "PENDING";
+
+      setPersonalTrails((current) => {
+        const next: PersonalTrail[] = current.map((trail) =>
+          trail.id === trailId
+            ? {
+                ...trail,
+                visibility: "PRIVATE" as const,
+                verificationStatus: updatedStatus,
+                rejectionReason: undefined,
+                updatedAt: new Date().toISOString(),
+              }
+            : trail,
+        );
+        return next;
+      });
+
+      return true;
+    } catch (apiErr: any) {
+      console.warn("[AppContext] Lỗi gọi submitVerification API:", apiErr);
+
+      // Nếu lỗi mạng / offline, vẫn cập nhật tạm PENDING local để trekker không bị chặn
+      setPersonalTrails((current) => {
+        const next: PersonalTrail[] = current.map((trail) =>
+          trail.id === trailId
+            ? {
+                ...trail,
+                visibility: "PRIVATE" as const,
+                verificationStatus: "PENDING" as const,
+                rejectionReason: undefined,
+                updatedAt: new Date().toLocaleDateString("vi-VN"),
+              }
+            : trail,
+        );
+        return next;
+      });
+
+      throw apiErr;
+    }
   };
 
-  const deletePersonalTrail = (trailId: string) => {
-    setPersonalTrails((current) => {
-      const next = current.filter((trail) => trail.id !== trailId);
-      trailStorage.savePersonalTrails(next);
-      return next;
-    });
-
-    // Xóa triệt để khỏi SQLite (personal_trails + cascading local_recordings)
-    trailStorage.deletePersonalTrail(trailId).catch(console.warn);
+  const deletePersonalTrail = async (trailId: string): Promise<void> => {
+    const ownerId = authenticatedUser?.id;
+    if (!ownerId) throw new Error("Vui lòng đăng nhập lại.");
+    if (!isUUID(trailId)) {
+      await recordingDatabase.deletePersonalTrail(trailId);
+    } else {
+      const response = await personalTrailApi.deleteTrail(trailId);
+      if (!response.success) throw new Error(response.message || "Không thể xóa cung đường.");
+      ++trailRefreshRef.current;
+      await recordingDatabase.removeCachedServerPersonalTrail(ownerId, trailId);
+    }
+    if (accountIdRef.current !== ownerId) return;
+    setPersonalTrails((current) => current.filter((trail) => trail.id !== trailId));
   };
+
+  const refreshPersonalTrails = useCallback(async (): Promise<void> => {
+    const ownerId = authenticatedUser?.id;
+    const refreshId = ++trailRefreshRef.current;
+    const isCurrent = () => accountIdRef.current === ownerId && trailRefreshRef.current === refreshId;
+    if (!ownerId) {
+      setPersonalTrails([]);
+      return;
+    }
+    let localTrails: PersonalTrail[] = [];
+    let cachedTrails: PersonalTrail[] = [];
+    try {
+      const auth = await readStoredAuth();
+      if (!auth || auth.user.id !== ownerId || !isCurrent()) return;
+      localTrails = (await recordingDatabase.getAllPersonalTrails()).filter((trail) => trail.ownerId === ownerId);
+      cachedTrails = await recordingDatabase.getCachedServerPersonalTrails(ownerId);
+      if (!isCurrent()) return;
+      const cachedIds = new Set(cachedTrails.map((trail) => trail.id));
+      const cachedRecordings = new Set(cachedTrails.map((trail) => trail.clientRecordingId).filter(Boolean));
+      setPersonalTrails([
+        ...localTrails.filter((trail) => !cachedIds.has(trail.id) && (!trail.clientRecordingId || !cachedRecordings.has(trail.clientRecordingId))),
+        ...cachedTrails,
+      ]);
+      syncService.processSyncOutbox().catch(console.warn);
+
+      // Fetch every page before replacing the cache or deleting any local trail.
+      const serverDtos = await personalTrailApi.getAllMyTrails(auth.accessToken);
+      if (!isCurrent()) return;
+      const serverTrails = serverDtos.map((dto) => convertBackendTrailToPersonalTrail(dto, ownerId));
+      await recordingDatabase.cacheServerPersonalTrails(ownerId, serverTrails);
+      if (!isCurrent()) return;
+      const syncedIds = await recordingDatabase.getSyncedLocalTrailIds(
+        serverTrails.map((trail) => trail.id),
+        serverTrails.map((trail) => trail.clientRecordingId).filter((id): id is string => !!id),
+      );
+      if (!isCurrent()) return;
+      await recordingDatabase.removeSyncedPersonalTrails(syncedIds);
+      const remaining = (await recordingDatabase.getAllPersonalTrails()).filter((trail) => trail.ownerId === ownerId);
+      if (isCurrent()) setPersonalTrails([...remaining, ...serverTrails]);
+    } catch (error) {
+      // Keep the cached routes already displayed; a network failure must not empty the list.
+      console.warn("[AppContext] Không thể làm mới personal trails:", error);
+    }
+  }, [authenticatedUser?.id]);
+
+
+  // Tự động làm mới và dọn dẹp các cung đường đã đồng bộ ngay khi hoàn tất hydrate bộ nhớ
+  useEffect(() => {
+    if (isStorageHydrated) {
+      const timer = setTimeout(() => {
+        refreshPersonalTrails().catch((err) => {
+          console.warn("[AppContext] Auto refreshPersonalTrails on hydrate:", err);
+        });
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [isStorageHydrated, refreshPersonalTrails]);
+
+  // Tự động làm mới danh sách khi tiến trình sync Outbox đẩy thành công một cung đường lên Server
+  useEffect(() => {
+    const unsub = syncService.onSyncCompleted(() => {
+      console.log("[AppContext] Outbox sync hoàn tất, tự động làm mới danh sách personalTrails...");
+      refreshPersonalTrails().catch(console.warn);
+    });
+    return () => {
+      unsub();
+    };
+  }, [refreshPersonalTrails]);
 
   const clearAllDatabaseData = async () => {
     await trailStorage.clearAllData();
@@ -1825,11 +2035,12 @@ export const AppProvider: React.FC<{
         createSupportTicket,
         trails,
         unlockTrail,
-        personalTrails,
+        personalTrails: personalTrails.filter((trail) => trail.ownerId === authenticatedUser?.id),
         createPersonalTrail,
         updatePersonalTrail,
         submitPersonalTrail,
         deletePersonalTrail,
+        refreshPersonalTrails,
         clearAllDatabaseData,
         communityPosts,
         communityProfiles,

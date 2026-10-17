@@ -5,12 +5,14 @@ import { ActivityIndicator, Platform, StyleSheet, Text, View } from "react-nativ
 import * as SQLite from "expo-sqlite";
 import { useDrizzleStudio } from "expo-drizzle-studio-plugin";
 
+
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { Colors } from "@/constants/theme";
 import { AppProvider } from "@/context/AppContext";
 import { AuthProvider, useAuth } from "@/features/auth/AuthContext";
 import { getDatabase } from "@/services/storage/recordingDatabase";
+import "@/services/location/backgroundLocationTask";
 
 export default function RootLayout() {
   const [db, setDb] = useState<SQLite.SQLiteDatabase | null>(null);
@@ -21,6 +23,7 @@ export default function RootLayout() {
         setDb(database);
         if (__DEV__) {
           console.log("[SQLite] Drizzle Studio sẵn sàng: http://localhost:8081/_expo/plugins/expo-drizzle-studio-plugin");
+          console.log("[AsyncStorage] DevTools sẵn sàng: http://localhost:8081/_expo/plugins/@dev-plugins/async-storage");
         }
       })
       .catch((err) => {
@@ -29,6 +32,7 @@ export default function RootLayout() {
   }, []);
 
   useDrizzleStudio(db);
+  
 
   return (
     <SafeAreaProvider>

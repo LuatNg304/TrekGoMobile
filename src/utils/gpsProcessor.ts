@@ -79,6 +79,9 @@ export class GpsProcessor {
   private elevationGainM = 0;
   private smoothedElevation: number | null = null;
   private elevationAnchor: number | null = null;
+  private recordingStartedAt = 0;
+  private awaitingStartFix = false;
+  private startFixes: RawGpsPoint[] = [];
 
   getCurrentSegmentId(): number {
     return this.currentSegmentId;
@@ -88,7 +91,10 @@ export class GpsProcessor {
     this.currentSegmentId = Math.max(0, Math.floor(id));
   }
 
-  reset() {
+  reset(recordingStartedAt = 0) {
+    this.recordingStartedAt = recordingStartedAt;
+    this.awaitingStartFix = recordingStartedAt > 0;
+    this.startFixes = [];
     this.currentSegmentId = 0;
     this.lastPoint = null;
     this.lastObservedTimestamp = 0;
@@ -185,12 +191,14 @@ export class GpsProcessor {
       accuracy < 0 ||
       accuracy > GPS_CONFIG.maxAccuracyM
     ) {
+      this.startFixes = [];
       return reject("LOW_ACCURACY");
     }
 
     // 3. Kiểm tra độ tươi của toạ độ (maxPointAgeMs) và thứ tự thời gian
     if (
       !Number.isFinite(timestamp) ||
+      timestamp < this.recordingStartedAt ||
       timestamp <= this.lastObservedTimestamp ||
       Math.abs(Date.now() - timestamp) > GPS_CONFIG.maxPointAgeMs
     ) {
@@ -198,6 +206,29 @@ export class GpsProcessor {
     }
 
     this.lastObservedTimestamp = timestamp;
+
+    // Confirm a fresh cluster before recording the start; never connect warm-up fixes.
+    if (this.awaitingStartFix) {
+      if (accuracy > 15) {
+        this.startFixes = [];
+        return reject("LOW_ACCURACY");
+      }
+      const first = this.startFixes[0];
+      const previous = this.startFixes[this.startFixes.length - 1];
+      if (first && previous && (
+        timestamp - first.recordedAt > 15000 ||
+        distanceMeters(first, rawPoint) > 10 ||
+        distanceMeters(previous, rawPoint) / ((timestamp - previous.recordedAt) / 1000) > GPS_CONFIG.maxWalkingSpeedMs
+      )) {
+        this.startFixes = [];
+      }
+      this.startFixes.push(rawPoint);
+      if (this.startFixes.length < 3 || timestamp - this.startFixes[0].recordedAt < 2000) {
+        return reject("GPS_JITTER");
+      }
+      this.awaitingStartFix = false;
+      this.startFixes = [];
+    }
 
     let isNewSegment = false;
 

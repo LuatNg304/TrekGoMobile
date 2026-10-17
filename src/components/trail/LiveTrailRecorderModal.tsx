@@ -6,11 +6,19 @@ import {
 } from "@/components/map/MapLibre3DView";
 import { Colors, Radius, Shadows } from "@/constants/theme";
 import { useApp } from "@/context/AppContext";
-import { generateUUID, recordingDatabase } from "@/services/storage";
+import {
+  generateUUID,
+  recordingDatabase,
+  syncService,
+} from "@/services/storage";
+import {
+  createLocationSampleId,
+  startBackgroundLocationUpdates,
+  stopBackgroundLocationUpdates,
+} from "@/services/location/backgroundLocationTask";
 import {
   DifficultyLevel,
   PersonalTrail,
-  PersonalTrailRoutePoint,
   RawGpsSample,
   mapRejectReason,
 } from "@/types";
@@ -110,9 +118,27 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
   const isPausedRef = useRef(false);
   const isRecordingRef = useRef(false);
   const currentRecordingIdRef = useRef<string | null>(null);
+  const samplesSinceLastSyncRef = useRef(0);
+  const recordedCoordinatesRef = useRef<GpsPoint[]>([]);
+  const lastRouteRenderAtRef = useRef(0);
+
+  const replaceRecordedCoordinates = useCallback((points: GpsPoint[]) => {
+    recordedCoordinatesRef.current = [...points];
+    lastRouteRenderAtRef.current = Date.now();
+    setRecordedCoordinates([...points]);
+  }, []);
+
+  const appendRecordedCoordinate = useCallback((point: GpsPoint) => {
+    recordedCoordinatesRef.current.push(point);
+    const now = Date.now();
+    if (now - lastRouteRenderAtRef.current >= 10_000) {
+      lastRouteRenderAtRef.current = now;
+      setRecordedCoordinates([...recordedCoordinatesRef.current]);
+    }
+  }, []);
 
   // Hàm xác định toạ độ GPS tức thì của người dùng (chỉ dùng để hiển thị ban đầu, không đưa vào bản ghi thật)
-  const detectCurrentLocation = async (): Promise<MapCoordinate | null> => {
+  const detectCurrentLocation = useCallback(async (): Promise<MapCoordinate | null> => {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") {
@@ -126,8 +152,11 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
 
       // 1. Thử lấy vị trí lưu gần nhất
       try {
-        const lastKnown = await Location.getLastKnownPositionAsync();
-        if (lastKnown) {
+        const lastKnown = await Location.getLastKnownPositionAsync({
+          maxAge: 10000,
+          requiredAccuracy: 25,
+        });
+        if (lastKnown && !isRecordingRef.current) {
           const altitude =
             lastKnown.coords.altitude != null
               ? Math.round(lastKnown.coords.altitude)
@@ -139,9 +168,8 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
           };
           setCurrentPosition(coord);
           setGpsAccuracy(lastKnown.coords.accuracy || null);
-          setGpsStatus("READY");
+          setGpsStatus("SEARCHING");
           mapRef.current?.centerOnUser(coord.longitude, coord.latitude);
-          return coord;
         }
       } catch {
         // bỏ qua nếu thiết bị chưa từng có cache vị trí
@@ -173,6 +201,7 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
           longitude: fresh.coords.longitude,
           elevation: altitude,
         };
+        if (isRecordingRef.current) return coord;
         setCurrentPosition(coord);
         setGpsAccuracy(fresh.coords.accuracy || null);
         setGpsStatus("READY");
@@ -180,14 +209,14 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
         return coord;
       }
 
-      setGpsStatus("SEARCHING");
+      if (!isRecordingRef.current) setGpsStatus("SEARCHING");
       return null;
     } catch (e) {
       console.warn("[LiveTrailRecorder] detectCurrentLocation error:", e);
       setGpsStatus("SEARCHING");
       return null;
     }
-  };
+  }, []);
 
   const resetSession = () => {
     isRecordingRef.current = false;
@@ -204,8 +233,9 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
     setDistanceKm(0);
     setElevationGainM(0);
     setCurrentSpeedKmh(0);
-    setRecordedCoordinates([]);
+    replaceRecordedCoordinates([]);
     setCheckpoints([]);
+    void stopBackgroundLocationUpdates().catch(console.warn);
   };
 
   // Timer đếm giây
@@ -224,7 +254,7 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
   }, [isRecording, isPaused]);
 
   // Yêu cầu quyền vị trí và lắng nghe GPS
-  const startLocationTracking = async () => {
+  const startLocationTracking = useCallback(async () => {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") {
@@ -238,7 +268,10 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
 
       const enabled = await Location.hasServicesEnabledAsync();
       if (!enabled) {
-        Alert.alert("GPS chưa bật", "Vui lòng bật dịch vụ vị trí trên iPhone.");
+        Alert.alert(
+          "GPS chưa bật",
+          `Vui lòng bật dịch vụ vị trí trên ${Platform.OS === "ios" ? "iPhone" : "thiết bị Android"}.`,
+        );
         return false;
       }
 
@@ -268,7 +301,7 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
             // 1. Lưu RAW GPS SAMPLE vào SQLite dùng result.rawPoint và mapRejectReason
             if (recId && raw && Number.isFinite(raw.recordedAt)) {
               const rawSample: RawGpsSample = {
-                clientSampleId: generateUUID(),
+                clientSampleId: createLocationSampleId(recId, location),
                 clientRecordingId: recId,
                 latitude: raw.latitude,
                 longitude: raw.longitude,
@@ -285,12 +318,24 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
                 rejectReason: mapRejectReason(result.reason),
               };
 
-              recordingDatabase.insertRawSample(rawSample).catch((err) => {
-                console.warn(
-                  "[LiveTrailRecorder] Error inserting raw sample:",
-                  err,
-                );
-              });
+              recordingDatabase
+                .insertRawSample(rawSample)
+                .then(() => {
+                  samplesSinceLastSyncRef.current += 1;
+                  if (samplesSinceLastSyncRef.current >= 50) {
+                    samplesSinceLastSyncRef.current = 0;
+                    recordingDatabase
+                      .enqueueOutbox(recId, "BATCH_POINTS", {})
+                      .then(() => syncService.processSyncOutbox())
+                      .catch(console.warn);
+                  }
+                })
+                .catch((err) => {
+                  console.warn(
+                    "[LiveTrailRecorder] Error inserting raw sample:",
+                    err,
+                  );
+                });
             }
 
             // Đồng bộ segmentId nếu processor tự động tách segment do gap > 15s
@@ -312,7 +357,7 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
             };
 
             setCurrentPosition(currentCoord);
-            setRecordedCoordinates((prev) => [...prev, pt]);
+            appendRecordedCoordinate(pt);
             setDistanceKm(result.distanceM / 1000);
             setElevationGainM(result.elevationGainM);
             setCurrentSpeedKmh(result.speedKmh);
@@ -331,7 +376,7 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
       console.warn("[LiveTrailRecorder] Location error:", e);
       return false;
     }
-  };
+  }, [appendRecordedCoordinate]);
 
   // Tự động định vị ngay khi mở modal và kiểm tra khôi phục phiên ghi dở dang từ SQLite (Crash Recovery)
   useEffect(() => {
@@ -385,7 +430,7 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
                         }),
                       );
 
-                      setRecordedCoordinates(restoredPoints);
+                      replaceRecordedCoordinates(restoredPoints);
                       if (restoredPoints.length > 0) {
                         const last = restoredPoints[restoredPoints.length - 1];
                         setCurrentPosition({
@@ -422,6 +467,7 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
                           ? restoredPoints[restoredPoints.length - 1]
                           : null;
 
+                      gpsProcessorRef.current.reset(Date.parse(active.startedAt));
                       gpsProcessorRef.current.restoreSnapshot({
                         currentSegmentId: maxSeg,
                         distanceM: totalDistM,
@@ -469,7 +515,12 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
                       const paused = active.status === "PAUSED";
                       setIsPaused(paused);
                       isPausedRef.current = paused;
-                      startLocationTracking();
+                      await startLocationTracking();
+                      const backgroundPermission =
+                        await Location.getBackgroundPermissionsAsync();
+                      if (backgroundPermission.status === "granted") {
+                        await startBackgroundLocationUpdates();
+                      }
                     },
                   },
                 ],
@@ -486,11 +537,18 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
         locationSubscription.current = null;
       }
     };
-  }, [visible]);
+  }, [
+    detectCurrentLocation,
+    replaceRecordedCoordinates,
+    startLocationTracking,
+    visible,
+  ]);
 
   const handleStart = async () => {
-    gpsProcessorRef.current.reset();
-    setRecordedCoordinates([]);
+    const startedAt = new Date().toISOString();
+    gpsProcessorRef.current.reset(Date.parse(startedAt));
+    setGpsStatus("SEARCHING");
+    replaceRecordedCoordinates([]);
     setDistanceKm(0);
     setElevationGainM(0);
     setCurrentSpeedKmh(0);
@@ -500,7 +558,11 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
     // Khởi tạo phiên ghi mới trong SQLite
     const newRecId = generateUUID();
     currentRecordingIdRef.current = newRecId;
-    await recordingDatabase.createRecording(newRecId, new Date().toISOString());
+    await recordingDatabase.createRecording(newRecId, startedAt);
+    await recordingDatabase.enqueueOutbox(newRecId, "CREATE_RECORDING", {
+      startedAt,
+    });
+    syncService.processSyncOutbox().catch(console.warn);
 
     isPausedRef.current = false;
     isRecordingRef.current = true;
@@ -520,6 +582,32 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
 
     setIsRecording(true);
     setIsPaused(false);
+
+    const backgroundPermission = await Location.getBackgroundPermissionsAsync();
+    if (backgroundPermission.status === "granted") {
+      await startBackgroundLocationUpdates().catch(console.warn);
+    } else {
+      Alert.alert(
+        "Cho phép ghi khi tắt màn hình?",
+        "TrekGo cần quyền vị trí nền để hành trình không bị ngắt khi bạn khóa màn hình hoặc chuyển ứng dụng.",
+        [
+          { text: "Chỉ ghi khi mở ứng dụng", style: "cancel" },
+          {
+            text: "Cho phép",
+            onPress: () => {
+              Location.requestBackgroundPermissionsAsync()
+                .then((permission) => {
+                  if (permission.status === "granted") {
+                    return startBackgroundLocationUpdates();
+                  }
+                  return false;
+                })
+                .catch(console.warn);
+            },
+          },
+        ],
+      );
+    }
   };
 
   // Khi người dùng chủ động chạm/vuốt/zoom bản đồ -> Tắt Follow Mode, cho phép tự do khám phá địa hình
@@ -544,7 +632,7 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
     } else {
       detectCurrentLocation();
     }
-  }, [currentPosition]);
+  }, [currentPosition, detectCurrentLocation]);
 
   const handlePauseResume = () => {
     const nextPaused = !isPausedRef.current;
@@ -557,25 +645,103 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
         .updateRecordingStatus(recId, nextPaused ? "PAUSED" : "RECORDING")
         .catch(console.warn);
 
-      if (!nextPaused) {
-        recordingDatabase.incrementSegmentId(recId).catch(console.warn);
-        gpsProcessorRef.current.breakSegment();
+      if (nextPaused) {
+        recordingDatabase
+          .enqueueOutbox(recId, "UPDATE_STATUS", {
+            status: "PAUSED",
+            timestamp: new Date().toISOString(),
+          })
+          .then(() => recordingDatabase.enqueueOutbox(recId, "BATCH_POINTS", {}))
+          .then(() => syncService.processSyncOutbox())
+          .catch(console.warn);
+      } else {
+        recordingDatabase
+          .incrementSegmentId(recId)
+          .then((newSegId) => {
+            gpsProcessorRef.current.breakSegment();
+            return recordingDatabase.enqueueOutbox(recId, "UPDATE_STATUS", {
+              status: "RECORDING",
+              timestamp: new Date().toISOString(),
+              currentSegmentId: newSegId,
+            });
+          })
+          .then(() => syncService.processSyncOutbox())
+          .catch(console.warn);
       }
     } else if (!nextPaused) {
       gpsProcessorRef.current.breakSegment();
     }
   };
 
+  const handleStopAndSave = async () => {
+    const recId = currentRecordingIdRef.current;
+    let coordinatesForSave = recordedCoordinatesRef.current;
 
-  const handleStopAndSave = () => {
-    // Ngắt subscription GPS để dừng nhận điểm mới
+    if (recId) {
+      await stopBackgroundLocationUpdates().catch(console.warn);
+      const persisted = await recordingDatabase.getAcceptedPoints(recId);
+      coordinatesForSave = persisted.map((sample) => ({
+        latitude: sample.latitude,
+        longitude: sample.longitude,
+        elevation: sample.altitudeM ?? undefined,
+        timestamp: new Date(sample.recordedAt).getTime(),
+        accuracy: sample.accuracyM ?? 10,
+        altitudeAccuracy: sample.altitudeAccuracyM ?? undefined,
+        speed: sample.speedMps ?? undefined,
+        segmentId: sample.segmentId,
+      }));
+      replaceRecordedCoordinates(coordinatesForSave);
+
+      let persistedDistanceM = 0;
+      let persistedElevationM = 0;
+      for (let index = 1; index < coordinatesForSave.length; index += 1) {
+        const previous = coordinatesForSave[index - 1];
+        const current = coordinatesForSave[index];
+        if (previous.segmentId === current.segmentId) {
+          persistedDistanceM += distanceMeters(previous, current);
+          if (
+            previous.elevation != null &&
+            current.elevation != null &&
+            current.elevation > previous.elevation
+          ) {
+            persistedElevationM += current.elevation - previous.elevation;
+          }
+        }
+      }
+      setDistanceKm(persistedDistanceM / 1000);
+      setElevationGainM(Math.round(persistedElevationM));
+    }
+
+    // 1. Chặn ngay từ đầu nếu không đủ điều kiện tối thiểu:
+    // Phải có ít nhất 2 điểm GPS và ít nhất một segment có từ 2 điểm trở lên.
+    const segmentsMap = new Map<number, number>();
+    for (const c of coordinatesForSave) {
+      const segId = c.segmentId ?? 0;
+      segmentsMap.set(segId, (segmentsMap.get(segId) ?? 0) + 1);
+    }
+    const hasValidSegment = Array.from(segmentsMap.values()).some(
+      (count) => count >= 2,
+    );
+
+    if (coordinatesForSave.length < 2 || !hasValidSegment) {
+      if (recId) {
+        void startBackgroundLocationUpdates().catch(console.warn);
+      }
+      Alert.alert(
+        "Đoạn đường quá ngắn",
+        "Cung đường chưa đủ dữ liệu GPS (cần có ít nhất một đoạn từ 2 điểm GPS trở lên). Bạn cần di chuyển thêm để tạo cung đường.",
+        [{ text: "Đã hiểu", style: "default" }],
+      );
+      return;
+    }
+
+    // Đạt điều kiện: Tạm dừng nhận điểm và mở form đặt tên cung đường
     locationSubscription.current?.remove();
     locationSubscription.current = null;
 
     isPausedRef.current = true;
     setIsPaused(true);
 
-    const recId = currentRecordingIdRef.current;
     if (recId) {
       recordingDatabase
         .updateRecordingStatus(recId, "PAUSED")
@@ -594,11 +760,31 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
       return;
     }
 
-    // BỎ TẠO ĐIỂM GIẢ: Yêu cầu ít nhất 2 toạ độ GPS thực tế
-    if (recordedCoordinates.length < 2) {
+    // Gom nhóm segment hợp lệ từ GPS thực tế (MultiLineString)
+    const segmentsMap = new Map<number, [number, number, number?][]>();
+    for (const c of recordedCoordinates) {
+      const segId = c.segmentId ?? 0;
+      if (!segmentsMap.has(segId)) {
+        segmentsMap.set(segId, []);
+      }
+      segmentsMap
+        .get(segId)!
+        .push([
+          c.longitude,
+          c.latitude,
+          c.elevation != null ? Math.round(c.elevation) : undefined,
+        ]);
+    }
+
+    const validSegments = Array.from(segmentsMap.values()).filter(
+      (seg) => seg.length >= 2,
+    );
+
+    // Chặn triệt để nếu không đủ dữ liệu GPS
+    if (recordedCoordinates.length < 2 || validSegments.length === 0) {
       Alert.alert(
-        "Chưa đủ dữ liệu GPS",
-        "Bạn cần di chuyển và ghi nhận ít nhất 2 toạ độ GPS thực tế để tạo cung đường hợp lệ.",
+        "Đoạn đường quá ngắn",
+        "Cung đường chưa đủ dữ liệu GPS (cần có ít nhất một đoạn từ 2 điểm GPS trở lên). Bạn cần di chuyển thêm để tạo cung đường.",
       );
       return;
     }
@@ -613,91 +799,29 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
           : `${Math.max(1, durationMin)} phút`;
 
       const effectiveDistanceKm = Number(distanceKm.toFixed(3));
-
-      // Gom nhóm segment hợp lệ từ GPS thực tế (MultiLineString)
-      const segmentsMap = new Map<number, [number, number, number?][]>();
-      for (const c of recordedCoordinates) {
-        const segId = c.segmentId ?? 0;
-        if (!segmentsMap.has(segId)) {
-          segmentsMap.set(segId, []);
-        }
-        segmentsMap
-          .get(segId)!
-          .push([
-            c.longitude,
-            c.latitude,
-            c.elevation != null ? Math.round(c.elevation) : undefined,
-          ]);
-      }
-
-      const validSegments = Array.from(segmentsMap.values()).filter(
-        (seg) => seg.length >= 2,
-      );
-      const gpsSegments: [number, number, number?][][] =
-        validSegments.length > 0
-          ? validSegments
-          : [
-              recordedCoordinates.map(
-                (c): [number, number, number?] => [
-                  c.longitude,
-                  c.latitude,
-                  c.elevation != null ? Math.round(c.elevation) : undefined,
-                ],
-              ),
-            ];
+      const gpsSegments: [number, number, number?][][] = validSegments;
 
       const flatPoints: [number, number, number?][] = [];
       for (const seg of gpsSegments) {
         flatPoints.push(...seg);
       }
-      const gpsRouteCoords: [number, number, number?][] =
-        flatPoints.length > 0
-          ? flatPoints
-          : recordedCoordinates.map(
-              (c): [number, number, number?] => [
-                c.longitude,
-                c.latitude,
-                c.elevation != null ? Math.round(c.elevation) : undefined,
-              ],
-            );
+      const gpsRouteCoords: [number, number, number?][] = flatPoints;
 
-      const finalRoutePoints: PersonalTrailRoutePoint[] =
-        recordedCoordinates.map((c, idx) => ({
-          id: `rp-${idx}`,
-          lat: c.latitude,
-          lng: c.longitude,
-          elevation: c.elevation != null ? Math.round(c.elevation) : undefined,
-          segmentId: c.segmentId,
-          x: Math.round(
-            50 + (idx / Math.max(1, recordedCoordinates.length - 1)) * 300,
-          ),
-          y: Math.round(
-            300 - (idx / Math.max(1, recordedCoordinates.length - 1)) * 200,
-          ),
-        }));
-
-      const finalCheckpoints = checkpoints;
       const recId = currentRecordingIdRef.current;
 
       // 1. Cập nhật SQLite trước và đưa vào Outbox đồng bộ
       if (recId) {
         await recordingDatabase.updateRecordingStatus(recId, "STOPPED_LOCAL", {
           endedAt: new Date().toISOString(),
+          duration: durationStr,
+          elapsedSeconds,
         });
 
-        await recordingDatabase.enqueueOutbox(recId, "CREATE_TRAIL", {
-          title: trailName.trim(),
-          description: trailDescription.trim(),
-          difficulty: trailDifficulty,
-          distanceKm: effectiveDistanceKm,
-          elevationGainM: Math.round(elevationGainM),
-          duration: durationStr,
-          checkpoints: finalCheckpoints,
-        });
+
       }
 
       // 2. Chuyển đổi sang format PersonalTrail của TrekGo
-      const newTrail = createPersonalTrail({
+      const newTrail = await createPersonalTrail({
         name: trailName.trim(),
         region: trailRegion,
         difficulty: trailDifficulty,
@@ -708,20 +832,37 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
         description:
           trailDescription.trim() ||
           `Cung đường ghi nhận thực tế vào ngày ${new Date().toLocaleDateString("vi-VN")}`,
-        routePreset: "RIDGE",
         submitForVerification: false,
         gpsRoute: gpsRouteCoords,
         gpsSegments: gpsSegments,
         clientRecordingId: recId || undefined,
-        routePoints: finalRoutePoints,
         checkpoints: [],
       });
 
-      // 3. Liên kết PersonalTrail.id vào SQLite recording để đồng bộ và xóa an toàn
+      // 3. Liên kết PersonalTrail.id vào SQLite recording để đồng bộ và tra cứu an toàn
       if (recId) {
         await recordingDatabase.updateRecordingStatus(recId, "STOPPED_LOCAL", {
-          serverPersonalTrailId: newTrail.id,
+          localTrailId: newTrail.id,
         });
+
+        // Đưa lô điểm cuối cùng và lệnh hoàn tất phiên ghi vào Outbox
+        await recordingDatabase.enqueueOutbox(recId, "BATCH_POINTS", {});
+        await recordingDatabase.enqueueOutbox(recId, "FINISH_RECORDING", {
+          endedAt: new Date().toISOString(),
+          title: trailName.trim(),
+          description: trailDescription.trim(),
+          region: trailRegion,
+          difficulty: trailDifficulty,
+          terrainType: "Rừng & Đồi dốc",
+          visibility: "PRIVATE",
+          distanceKm: effectiveDistanceKm,
+          elevationGainM: Math.round(elevationGainM),
+          duration: durationStr,
+          elapsedSeconds,
+        });
+
+        // Kích hoạt đồng bộ ngầm ngay lập tức
+        syncService.processSyncOutbox().catch(console.warn);
       }
 
       // 4. Dọn dẹp session
@@ -757,9 +898,10 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
           {
             text: "Hủy bỏ",
             style: "destructive",
-            onPress: () => {
+            onPress: async () => {
+              await stopBackgroundLocationUpdates().catch(console.warn);
               if (currentRecordingIdRef.current) {
-                recordingDatabase
+                await recordingDatabase
                   .deleteRecording(currentRecordingIdRef.current)
                   .catch(console.warn);
               }

@@ -1,5 +1,9 @@
 import { CreatePrivateTripModal } from "@/components/CreatePrivateTripModal";
-import { MapLibre3DView, MapCheckpoint, MapLibre3DViewRef } from "@/components/map/MapLibre3DView";
+import {
+  MapLibre3DView,
+  MapCheckpoint,
+  MapLibre3DViewRef,
+} from "@/components/map/MapLibre3DView";
 import { LiveTrailRecorderModal } from "@/components/trail/LiveTrailRecorderModal";
 import { TopHeader } from "@/components/TopHeader";
 import { Colors, Radius, Shadows } from "@/constants/theme";
@@ -7,8 +11,15 @@ import { useApp } from "@/context/AppContext";
 import { Trail, PersonalTrail } from "@/types";
 import { Ionicons } from "@expo/vector-icons";
 import { Href, useRouter } from "expo-router";
-import React, { useState, useRef, useCallback } from "react";
+import React, {
+  useState,
+  useRef,
+  useCallback,
+  useEffect,
+  useMemo,
+} from "react";
 import {
+  RefreshControl,
   Image,
   ScrollView,
   StyleSheet,
@@ -19,17 +30,31 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+function formatDateTime(dateStr?: string): string {
+  if (!dateStr) return "";
+  const date = new Date(dateStr);
+  if (isNaN(date.getTime())) {
+    return dateStr;
+  }
+  const hours = date.getHours().toString().padStart(2, "0");
+  const mins = date.getMinutes().toString().padStart(2, "0");
+  const day = date.getDate().toString().padStart(2, "0");
+  const month = (date.getMonth() + 1).toString().padStart(2, "0");
+  const year = date.getFullYear();
+  return `${hours}:${mins} - ${day}/${month}/${year}`;
+}
+
 export default function ExploreScreen() {
   const router = useRouter();
-  const { trails, unlockTrail, personalTrails } = useApp();
-
+  const { trails, unlockTrail, personalTrails, refreshPersonalTrails } =
+    useApp();
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<"SYSTEM" | "PERSONAL">("SYSTEM");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedFilter, setSelectedFilter] = useState<string>("Tất cả");
   const [selectedTrail, setSelectedTrail] = useState<Trail>(trails[0]);
-  const [selectedPersonalTrail, setSelectedPersonalTrail] = useState<PersonalTrail | null>(
-    personalTrails[0] || null,
-  );
+  const [selectedPersonalTrail, setSelectedPersonalTrail] =
+    useState<PersonalTrail | null>(personalTrails[0] || null);
   const [createPrivateModalVisible, setCreatePrivateModalVisible] =
     useState(false);
   const [isRecordingModalVisible, setIsRecordingModalVisible] = useState(false);
@@ -65,7 +90,9 @@ export default function ExploreScreen() {
   };
 
   // Chuẩn bị dữ liệu Checkpoint và Toạ độ cho MapLibre 3D
-  const systemCheckpoints: MapCheckpoint[] = (selectedTrail.checkpoints || []).map((cp, idx) => ({
+  const systemCheckpoints: MapCheckpoint[] = (
+    selectedTrail.checkpoints || []
+  ).map((cp, idx) => ({
     id: cp.id,
     name: cp.name,
     order: cp.order || idx + 1,
@@ -83,7 +110,37 @@ export default function ExploreScreen() {
     cp.latitude,
   ]);
 
-  const activePersonal = selectedPersonalTrail || personalTrails[0];
+  // Tự động làm mới danh sách từ Server khi chuyển sang tab PERSONAL
+  useEffect(() => {
+    if (activeTab === "PERSONAL") {
+      refreshPersonalTrails().catch(console.warn);
+    }
+  }, [activeTab, refreshPersonalTrails]);
+
+  // Luôn resolve sang bản ghi mới nhất trong personalTrails (tránh kẹt ID tạm thời sau khi sync)
+  const activePersonal = useMemo(() => {
+    if (!selectedPersonalTrail) return personalTrails[0] || null;
+    const exact = personalTrails.find((t) => t.id === selectedPersonalTrail.id);
+    if (exact) return exact;
+
+    if (selectedPersonalTrail.clientRecordingId) {
+      const synced = personalTrails.find(
+        (t) => t.clientRecordingId === selectedPersonalTrail.clientRecordingId,
+      );
+      if (synced) return synced;
+    }
+
+    const matched = personalTrails.find(
+      (t) =>
+        t.name.trim().toLowerCase() ===
+          selectedPersonalTrail.name.trim().toLowerCase() &&
+        Math.abs(t.distanceKm - selectedPersonalTrail.distanceKm) < 0.2,
+    );
+    if (matched) return matched;
+
+    return selectedPersonalTrail;
+  }, [selectedPersonalTrail, personalTrails]);
+
   const personalMapRef = useRef<MapLibre3DViewRef>(null);
 
   const handlePersonalMapReady = useCallback(() => {
@@ -115,10 +172,21 @@ export default function ExploreScreen() {
         if (pt[1] > maxLat) maxLat = pt[1];
       }
       if (minLng !== Infinity) {
-        personalMapRef.current?.fitBounds([[minLng, minLat], [maxLng, maxLat]], 45);
+        personalMapRef.current?.fitBounds(
+          [
+            [minLng, minLat],
+            [maxLng, maxLat],
+          ],
+          45,
+        );
       }
     }
   }, [activePersonal]);
+
+  // Tự động fit camera khi chọn hoặc chuyển đổi cung đường cá nhân
+  useEffect(() => {
+    handlePersonalMapReady();
+  }, [handlePersonalMapReady]);
 
   const personalPlannedRoute =
     activePersonal?.gpsSegments && activePersonal.gpsSegments.length > 0
@@ -126,7 +194,16 @@ export default function ExploreScreen() {
       : activePersonal?.gpsRoute && activePersonal.gpsRoute.length > 0
         ? activePersonal.gpsRoute
         : [];
+  const handleRefresh = async () => {
+    if (isRefreshing) return;
 
+    setIsRefreshing(true);
+    try {
+      await refreshPersonalTrails();
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
   return (
     <SafeAreaView style={styles.safeArea}>
       <TopHeader subtitle="Explore" />
@@ -134,6 +211,17 @@ export default function ExploreScreen() {
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
+        alwaysBounceVertical
+        refreshControl={
+          activeTab === "PERSONAL" ? (
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={handleRefresh}
+              colors={[Colors.primaryDark]}
+              tintColor={Colors.primaryDark}
+            />
+          ) : undefined
+        }
       >
         {/* 1. Mode Switcher (Cung đường hệ thống vs Cung đường cá nhân) */}
         <View style={styles.tabSwitcherContainer}>
@@ -150,7 +238,9 @@ export default function ExploreScreen() {
                 name="compass"
                 size={16}
                 color={
-                  activeTab === "SYSTEM" ? Colors.primaryDark : Colors.onSurfaceVariant
+                  activeTab === "SYSTEM"
+                    ? Colors.primaryDark
+                    : Colors.onSurfaceVariant
                 }
               />
               <Text
@@ -175,7 +265,9 @@ export default function ExploreScreen() {
                 name="trail-sign"
                 size={16}
                 color={
-                  activeTab === "PERSONAL" ? Colors.primaryDark : Colors.onSurfaceVariant
+                  activeTab === "PERSONAL"
+                    ? Colors.primaryDark
+                    : Colors.onSurfaceVariant
                 }
               />
               <Text
@@ -195,9 +287,13 @@ export default function ExploreScreen() {
           <View style={styles.liveRecordInfo}>
             <View style={styles.liveRecordTag}>
               <View style={styles.pulseDot} />
-              <Text style={styles.liveRecordTagText}>GPS LIVE TREKGO TRACK</Text>
+              <Text style={styles.liveRecordTagText}>
+                GPS LIVE TREKGO TRACK
+              </Text>
             </View>
-            <Text style={styles.liveRecordTitle}>Ghi nhận cung đường cá nhân</Text>
+            <Text style={styles.liveRecordTitle}>
+              Ghi nhận cung đường cá nhân
+            </Text>
             <Text style={styles.liveRecordDesc}>
               Bật GPS ghi lại vệt di chuyển, tốc độ, cao độ 3D và lưu vào máy
             </Text>
@@ -311,14 +407,18 @@ export default function ExploreScreen() {
                   <View
                     style={[styles.categoryTag, { backgroundColor: "#fed018" }]}
                   >
-                    <Text style={[styles.categoryTagText, { color: "#4a3b1c" }]}>
+                    <Text
+                      style={[styles.categoryTagText, { color: "#4a3b1c" }]}
+                    >
                       {selectedTrail.difficulty}
                     </Text>
                   </View>
                 </View>
 
                 <Text style={styles.trailTitle}>{selectedTrail.name}</Text>
-                <Text style={styles.trailSubtitle}>📍 {selectedTrail.region}</Text>
+                <Text style={styles.trailSubtitle}>
+                  📍 {selectedTrail.region}
+                </Text>
               </View>
             </View>
 
@@ -326,11 +426,17 @@ export default function ExploreScreen() {
             <View style={styles.bentoGrid}>
               <View style={styles.bentoTile}>
                 <View style={styles.bentoIconBg}>
-                  <Ionicons name="git-commit" size={16} color={Colors.primaryDark} />
+                  <Ionicons
+                    name="git-commit"
+                    size={16}
+                    color={Colors.primaryDark}
+                  />
                 </View>
                 <View>
                   <Text style={styles.bentoLabel}>KHOẢNG CÁCH</Text>
-                  <Text style={styles.bentoValue}>{selectedTrail.distanceKm} km</Text>
+                  <Text style={styles.bentoValue}>
+                    {selectedTrail.distanceKm} km
+                  </Text>
                 </View>
               </View>
 
@@ -340,7 +446,9 @@ export default function ExploreScreen() {
                 </View>
                 <View>
                   <Text style={styles.bentoLabel}>THỜI GIAN</Text>
-                  <Text style={styles.bentoValue}>{selectedTrail.duration}</Text>
+                  <Text style={styles.bentoValue}>
+                    {selectedTrail.duration}
+                  </Text>
                 </View>
               </View>
 
@@ -350,7 +458,9 @@ export default function ExploreScreen() {
                 </View>
                 <View>
                   <Text style={styles.bentoLabel}>ĐỘ CAO LŨY KẾ</Text>
-                  <Text style={styles.bentoValue}>+{selectedTrail.elevationGainM}m</Text>
+                  <Text style={styles.bentoValue}>
+                    +{selectedTrail.elevationGainM}m
+                  </Text>
                 </View>
               </View>
 
@@ -370,7 +480,9 @@ export default function ExploreScreen() {
             {/* MAPLIBRE 3D ROUTE VIEW (Thay thế TacticalMap SVG) */}
             <View style={styles.mapSectionCard}>
               <View style={styles.mapHeaderRow}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <View
+                  style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+                >
                   <Ionicons name="map" size={16} color={Colors.primaryDark} />
                   <Text style={styles.mapHeaderTitle}>
                     Bản đồ địa hình 3D MapLibre & ArcGIS
@@ -405,8 +517,14 @@ export default function ExploreScreen() {
                     onPress={() => router.push("/navigation")}
                     activeOpacity={0.85}
                   >
-                    <Ionicons name="navigate" size={18} color={Colors.onPrimary} />
-                    <Text style={styles.primaryCtaText}>Vào Chế Độ GPS Trekking</Text>
+                    <Ionicons
+                      name="navigate"
+                      size={18}
+                      color={Colors.onPrimary}
+                    />
+                    <Text style={styles.primaryCtaText}>
+                      Vào Chế Độ GPS Trekking
+                    </Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
@@ -414,8 +532,14 @@ export default function ExploreScreen() {
                     onPress={() => setCreatePrivateModalVisible(true)}
                     activeOpacity={0.8}
                   >
-                    <Ionicons name="people" size={18} color={Colors.onSurface} />
-                    <Text style={styles.secondaryCtaText}>Tạo Private Trip</Text>
+                    <Ionicons
+                      name="people"
+                      size={18}
+                      color={Colors.onSurface}
+                    />
+                    <Text style={styles.secondaryCtaText}>
+                      Tạo Private Trip
+                    </Text>
                   </TouchableOpacity>
                 </>
               ) : (
@@ -424,7 +548,11 @@ export default function ExploreScreen() {
                   onPress={handleUnlock}
                   activeOpacity={0.85}
                 >
-                  <Ionicons name="lock-open" size={20} color={Colors.onPrimary} />
+                  <Ionicons
+                    name="lock-open"
+                    size={20}
+                    color={Colors.onPrimary}
+                  />
                   <Text style={styles.unlockCtaText}>
                     Mở Khóa Bản Đồ GPS Toàn Tuyến (
                     {selectedTrail.price.toLocaleString("vi-VN")} đ)
@@ -471,48 +599,74 @@ export default function ExploreScreen() {
                     </View>
 
                     <Text style={styles.personalDateText}>
-                      {activePersonal.createdAt}
+                      {formatDateTime(activePersonal.createdAt)}
                     </Text>
                   </View>
 
-                  <Text style={styles.personalTitleText}>{activePersonal.name}</Text>
-                  <Text style={styles.personalRegionText}>📍 {activePersonal.region}</Text>
+                  <Text style={styles.personalTitleText}>
+                    {activePersonal.name}
+                  </Text>
+                  <Text style={styles.personalRegionText}>
+                    📍 {activePersonal.region}
+                  </Text>
 
                   {/* Bento Metrics */}
                   <View style={[styles.bentoGrid, { marginTop: 14 }]}>
                     <View style={styles.bentoTile}>
                       <View style={styles.bentoIconBg}>
-                        <Ionicons name="git-commit" size={16} color={Colors.primaryDark} />
+                        <Ionicons
+                          name="git-commit"
+                          size={16}
+                          color={Colors.primaryDark}
+                        />
                       </View>
                       <View>
                         <Text style={styles.bentoLabel}>QUÃNG ĐƯỜNG</Text>
-                        <Text style={styles.bentoValue}>{activePersonal.distanceKm} km</Text>
+                        <Text style={styles.bentoValue}>
+                          {activePersonal.distanceKm} km
+                        </Text>
                       </View>
                     </View>
 
                     <View style={styles.bentoTile}>
                       <View style={styles.bentoIconBg}>
-                        <Ionicons name="trending-up" size={16} color="#725c00" />
+                        <Ionicons
+                          name="trending-up"
+                          size={16}
+                          color="#725c00"
+                        />
                       </View>
                       <View>
                         <Text style={styles.bentoLabel}>ĐỘ CAO</Text>
-                        <Text style={styles.bentoValue}>+{activePersonal.elevationGainM}m</Text>
+                        <Text style={styles.bentoValue}>
+                          +{activePersonal.elevationGainM}m
+                        </Text>
                       </View>
                     </View>
 
                     <View style={styles.bentoTile}>
                       <View style={styles.bentoIconBg}>
-                        <Ionicons name="time" size={16} color={Colors.secondary} />
+                        <Ionicons
+                          name="time"
+                          size={16}
+                          color={Colors.secondary}
+                        />
                       </View>
                       <View>
                         <Text style={styles.bentoLabel}>THỜI GIAN</Text>
-                        <Text style={styles.bentoValue}>{activePersonal.duration}</Text>
+                        <Text style={styles.bentoValue}>
+                          {activePersonal.duration}
+                        </Text>
                       </View>
                     </View>
 
                     <View style={styles.bentoTile}>
                       <View style={styles.bentoIconBg}>
-                        <Ionicons name="trail-sign" size={16} color={Colors.primaryDark} />
+                        <Ionicons
+                          name="trail-sign"
+                          size={16}
+                          color={Colors.primaryDark}
+                        />
                       </View>
                       <View>
                         <Text style={styles.bentoLabel}>ĐỊA HÌNH</Text>
@@ -527,8 +681,18 @@ export default function ExploreScreen() {
                 {/* MapLibre 3D cho Cung đường cá nhân */}
                 <View style={styles.mapSectionCard}>
                   <View style={styles.mapHeaderRow}>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                      <Ionicons name="map" size={16} color={Colors.primaryDark} />
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 6,
+                      }}
+                    >
+                      <Ionicons
+                        name="map"
+                        size={16}
+                        color={Colors.primaryDark}
+                      />
                       <Text style={styles.mapHeaderTitle}>
                         Bản đồ 3D Cung đường cá nhân
                       </Text>
@@ -543,8 +707,12 @@ export default function ExploreScreen() {
                     key={activePersonal?.id || "personal-map"}
                     height={260}
                     center={
-                      activePersonal?.gpsRoute && activePersonal.gpsRoute.length > 0
-                        ? [activePersonal.gpsRoute[0][0], activePersonal.gpsRoute[0][1]]
+                      activePersonal?.gpsRoute &&
+                      activePersonal.gpsRoute.length > 0
+                        ? [
+                            activePersonal.gpsRoute[0][0],
+                            activePersonal.gpsRoute[0][1],
+                          ]
                         : [108.529, 11.5831]
                     }
                     is3D={true}
@@ -561,29 +729,51 @@ export default function ExploreScreen() {
                 <View style={styles.ctaRow}>
                   <TouchableOpacity
                     style={styles.primaryCta}
-                    onPress={() => router.push(`/personal-trails/${activePersonal.id}` as Href)}
+                    onPress={() =>
+                      router.push(
+                        `/personal-trails/${activePersonal.id}` as Href,
+                      )
+                    }
                     activeOpacity={0.85}
                   >
                     <Ionicons name="eye" size={18} color={Colors.onPrimary} />
-                    <Text style={styles.primaryCtaText}>Xem Chi Tiết Cung Đường</Text>
+                    <Text style={styles.primaryCtaText}>
+                      Xem Chi Tiết Cung Đường
+                    </Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
                     style={styles.secondaryCta}
-                    onPress={() => router.push(`/personal-trails/${activePersonal.id}/edit` as Href)}
+                    onPress={() =>
+                      router.push(
+                        `/personal-trails/${activePersonal.id}/edit` as Href,
+                      )
+                    }
                     activeOpacity={0.8}
                   >
-                    <Ionicons name="create-outline" size={18} color={Colors.onSurface} />
+                    <Ionicons
+                      name="create-outline"
+                      size={18}
+                      color={Colors.onSurface}
+                    />
                     <Text style={styles.secondaryCtaText}>Chỉnh Sửa</Text>
                   </TouchableOpacity>
                 </View>
               </View>
             ) : (
               <View style={styles.emptyPersonalCard}>
-                <Ionicons name="trail-sign-outline" size={48} color={Colors.onSurfaceMuted} />
-                <Text style={styles.emptyPersonalTitle}>Chưa có cung đường cá nhân</Text>
+                <Ionicons
+                  name="trail-sign-outline"
+                  size={48}
+                  color={Colors.onSurfaceMuted}
+                />
+                <Text style={styles.emptyPersonalTitle}>
+                  Chưa có cung đường cá nhân
+                </Text>
                 <Text style={styles.emptyPersonalDesc}>
-                  {'Hãy bấm vào nút "BẮT ĐẦU GHI" ở trên để ghi lại hành trình trekking thực tế của bạn bằng GPS!'}
+                  {
+                    'Hãy bấm vào nút "BẮT ĐẦU GHI" ở trên để ghi lại hành trình trekking thực tế của bạn bằng GPS!'
+                  }
                 </Text>
               </View>
             )}
@@ -605,21 +795,31 @@ export default function ExploreScreen() {
                     key={t.id}
                     style={[
                       styles.otherTrailItem,
-                      selectedTrail.id === t.id && styles.otherTrailItemSelected,
+                      selectedTrail.id === t.id &&
+                        styles.otherTrailItemSelected,
                     ]}
                     onPress={() => setSelectedTrail(t)}
                     activeOpacity={0.8}
                   >
-                    <Image source={{ uri: t.imageUrl }} style={styles.otherTrailThumb} />
+                    <Image
+                      source={{ uri: t.imageUrl }}
+                      style={styles.otherTrailThumb}
+                    />
                     <View style={styles.otherTrailInfo}>
                       <Text style={styles.otherTrailName}>{t.name}</Text>
                       <Text style={styles.otherTrailRegion}>{t.region}</Text>
                       <View style={styles.otherTrailMetaRow}>
-                        <Text style={styles.otherTrailMeta}>{t.distanceKm} km</Text>
+                        <Text style={styles.otherTrailMeta}>
+                          {t.distanceKm} km
+                        </Text>
                         <Text style={styles.otherTrailMeta}>•</Text>
-                        <Text style={styles.otherTrailMeta}>+{t.elevationGainM}m</Text>
+                        <Text style={styles.otherTrailMeta}>
+                          +{t.elevationGainM}m
+                        </Text>
                         <Text style={styles.otherTrailMeta}>•</Text>
-                        <Text style={styles.otherTrailDifficulty}>{t.difficulty}</Text>
+                        <Text style={styles.otherTrailDifficulty}>
+                          {t.difficulty}
+                        </Text>
                       </View>
                     </View>
                     <View style={styles.trailStatusCol}>
@@ -627,7 +827,11 @@ export default function ExploreScreen() {
                         {t.isUnlocked ? "Đã mở" : `${t.price / 1000}k`}
                       </Text>
                       <Ionicons
-                        name={selectedTrail.id === t.id ? "chevron-down" : "chevron-forward"}
+                        name={
+                          selectedTrail.id === t.id
+                            ? "chevron-down"
+                            : "chevron-forward"
+                        }
                         size={16}
                         color={Colors.onSurfaceVariant}
                       />
@@ -639,23 +843,34 @@ export default function ExploreScreen() {
                     key={pt.id}
                     style={[
                       styles.otherTrailItem,
-                      selectedPersonalTrail?.id === pt.id && styles.otherTrailItemSelected,
+                      selectedPersonalTrail?.id === pt.id &&
+                        styles.otherTrailItemSelected,
                     ]}
                     onPress={() => setSelectedPersonalTrail(pt)}
                     activeOpacity={0.8}
                   >
                     <View style={styles.personalTrailThumbBg}>
-                      <Ionicons name="trail-sign" size={24} color={Colors.primaryDark} />
+                      <Ionicons
+                        name="trail-sign"
+                        size={24}
+                        color={Colors.primaryDark}
+                      />
                     </View>
                     <View style={styles.otherTrailInfo}>
                       <Text style={styles.otherTrailName}>{pt.name}</Text>
                       <Text style={styles.otherTrailRegion}>{pt.region}</Text>
                       <View style={styles.otherTrailMetaRow}>
-                        <Text style={styles.otherTrailMeta}>{pt.distanceKm} km</Text>
+                        <Text style={styles.otherTrailMeta}>
+                          {pt.distanceKm} km
+                        </Text>
                         <Text style={styles.otherTrailMeta}>•</Text>
-                        <Text style={styles.otherTrailMeta}>+{pt.elevationGainM}m</Text>
+                        <Text style={styles.otherTrailMeta}>
+                          +{pt.elevationGainM}m
+                        </Text>
                         <Text style={styles.otherTrailMeta}>•</Text>
-                        <Text style={styles.otherTrailDifficulty}>{pt.difficulty}</Text>
+                        <Text style={styles.otherTrailDifficulty}>
+                          {pt.difficulty}
+                        </Text>
                       </View>
                     </View>
                     <View style={styles.trailStatusCol}>
@@ -706,6 +921,7 @@ export default function ExploreScreen() {
             const created = personalTrails.find((t) => t.id === newId);
             if (created) setSelectedPersonalTrail(created);
           }
+          refreshPersonalTrails().catch(console.warn);
         }}
       />
 

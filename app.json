@@ -33,7 +33,17 @@
           "imageWidth": 76
         }
       ],
-      "expo-sqlite"
+      "expo-sqlite",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Cho phép TrekGo dùng vị trí để hiển thị và ghi lại cung đường của bạn.",
+          "locationAlwaysAndWhenInUsePermission": "Cho phép TrekGo dùng vị trí trong nền để tiếp tục ghi cung đường khi màn hình tắt.",
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

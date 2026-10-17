@@ -99,10 +99,10 @@ export interface PersonalTrail {
   visibility: PersonalTrailVisibility;
   verificationStatus: PersonalTrailVerificationStatus;
   rejectionReason?: string;
-  routePreset: "RIDGE" | "FOREST" | "WATERFALL";
-  routePoints: PersonalTrailRoutePoint[];
-  gpsRoute?: [number, number, number?][]; // [lng, lat, elev?][] toạ độ GPS thực tế của cung đường đã đi (chuẩn 3D GeoJSON)
-  gpsSegments?: [number, number, number?][][]; // Phân đoạn khi Pause/Resume hoặc mất tín hiệu GPS
+  routePreset?: string;
+  routePoints?: PersonalTrailRoutePoint[];
+  gpsSegments: [number, number, number?][][]; // Phân đoạn toạ độ GPS 3D thực tế (GeoJSON MultiLineString) - Nguồn dữ liệu cốt lõi
+  gpsRoute?: [number, number, number?][]; // [lng, lat, elev?][] toạ độ phẳng làm từ gpsSegments
   checkpoints: Checkpoint[];
   clientRecordingId?: string; // ID phiên ghi SQLite local_recordings (nếu tạo từ Live Trail Recorder)
   createdAt: string;
@@ -118,12 +118,12 @@ export interface CreatePersonalTrailInput {
   duration: string;
   terrainType: string;
   description: string;
-  routePreset: PersonalTrail["routePreset"];
-  routePoints: PersonalTrailRoutePoint[];
-  gpsRoute?: [number, number, number?][]; // [lng, lat, elev?][] toạ độ GPS thực tế của cung đường đã đi (chuẩn 3D GeoJSON)
-  gpsSegments?: [number, number, number?][][];
-  checkpoints: Checkpoint[];
-  submitForVerification: boolean;
+  routePreset?: string;
+  routePoints?: PersonalTrailRoutePoint[];
+  gpsSegments: [number, number, number?][][];
+  gpsRoute?: [number, number, number?][];
+  checkpoints?: Checkpoint[];
+  submitForVerification?: boolean;
   clientRecordingId?: string;
 }
 

@@ -66,6 +66,7 @@ export interface LiveGpsPoint {
 }
 
 export interface LocalRecording {
+  ownerId?: string | null;
   clientRecordingId: string;
   serverRecordingId: string | null;
   status: RecordingStatus;
@@ -74,6 +75,9 @@ export interface LocalRecording {
   nextSegmentId: number;
   lastSyncedAt: string | null;
   serverPersonalTrailId: string | null;
+  localTrailId?: string | null;
+  duration?: string | null;
+  elapsedSeconds?: number | null;
 }
 
 export interface LocalCheckpoint {
@@ -91,7 +95,12 @@ export interface LocalCheckpoint {
 export interface SyncOutboxItem {
   id: string;
   clientRecordingId: string;
-  operation: "CREATE_RECORDING" | "BATCH_POINTS" | "FINISH_RECORDING" | "CREATE_TRAIL";
+  operation:
+    | "CREATE_RECORDING"
+    | "BATCH_POINTS"
+    | "UPDATE_STATUS"
+    | "FINISH_RECORDING"
+    | "CREATE_TRAIL";
   payloadJson: string;
   state: "PENDING" | "SYNCING" | "SYNCED" | "FAILED";
   attemptCount: number;

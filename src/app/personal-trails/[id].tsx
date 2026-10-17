@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { type Href, useLocalSearchParams, useRouter } from "expo-router";
-import { useMemo, useRef, useCallback } from "react";
+import { useMemo, useRef, useCallback, useState, useEffect } from "react";
 import {
   Alert,
   ScrollView,
@@ -11,11 +11,16 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { TacticalMap } from "@/components/TacticalMap";
 import { MapLibre3DView, MapLibre3DViewRef } from "@/components/map/MapLibre3DView";
 import { Colors, Radius, Shadows } from "@/constants/theme";
 import { useApp } from "@/context/AppContext";
-import { PersonalTrailVerificationStatus } from "@/types";
+import { PersonalTrail, PersonalTrailVerificationStatus } from "@/types";
+import {
+  isUUID,
+  convertBackendTrailToPersonalTrail,
+  personalTrailApi,
+} from "@/services/api/personalTrailApi";
+import { recordingDatabase } from "@/services/storage";
 
 const statusConfig: Record<
   PersonalTrailVerificationStatus,
@@ -58,6 +63,20 @@ const statusConfig: Record<
   },
 };
 
+function formatDateTime(dateStr?: string): string {
+  if (!dateStr) return "Chưa cập nhật";
+  const date = new Date(dateStr);
+  if (isNaN(date.getTime())) {
+    return dateStr;
+  }
+  const hours = date.getHours().toString().padStart(2, "0");
+  const mins = date.getMinutes().toString().padStart(2, "0");
+  const day = date.getDate().toString().padStart(2, "0");
+  const month = (date.getMonth() + 1).toString().padStart(2, "0");
+  const year = date.getFullYear();
+  return `${hours}:${mins} - ${day}/${month}/${year}`;
+}
+
 export default function PersonalTrailDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{
@@ -69,10 +88,124 @@ export default function PersonalTrailDetailScreen() {
   const { personalTrails, submitPersonalTrail, deletePersonalTrail } = useApp();
   const mapRef = useRef<MapLibre3DViewRef>(null);
 
-  const trail = useMemo(
-    () => personalTrails.find((current) => current.id === trailId),
-    [personalTrails, trailId],
-  );
+  const [detailTrail, setDetailTrail] = useState<PersonalTrail | null>(null);
+  const [loadedTrailId, setLoadedTrailId] = useState<string>();
+
+  useEffect(() => {
+    if (!trailId) return;
+    let active = true;
+
+    if (isUUID(trailId)) {
+      personalTrailApi
+        .getTrailDetail(trailId)
+        .then((res) => {
+          if (active && res?.data) {
+            setDetailTrail(convertBackendTrailToPersonalTrail(res.data));
+          }
+        })
+        .catch((err) => {
+          console.warn("[PersonalTrailDetail] Lỗi tải chi tiết từ server:", err);
+        })
+        .finally(() => {
+          if (active) setLoadedTrailId(trailId);
+        });
+    } else {
+      // TrailId là ID tạm thời (personal-trail-...).
+      // Kiểm tra xem đã có server_personal_trail_id trên server chưa
+      (async () => {
+        try {
+          const rec = await recordingDatabase.getRecording(trailId);
+          let serverId = rec?.serverPersonalTrailId;
+
+          // Nếu chưa có trong local_recordings theo trailId, thử tìm trail trong SQLite để lấy clientRecordingId
+          if (!serverId) {
+            const localTrail = await recordingDatabase.getPersonalTrailById(trailId);
+            if (localTrail?.clientRecordingId) {
+              const linkedRec = await recordingDatabase.getRecording(localTrail.clientRecordingId);
+              serverId = linkedRec?.serverPersonalTrailId;
+            }
+          }
+
+          // Nếu chưa có, thử tìm trong danh sách personalTrails đã tải từ server
+          if (!serverId && personalTrails.length > 0) {
+            const matchedByRec = personalTrails.find(
+              (t) =>
+                (t.clientRecordingId && trailId.includes(t.clientRecordingId)) ||
+                (t.clientRecordingId && t.clientRecordingId === trailId),
+            );
+            if (matchedByRec && isUUID(matchedByRec.id)) {
+              serverId = matchedByRec.id;
+            }
+
+            if (!serverId) {
+              const tsMatch = trailId.match(/personal-trail-(\d+)/);
+              if (tsMatch) {
+                const localTs = Number(tsMatch[1]);
+                const matchedByTime = personalTrails.find((t) => {
+                  if (!isUUID(t.id) || !t.createdAt) return false;
+                  const tTime = new Date(t.createdAt).getTime();
+                  return !isNaN(tTime) && Math.abs(tTime - localTs) < 30 * 60 * 1000;
+                });
+                if (matchedByTime) {
+                  serverId = matchedByTime.id;
+                }
+              }
+            }
+          }
+
+          if (active && serverId && isUUID(serverId)) {
+            // Tự động thay thế route ID sang Server UUID chuẩn
+            router.replace({
+              pathname: "/personal-trails/[id]",
+              params: { id: serverId },
+            } as unknown as Href);
+
+            const res = await personalTrailApi.getTrailDetail(serverId);
+            if (active && res?.data) {
+              setDetailTrail(convertBackendTrailToPersonalTrail(res.data));
+            }
+          }
+        } catch (err) {
+          console.warn("[PersonalTrailDetail] Tra cứu server trail cho local ID thất bại:", err);
+        } finally {
+          if (active) setLoadedTrailId(trailId);
+        }
+      })();
+    }
+    return () => { active = false; };
+  }, [trailId, personalTrails, router]);
+
+  const initialTrail = useMemo(() => {
+    if (!trailId) return personalTrails[0];
+    const exact = personalTrails.find((current) => current.id === trailId);
+    if (exact) return exact;
+
+    // Nếu ID là local tạm thời, tìm trong personalTrails qua clientRecordingId hoặc timestamp
+    if (!isUUID(trailId)) {
+      const matched = personalTrails.find(
+        (t) =>
+          (t.clientRecordingId && trailId.includes(t.clientRecordingId)) ||
+          (t.clientRecordingId && t.clientRecordingId === trailId),
+      );
+      if (matched) return matched;
+
+      const tsMatch = trailId.match(/personal-trail-(\d+)/);
+      if (tsMatch) {
+        const localTs = Number(tsMatch[1]);
+        const matchedByTime = personalTrails.find((t) => {
+          if (!t.createdAt) return false;
+          const tTime = new Date(t.createdAt).getTime();
+          return !isNaN(tTime) && Math.abs(tTime - localTs) < 30 * 60 * 1000;
+        });
+        if (matchedByTime) return matchedByTime;
+      }
+    }
+
+    return undefined;
+  }, [personalTrails, trailId]);
+
+  const trail = (loadedTrailId === trailId ? detailTrail : null) || initialTrail;
+  const loadingTrail = !!trailId && loadedTrailId !== trailId;
 
   // Khi bản đồ 3D sẵn sàng -> Fit bounds toàn bộ cung đường kèm padding đệm hợp lý
   const handleMapReady = useCallback(() => {
@@ -109,14 +242,27 @@ export default function PersonalTrailDetailScreen() {
     }
   }, [trail]);
 
+  // Tự động fit bounds khi dữ liệu tọa độ của trail được nạp từ API
+  useEffect(() => {
+    handleMapReady();
+  }, [handleMapReady]);
+
   function submitForVerification() {
     if (!trail) {
       return;
     }
 
+    if (trail.distanceKm < 0.5) {
+      Alert.alert(
+        "Chưa đủ điều kiện duyệt",
+        "Cung đường cần có độ dài tối thiểu 500m (0.5km) để gửi Ban Quản Trị xét duyệt thành System Trail.",
+      );
+      return;
+    }
+
     Alert.alert(
-      "Gửi Trail để xác minh?",
-      "Trail sẽ chuyển sang trạng thái chờ Admin kiểm tra. Trong bản demo, trạng thái được lưu bằng mock state.",
+      "Gửi Cung đường xác minh?",
+      "Cung đường sẽ được gửi đến Ban Quản Trị TrekGO để kiểm duyệt chất lượng và độ an toàn.",
       [
         {
           text: "Quay lại",
@@ -124,9 +270,23 @@ export default function PersonalTrailDetailScreen() {
         },
         {
           text: "Gửi xác minh",
-          onPress: () => {
-            submitPersonalTrail(trail.id);
-            Alert.alert("Đã gửi thành công", "Trail đang chờ Admin xác minh.");
+          onPress: async () => {
+            try {
+              await submitPersonalTrail(
+                trail.id,
+                "Đề xuất kiểm duyệt cung đường cá nhân.",
+              );
+              Alert.alert(
+                "Đã gửi thành công",
+                "Cung đường đã được gửi tới Ban quản trị TrekGO và đang chờ xác minh.",
+              );
+            } catch (err: any) {
+              Alert.alert(
+                "Gửi duyệt thất bại",
+                err?.message ||
+                  "Không thể gửi yêu cầu xác minh lúc này. Vui lòng thử lại sau.",
+              );
+            }
           },
         },
       ],
@@ -149,9 +309,13 @@ export default function PersonalTrailDetailScreen() {
         {
           text: "Xóa Trail",
           style: "destructive",
-          onPress: () => {
-            deletePersonalTrail(trail.id);
-            router.replace("/personal-trails" as Href);
+          onPress: async () => {
+            try {
+              await deletePersonalTrail(trail.id);
+              router.dismissTo("/personal-trails" as Href);
+            } catch (error) {
+              Alert.alert("Không thể xóa Trail", error instanceof Error ? error.message : "Vui lòng thử lại.");
+            }
           },
         },
       ],
@@ -174,9 +338,11 @@ export default function PersonalTrailDetailScreen() {
 
         <View style={styles.emptyState}>
           <Ionicons name="map-outline" size={42} color={Colors.primaryDark} />
-          <Text style={styles.emptyTitle}>Không tìm thấy Personal Trail</Text>
+          <Text style={styles.emptyTitle}>
+            {loadingTrail ? "Đang tải Personal Trail..." : "Không tìm thấy Personal Trail"}
+          </Text>
           <Text style={styles.emptyDescription}>
-            Trail có thể đã bị xóa hoặc mock data đã được reset.
+            {loadingTrail ? "Vui lòng chờ trong giây lát." : "Trail có thể đã bị xóa hoặc không còn khả dụng."}
           </Text>
           <TouchableOpacity
             style={styles.primaryButton}
@@ -319,9 +485,9 @@ export default function PersonalTrailDetailScreen() {
               <Ionicons name="map" size={19} color={Colors.primaryDark} />
             </View>
             <View style={styles.flexOne}>
-              <Text style={styles.sectionTitle}>Route địa hình</Text>
+              <Text style={styles.sectionTitle}>Vệt GPS thực địa (3D)</Text>
               <Text style={styles.sectionSubtitle}>
-                Preset {trail.routePreset} · {trail.routePoints.length} điểm
+                {trail.distanceKm} km · {trail.elevationGainM}m độ cao · GeoJSON 3D
               </Text>
             </View>
             <View style={styles.privateBadge}>
@@ -333,31 +499,28 @@ export default function PersonalTrailDetailScreen() {
           </View>
 
           <View style={styles.mapWrapper}>
-            {trail.gpsRoute && trail.gpsRoute.length > 0 ? (
-              <MapLibre3DView
-                ref={mapRef}
-                height={260}
-                center={[trail.gpsRoute[0][0], trail.gpsRoute[0][1]]}
-                is3D={true}
-                dragRotate={true}
-                onMapReady={handleMapReady}
-                plannedRoute={
-                  trail.gpsSegments && trail.gpsSegments.length > 0
-                    ? trail.gpsSegments
-                    : trail.gpsRoute
-                }
-                checkpoints={[]}
-                showEndpoints={true}
-                interactive={true}
-              />
-            ) : (
-              <TacticalMap
-                isOnRoute
-                height={250}
-                checkpoints={trail.checkpoints}
-                interactive={false}
-              />
-            )}
+            <MapLibre3DView
+              ref={mapRef}
+              height={260}
+              center={
+                trail.gpsSegments && trail.gpsSegments.length > 0 && trail.gpsSegments[0].length > 0
+                  ? [trail.gpsSegments[0][0][0], trail.gpsSegments[0][0][1]]
+                  : trail.gpsRoute && trail.gpsRoute.length > 0
+                    ? [trail.gpsRoute[0][0], trail.gpsRoute[0][1]]
+                    : [108.529, 11.583]
+              }
+              is3D={true}
+              dragRotate={true}
+              onMapReady={handleMapReady}
+              plannedRoute={
+                trail.gpsSegments && trail.gpsSegments.length > 0
+                  ? trail.gpsSegments
+                  : trail.gpsRoute || []
+              }
+              checkpoints={[]}
+              showEndpoints={true}
+              interactive={true}
+            />
           </View>
         </View>
 
@@ -443,12 +606,12 @@ export default function PersonalTrailDetailScreen() {
 
         <View style={styles.auditCard}>
           <View style={styles.auditRow}>
-            <Text style={styles.auditLabel}>Ngày tạo</Text>
-            <Text style={styles.auditValue}>{trail.createdAt}</Text>
+            <Text style={styles.auditLabel}>Thời gian tạo</Text>
+            <Text style={styles.auditValue}>{formatDateTime(trail.createdAt)}</Text>
           </View>
           <View style={styles.auditRow}>
             <Text style={styles.auditLabel}>Cập nhật cuối</Text>
-            <Text style={styles.auditValue}>{trail.updatedAt}</Text>
+            <Text style={styles.auditValue}>{formatDateTime(trail.updatedAt)}</Text>
           </View>
           <View style={styles.auditRow}>
             <Text style={styles.auditLabel}>Chế độ hiển thị</Text>

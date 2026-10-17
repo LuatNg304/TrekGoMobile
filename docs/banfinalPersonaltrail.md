@@ -11,9 +11,9 @@
 
 ### 1.1. Khái niệm Cung Đường Cá Nhân (Personal Trail)
 * **Personal Trail** là cung đường do người dùng cá nhân (**Trekker**) tạo lập trên ứng dụng TrekGo Mobile.
-* Có 2 phương thức hình thành Personal Trail:
-  1. **Ghi trực tiếp ngoài thực địa (Live GPS Recording)**: Người dùng mở modal *Live Trail Recorder*, cầm điện thoại di chuyển. Ứng dụng liên tục thu nhận toạ độ vệ tinh WGS84, lọc nhiễu qua `GpsProcessor`, lưu cục bộ vào SQLite (`trekgo_recordings.db`) và đồng bộ lên Backend.
-  2. **Tạo mô phỏng thủ công (Manual Builder)**: Người dùng nhập thông số cung đường (Cự ly, độ cao, địa hình) và chọn mẫu lộ trình đồ hoạ 2D (Ridge, Forest, Waterfall).
+* Phương thức hình thành Personal Trail:
+  * **Ghi trực tiếp ngoài thực địa (Live GPS Recording)**: Người dùng mở *Live Trail Recorder*, cầm điện thoại di chuyển. Ứng dụng liên tục thu nhận toạ độ vệ tinh WGS84, lọc nhiễu qua `GpsProcessor`, lưu cục bộ vào SQLite (`trekgo_recordings.db`) và đồng bộ lên Backend.
+  * **LOẠI BỎ HOÀN TOÀN TẠO MÔ PHỎNG THỦ CÔNG (Manual Builder / Preset 2D)**: Đảm bảo 100% Personal Trail trong hệ thống đều có vệt di chuyển vệ tinh thực tế được chứng thực.
 
 ### 1.2. Các Thay Đổi Nghiệp Vụ Cốt Lõi Vừa Cập Nhật (Quan Trọng Đối Với BE)
 
@@ -24,6 +24,7 @@
 | **3** | Lưu trữ cục bộ bằng `AsyncStorage` đơn thuần. | **SQLite WAL Mode + Outbox Pattern** (`trekgo_recordings.db`). | Đảm bảo tính bền vững dữ liệu (Crash-Resilient), ghi nhận từng mẫu raw GPS thô xuống đĩa ngay tức thì, hỗ trợ Crash Recovery khi app bị đóng đột ngột giữa rừng không mất mạng. |
 | **4** | Toạ độ đường vẽ lưu dạng 1 `LineString` liền mạch duy nhất. | **MultiLineString 3D** (Mảng các phân đoạn `gpsSegments`). | Tách biệt vệt di chuyển khi người dùng bấm Tạm dừng (Pause/Resume) hoặc khi mất sóng GPS kéo dài (> 15s). Giúp bản đồ không vẽ các đường kẻ thẳng tắp đâm xuyên qua vách núi khi dừng chân nghỉ ngơi. |
 | **5** | Đánh đồng `clientRecordingId` với `serverRecordingId`. | **Phân biệt rạch ròi Client ID vs Server ID**. | Mobile sinh `clientRecordingId` (UUID v4) và `clientSampleId` (UUID v4). Backend sử dụng các ID này để làm khoá **Idempotency** chống trùng lặp dữ liệu khi mobile gửi retry mạng. |
+| **6** | Bảng SQLite lưu cả 3 trường `route_points_json`, `gps_route_json`, `gps_segments_json` và form thủ công 2D. | **CHỈ LƯU DUY NHẤT `gps_segments_json` (MultiLineString 3D). BỎ HOÀN TOÀN TẠO THỦ CÔNG.** | Loại bỏ sự dư thừa dữ liệu (Data Redundancy). Toàn bộ Trail đều từ GPS thực tế. Cột `gps_segments_json` là nguồn dữ liệu duy nhất, tiết kiệm 70% dung lượng đĩa và loại bỏ nợ kỹ thuật (technical debt). |
 
 ---
 

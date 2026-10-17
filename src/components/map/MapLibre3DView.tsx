@@ -559,12 +559,53 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
       return { type: 'LineString', coordinates: coords };
     }
 
+    function getBoundsFromCoords(coords) {
+      if (!coords || !coords.length) return null;
+      var minLng = Infinity, maxLng = -Infinity, minLat = Infinity, maxLat = -Infinity;
+      var points = [];
+      if (Array.isArray(coords[0]) && coords[0].length > 0 && Array.isArray(coords[0][0])) {
+        for (var i = 0; i < coords.length; i++) {
+          if (Array.isArray(coords[i])) {
+            for (var j = 0; j < coords[i].length; j++) {
+              points.push(coords[i][j]);
+            }
+          }
+        }
+      } else {
+        points = coords;
+      }
+      if (points.length < 1) return null;
+      for (var k = 0; k < points.length; k++) {
+        var p = points[k];
+        if (p && p.length >= 2) {
+          if (p[0] < minLng) minLng = p[0];
+          if (p[0] > maxLng) maxLng = p[0];
+          if (p[1] < minLat) minLat = p[1];
+          if (p[1] > maxLat) maxLat = p[1];
+        }
+      }
+      if (minLng !== Infinity && maxLng !== -Infinity) {
+        if (minLng === maxLng && minLat === maxLat) {
+          return [[minLng - 0.005, minLat - 0.005], [maxLng + 0.005, maxLat + 0.005]];
+        }
+        return [[minLng, minLat], [maxLng, maxLat]];
+      }
+      return null;
+    }
+
     window.updatePlannedRoute = function(coords) {
       if (map && map.getSource('planned-route-src')) {
+        var geom = getGeoJsonGeometry(coords);
         map.getSource('planned-route-src').setData({
           type: 'Feature',
-          geometry: getGeoJsonGeometry(coords)
+          geometry: geom
         });
+        if (geom && geom.coordinates && geom.coordinates.length > 0) {
+          var bounds = getBoundsFromCoords(coords);
+          if (bounds) {
+            map.fitBounds(bounds, { padding: 45, duration: 800 });
+          }
+        }
       }
       if (${Boolean(initialConfig.showEndpoints)}) {
         var ep = extractEndpoints(coords);
@@ -792,11 +833,17 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
         });
 
         // Khởi tạo Start / End endpoint markers dựa trên tọa độ đầu & cuối của route vẽ
+        const initialRoute = ${JSON.stringify(plannedRoute && plannedRoute.length > 0 ? plannedRoute : traveledRoute)};
         if (${Boolean(initialConfig.showEndpoints)}) {
-          const initialRoute = ${JSON.stringify(plannedRoute && plannedRoute.length > 0 ? plannedRoute : traveledRoute)};
           const ep = extractEndpoints(initialRoute);
           if (ep) {
             window.updateEndpoints(ep);
+          }
+        }
+        if (initialRoute && initialRoute.length > 0) {
+          const initBounds = getBoundsFromCoords(initialRoute);
+          if (initBounds) {
+            map.fitBounds(initBounds, { padding: 45, duration: 0 });
           }
         }
 

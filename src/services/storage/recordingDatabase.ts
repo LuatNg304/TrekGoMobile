@@ -6,9 +6,49 @@ import {
   RecordingStatus,
   SyncOutboxItem,
 } from "@/types";
+import { readStoredAuth } from "@/features/auth/storage";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SQLite from "expo-sqlite";
 import { STORAGE_KEYS } from "./keys";
+
+export function createDeterministicUuid(source: string): string {
+  let h1 = 0xdeadbeef ^ source.length;
+  let h2 = 0x41c6ce57 ^ source.length;
+  let h3 = 0xc0decafe ^ source.length;
+  let h4 = 0x9e3779b9 ^ source.length;
+
+  for (let index = 0; index < source.length; index += 1) {
+    const code = source.charCodeAt(index);
+    h1 = Math.imul(h1 ^ code, 2654435761);
+    h2 = Math.imul(h2 ^ code, 1597334677);
+    h3 = Math.imul(h3 ^ code, 2246822507);
+    h4 = Math.imul(h4 ^ code, 3266489909);
+  }
+
+  const words = [
+    (h1 ^ (h1 >>> 16)) >>> 0,
+    (h2 ^ (h2 >>> 13)) >>> 0,
+    (h3 ^ (h3 >>> 16)) >>> 0,
+    (h4 ^ (h4 >>> 13)) >>> 0,
+  ];
+  const bytes = words.flatMap((word) => [
+    word >>> 24,
+    word >>> 16,
+    word >>> 8,
+    word,
+  ]).map((value) => value & 0xff);
+
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = bytes.map((value) => value.toString(16).padStart(2, "0"));
+  return `${hex.slice(0, 4).join("")}-${hex.slice(4, 6).join("")}-${hex.slice(6, 8).join("")}-${hex.slice(8, 10).join("")}-${hex.slice(10).join("")}`;
+}
+
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    value,
+  );
+}
 
 export function generateUUID(): string {
   if (
@@ -25,18 +65,40 @@ export function generateUUID(): string {
 }
 
 let dbInstance: SQLite.SQLiteDatabase | null = null;
+let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
 export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
   if (dbInstance) {
     return dbInstance;
   }
 
+  if (dbPromise) {
+    return dbPromise;
+  }
+
+  dbPromise = initializeDatabase();
+
+  try {
+    dbInstance = await dbPromise;
+    return dbInstance;
+  } catch (error) {
+    dbPromise = null;
+    throw error;
+  }
+}
+
+async function initializeDatabase(): Promise<SQLite.SQLiteDatabase> {
   const db = await SQLite.openDatabaseAsync("trekgo_recordings.db");
 
   // Thiết lập WAL mode cho hiệu năng ghi cao và bảo toàn dữ liệu
   await db.execAsync(`
     PRAGMA journal_mode = WAL;
     PRAGMA foreign_keys = ON;
+
+    CREATE TABLE IF NOT EXISTS personal_trail_cache (
+      owner_id TEXT PRIMARY KEY,
+      trails_json TEXT NOT NULL
+    );
 
     CREATE TABLE IF NOT EXISTS local_recordings (
       client_recording_id TEXT PRIMARY KEY,
@@ -109,11 +171,8 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
       visibility TEXT NOT NULL DEFAULT 'PRIVATE',
       verification_status TEXT NOT NULL DEFAULT 'DRAFT',
       rejection_reason TEXT,
-      route_preset TEXT NOT NULL,
-      route_points_json TEXT NOT NULL,
-      gps_route_json TEXT,
-      gps_segments_json TEXT,
-      checkpoints_json TEXT NOT NULL,
+      gps_segments_json TEXT NOT NULL,
+      checkpoints_json TEXT NOT NULL DEFAULT '[]',
       client_recording_id TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
@@ -122,32 +181,81 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
 
     CREATE INDEX IF NOT EXISTS idx_personal_trails_owner
       ON personal_trails(owner_id);
+
+    -- Dọn sạch bảng tạm nếu còn sót lại
+    DROP TABLE IF EXISTS personal_trails_v2;
   `);
 
-  dbInstance = db;
+  // Migration tường minh để không che khuất lỗi SQLite không liên quan.
+  const recordingColumns = await db.getAllAsync<{ name: string }>(
+    "PRAGMA table_info(local_recordings)",
+  );
+  const existingColumns = new Set(recordingColumns.map((column) => column.name));
+  if (!existingColumns.has("owner_id")) {
+    await db.execAsync("ALTER TABLE local_recordings ADD COLUMN owner_id TEXT");
+    // Recover ownership only from an existing trail; never claim unknown data for the current login.
+    await db.execAsync(
+      `UPDATE local_recordings SET owner_id = (
+        SELECT MIN(pt.owner_id) FROM personal_trails pt
+        WHERE pt.client_recording_id = local_recordings.client_recording_id
+        HAVING COUNT(DISTINCT pt.owner_id) = 1
+      ) WHERE owner_id IS NULL`,
+    );
+  }
+  if (!existingColumns.has("duration")) {
+    await db.execAsync("ALTER TABLE local_recordings ADD COLUMN duration TEXT");
+  }
+  if (!existingColumns.has("elapsed_seconds")) {
+    await db.execAsync(
+      "ALTER TABLE local_recordings ADD COLUMN elapsed_seconds INTEGER",
+    );
+  }
+  if (!existingColumns.has("local_trail_id")) {
+    await db.execAsync(
+      "ALTER TABLE local_recordings ADD COLUMN local_trail_id TEXT",
+    );
+  }
+
+  // Các bản app cũ dùng recordingId:timestamp:lat:lng làm clientSampleId.
+  // Backend yêu cầu UUID, vì vậy đổi khóa cũ một lần trước khi outbox retry.
+  const legacySampleIds = await db.getAllAsync<{
+    client_sample_id: string;
+    client_recording_id: string;
+  }>("SELECT client_sample_id, client_recording_id FROM raw_gps_samples");
+  const migratedRecordingIds = new Set<string>();
+  for (const row of legacySampleIds) {
+    if (isUuid(row.client_sample_id)) continue;
+    const migratedId = createDeterministicUuid(row.client_sample_id);
+    await db.runAsync(
+      "UPDATE raw_gps_samples SET client_sample_id = ? WHERE client_sample_id = ?",
+      [migratedId, row.client_sample_id],
+    );
+    migratedRecordingIds.add(row.client_recording_id);
+  }
+
+  // Cho phép auto-sync chạy lại ngay cả khi batch cũ đã chạm giới hạn retry.
+  for (const recordingId of migratedRecordingIds) {
+    await db.runAsync(
+      `UPDATE sync_outbox
+       SET state = 'PENDING', attempt_count = 0, next_retry_at = NULL
+       WHERE client_recording_id = ?
+         AND state = 'FAILED'
+         AND operation IN ('BATCH_POINTS', 'FINISH_RECORDING', 'CREATE_TRAIL')`,
+      [recordingId],
+    );
+  }
+
   return db;
 }
 
 function rowToPersonalTrail(row: any): PersonalTrail {
-  let routePoints: any[] = [];
-  try {
-    routePoints = JSON.parse(row.route_points_json || "[]");
-  } catch {
-    routePoints = [];
-  }
-
-  let gpsRoute: [number, number, number?][] | undefined = undefined;
-  if (row.gps_route_json) {
-    try {
-      gpsRoute = JSON.parse(row.gps_route_json);
-    } catch {}
-  }
-
-  let gpsSegments: [number, number, number?][][] | undefined = undefined;
+  let gpsSegments: [number, number, number?][][] = [];
   if (row.gps_segments_json) {
     try {
       gpsSegments = JSON.parse(row.gps_segments_json);
-    } catch {}
+    } catch {
+      gpsSegments = [];
+    }
   }
 
   let checkpoints: any[] = [];
@@ -155,6 +263,30 @@ function rowToPersonalTrail(row: any): PersonalTrail {
     checkpoints = JSON.parse(row.checkpoints_json || "[]");
   } catch {
     checkpoints = [];
+  }
+
+  // Tự động sinh mảng phẳng gpsRoute từ gpsSegments để các component hiển thị tiện sử dụng
+  const gpsRoute: [number, number, number?][] = [];
+  for (const seg of gpsSegments) {
+    gpsRoute.push(...seg);
+  }
+
+  let duration = row.duration;
+  if (!duration || duration === "0 phút" || duration === "00:00") {
+    if (row.created_at && row.updated_at) {
+      const start = new Date(row.created_at).getTime();
+      const end = new Date(row.updated_at).getTime();
+      if (!isNaN(start) && !isNaN(end) && end > start) {
+        const diffSec = Math.floor((end - start) / 1000);
+        const mins = Math.round(diffSec / 60);
+        duration = mins >= 60
+          ? `${Math.floor(mins / 60)} giờ ${mins % 60} phút`
+          : `${Math.max(1, mins)} phút`;
+      }
+    }
+  }
+  if (!duration) {
+    duration = "1 phút";
   }
 
   return {
@@ -165,16 +297,14 @@ function rowToPersonalTrail(row: any): PersonalTrail {
     difficulty: row.difficulty,
     distanceKm: Number(row.distance_km),
     elevationGainM: Number(row.elevation_gain_m),
-    duration: row.duration,
+    duration,
     terrainType: row.terrain_type,
     description: row.description || "",
     visibility: row.visibility,
     verificationStatus: row.verification_status,
     rejectionReason: row.rejection_reason || undefined,
-    routePreset: row.route_preset,
-    routePoints,
-    gpsRoute,
     gpsSegments,
+    gpsRoute,
     checkpoints,
     clientRecordingId: row.client_recording_id || undefined,
     createdAt: row.created_at,
@@ -190,15 +320,18 @@ export const recordingDatabase = {
     clientRecordingId: string = generateUUID(),
     startedAt: string = new Date().toISOString(),
   ): Promise<LocalRecording> {
+    const auth = await readStoredAuth();
+    if (!auth?.user.id) throw new Error("Vui lòng đăng nhập trước khi ghi cung đường.");
     const db = await getDatabase();
     await db.runAsync(
       `INSERT INTO local_recordings (
-        client_recording_id, status, started_at, next_segment_id
-      ) VALUES (?, ?, ?, ?)`,
-      [clientRecordingId, "RECORDING", startedAt, 0],
+        client_recording_id, status, started_at, next_segment_id, owner_id
+      ) VALUES (?, ?, ?, ?, ?)`,
+      [clientRecordingId, "RECORDING", startedAt, 0, auth.user.id],
     );
 
     return {
+      ownerId: auth.user.id,
       clientRecordingId,
       serverRecordingId: null,
       status: "RECORDING",
@@ -207,6 +340,9 @@ export const recordingDatabase = {
       nextSegmentId: 0,
       lastSyncedAt: null,
       serverPersonalTrailId: null,
+      localTrailId: null,
+      duration: null,
+      elapsedSeconds: null,
     };
   },
 
@@ -214,16 +350,20 @@ export const recordingDatabase = {
    * Tìm phiên ghi đang chạy dở (Crash recovery)
    */
   async getActiveRecording(): Promise<LocalRecording | null> {
+    const auth = await readStoredAuth();
+    if (!auth?.user.id) return null;
     const db = await getDatabase();
     const row = await db.getFirstAsync<any>(
       `SELECT * FROM local_recordings 
-       WHERE status IN ('RECORDING', 'PAUSED') 
+       WHERE owner_id = ? AND status IN ('RECORDING', 'PAUSED') 
        ORDER BY started_at DESC LIMIT 1`,
+      [auth.user.id],
     );
 
     if (!row) return null;
 
     return {
+      ownerId: row.owner_id,
       clientRecordingId: row.client_recording_id,
       serverRecordingId: row.server_recording_id,
       status: row.status as RecordingStatus,
@@ -232,24 +372,31 @@ export const recordingDatabase = {
       nextSegmentId: row.next_segment_id,
       lastSyncedAt: row.last_synced_at,
       serverPersonalTrailId: row.server_personal_trail_id,
+      localTrailId: row.local_trail_id || null,
+      duration: row.duration || null,
+      elapsedSeconds: row.elapsed_seconds || null,
     };
   },
 
   /**
-   * Lấy thông tin một phiên ghi theo ID
+   * Lấy thông tin một phiên ghi theo ID (hỗ trợ tìm qua clientRecordingId, localTrailId hoặc serverPersonalTrailId)
    */
   async getRecording(
-    clientRecordingId: string,
+    identifier: string,
   ): Promise<LocalRecording | null> {
     const db = await getDatabase();
     const row = await db.getFirstAsync<any>(
-      `SELECT * FROM local_recordings WHERE client_recording_id = ?`,
-      [clientRecordingId],
+      `SELECT * FROM local_recordings 
+       WHERE client_recording_id = ? 
+          OR local_trail_id = ? 
+          OR server_personal_trail_id = ?`,
+      [identifier, identifier, identifier],
     );
 
     if (!row) return null;
 
     return {
+      ownerId: row.owner_id,
       clientRecordingId: row.client_recording_id,
       serverRecordingId: row.server_recording_id,
       status: row.status as RecordingStatus,
@@ -258,6 +405,9 @@ export const recordingDatabase = {
       nextSegmentId: row.next_segment_id,
       lastSyncedAt: row.last_synced_at,
       serverPersonalTrailId: row.server_personal_trail_id,
+      localTrailId: row.local_trail_id || null,
+      duration: row.duration || null,
+      elapsedSeconds: row.elapsed_seconds || null,
     };
   },
 
@@ -271,7 +421,10 @@ export const recordingDatabase = {
       endedAt?: string | null;
       serverRecordingId?: string | null;
       serverPersonalTrailId?: string | null;
+      localTrailId?: string | null;
       lastSyncedAt?: string | null;
+      duration?: string | null;
+      elapsedSeconds?: number | null;
     },
   ): Promise<void> {
     const db = await getDatabase();
@@ -290,9 +443,21 @@ export const recordingDatabase = {
       fields.push("server_personal_trail_id = ?");
       params.push(options.serverPersonalTrailId);
     }
+    if (options?.localTrailId !== undefined) {
+      fields.push("local_trail_id = ?");
+      params.push(options.localTrailId);
+    }
     if (options?.lastSyncedAt !== undefined) {
       fields.push("last_synced_at = ?");
       params.push(options.lastSyncedAt);
+    }
+    if (options?.duration !== undefined) {
+      fields.push("duration = ?");
+      params.push(options.duration);
+    }
+    if (options?.elapsedSeconds !== undefined) {
+      fields.push("elapsed_seconds = ?");
+      params.push(options.elapsedSeconds);
     }
 
     params.push(clientRecordingId);
@@ -493,17 +658,62 @@ export const recordingDatabase = {
   /**
    * Lấy các tác vụ Outbox đang chờ gửi
    */
-  async getPendingOutbox(): Promise<SyncOutboxItem[]> {
+  async getPendingOutbox(ownerId: string): Promise<SyncOutboxItem[]> {
     const db = await getDatabase();
     const now = new Date().toISOString();
-    const rows = await db.getAllAsync<any>(
-      `SELECT * FROM sync_outbox 
-       WHERE state IN ('PENDING', 'FAILED') 
-         AND (next_retry_at IS NULL OR next_retry_at <= ?)
-       ORDER BY created_at ASC LIMIT 10`,
-      [now],
+
+    // Tự động phục hồi các tác vụ bị kẹt ở trạng thái SYNCING (do crash/đóng app đột ngột)
+    await db.runAsync(
+      `UPDATE sync_outbox SET state = 'PENDING' WHERE state = 'SYNCING'
+       AND client_recording_id IN (SELECT client_recording_id FROM local_recordings WHERE owner_id = ?)`,
+      [ownerId],
     );
 
+    // Chỉ lấy:
+    // 1. Tác vụ PENDING mới hoặc đã đến giờ chạy (next_retry_at IS NULL hoặc <= now)
+    // 2. Tác vụ FAILED tạm thời còn hạn thử lại (attempt_count < 10, next_retry_at IS NOT NULL và <= now)
+    const rows = await db.getAllAsync<any>(
+      `SELECT * FROM sync_outbox 
+       WHERE client_recording_id IN (SELECT client_recording_id FROM local_recordings WHERE owner_id = ?)
+       AND ((state = 'PENDING' AND (next_retry_at IS NULL OR next_retry_at <= ?))
+          OR (state = 'FAILED' AND attempt_count < 10 AND next_retry_at IS NOT NULL AND next_retry_at <= ?))
+       ORDER BY created_at ASC LIMIT 10`,
+      [ownerId, now, now],
+    );
+
+    return rows.map((r) => ({
+      id: r.id,
+      clientRecordingId: r.client_recording_id,
+      operation: r.operation,
+      payloadJson: r.payload_json,
+      state: r.state,
+      attemptCount: r.attempt_count,
+      nextRetryAt: r.next_retry_at,
+      createdAt: r.created_at,
+    }));
+  },
+
+  /**
+   * Reset các mục FAILED về PENDING để người dùng chủ động gửi lại.
+   * Không chạm vào SYNCING vì có thể đang được tiến trình tự động xử lý.
+   */
+  async resetAllPendingOutbox(): Promise<void> {
+    const db = await getDatabase();
+    await db.runAsync(
+      `UPDATE sync_outbox 
+       SET state = 'PENDING', next_retry_at = NULL 
+       WHERE state = 'FAILED'`,
+    );
+  },
+
+  /**
+   * Lấy toàn bộ danh sách tác vụ trong outbox (để kiểm tra chẩn đoán)
+   */
+  async getAllOutboxItems(): Promise<SyncOutboxItem[]> {
+    const db = await getDatabase();
+    const rows = await db.getAllAsync<any>(
+      `SELECT * FROM sync_outbox ORDER BY created_at DESC`,
+    );
     return rows.map((r) => ({
       id: r.id,
       clientRecordingId: r.client_recording_id,
@@ -541,6 +751,41 @@ export const recordingDatabase = {
     await db.runAsync(
       `UPDATE sync_outbox SET ${fields.join(", ")} WHERE id = ?`,
       params,
+    );
+  },
+
+  /**
+   * Xóa một tác vụ khỏi Outbox
+   */
+  async deleteOutboxItem(id: string): Promise<void> {
+    const db = await getDatabase();
+    await db.runAsync(`DELETE FROM sync_outbox WHERE id = ?`, [id]);
+  },
+
+  /**
+   * Xóa toàn bộ dữ liệu của một phiên ghi (outbox, samples, checkpoints, recording)
+   */
+  async deleteRecording(clientRecordingId: string): Promise<void> {
+    const db = await getDatabase();
+    await db.runAsync(
+      `DELETE FROM sync_outbox WHERE client_recording_id = ?`,
+      [clientRecordingId],
+    );
+    await db.runAsync(
+      `DELETE FROM raw_gps_samples WHERE client_recording_id = ?`,
+      [clientRecordingId],
+    );
+    await db.runAsync(
+      `DELETE FROM local_checkpoints WHERE client_recording_id = ?`,
+      [clientRecordingId],
+    );
+    await db.runAsync(
+      `DELETE FROM personal_trails WHERE client_recording_id = ?`,
+      [clientRecordingId],
+    );
+    await db.runAsync(
+      `DELETE FROM local_recordings WHERE client_recording_id = ?`,
+      [clientRecordingId],
     );
   },
 
@@ -612,19 +857,12 @@ export const recordingDatabase = {
       nextSegmentId: r.next_segment_id,
       lastSyncedAt: r.last_synced_at,
       serverPersonalTrailId: r.server_personal_trail_id,
+      duration: r.duration || null,
+      elapsedSeconds: r.elapsed_seconds || null,
     }));
   },
 
-  /**
-   * Xóa một phiên ghi và toàn bộ điểm liên quan
-   */
-  async deleteRecording(clientRecordingId: string): Promise<void> {
-    const db = await getDatabase();
-    await db.runAsync(
-      `DELETE FROM local_recordings WHERE client_recording_id = ?`,
-      [clientRecordingId],
-    );
-  },
+
 
   /**
    * Lưu hoặc cập nhật một PersonalTrail vào bảng SQLite personal_trails
@@ -647,14 +885,15 @@ export const recordingDatabase = {
       if (!existing) {
         await db.runAsync(
           `INSERT OR IGNORE INTO local_recordings (
-            client_recording_id, status, started_at, ended_at, next_segment_id, server_personal_trail_id
-          ) VALUES (?, 'STOPPED_LOCAL', ?, ?, ?, ?)`,
+            client_recording_id, status, started_at, ended_at, next_segment_id, server_personal_trail_id, owner_id
+          ) VALUES (?, 'STOPPED_LOCAL', ?, ?, ?, ?, ?)`,
           [
             effectiveRecordingId,
             trail.createdAt || new Date().toISOString(),
             trail.updatedAt || new Date().toISOString(),
             trail.gpsSegments?.length || 1,
             trail.id,
+            trail.ownerId,
           ],
         );
       } else {
@@ -667,14 +906,21 @@ export const recordingDatabase = {
       }
     }
 
+    const effectiveSegments: [number, number, number?][][] =
+      trail.gpsSegments && trail.gpsSegments.length > 0
+        ? trail.gpsSegments
+        : trail.gpsRoute && trail.gpsRoute.length > 0
+          ? [trail.gpsRoute]
+          : [];
+
     await db.runAsync(
       `INSERT OR REPLACE INTO personal_trails (
         id, owner_id, name, region, difficulty,
         distance_km, elevation_gain_m, duration, terrain_type, description,
-        visibility, verification_status, rejection_reason, route_preset,
-        route_points_json, gps_route_json, gps_segments_json, checkpoints_json,
+        visibility, verification_status, rejection_reason,
+        gps_segments_json, checkpoints_json,
         client_recording_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         trail.id,
         trail.ownerId,
@@ -683,16 +929,13 @@ export const recordingDatabase = {
         trail.difficulty,
         trail.distanceKm,
         trail.elevationGainM,
-        trail.duration,
+        trail.duration || "1 phút",
         trail.terrainType,
         trail.description || "",
         trail.visibility,
         trail.verificationStatus,
         trail.rejectionReason || null,
-        trail.routePreset,
-        JSON.stringify(trail.routePoints || []),
-        trail.gpsRoute ? JSON.stringify(trail.gpsRoute) : null,
-        trail.gpsSegments ? JSON.stringify(trail.gpsSegments) : null,
+        JSON.stringify(effectiveSegments),
         JSON.stringify(trail.checkpoints || []),
         effectiveRecordingId,
         trail.createdAt,
@@ -714,9 +957,12 @@ export const recordingDatabase = {
    * Lấy toàn bộ danh sách PersonalTrail từ SQLite
    */
   async getAllPersonalTrails(): Promise<PersonalTrail[]> {
+    const auth = await readStoredAuth();
+    if (!auth?.user.id) return [];
     const db = await getDatabase();
     const rows = await db.getAllAsync<any>(
-      `SELECT * FROM personal_trails ORDER BY created_at DESC`,
+      `SELECT * FROM personal_trails WHERE owner_id = ? ORDER BY created_at DESC`,
+      [auth.user.id],
     );
     return rows.map(rowToPersonalTrail);
   },
@@ -725,12 +971,188 @@ export const recordingDatabase = {
    * Lấy một PersonalTrail theo ID từ SQLite
    */
   async getPersonalTrailById(id: string): Promise<PersonalTrail | null> {
+    const auth = await readStoredAuth();
+    if (!auth?.user.id) return null;
     const db = await getDatabase();
     const row = await db.getFirstAsync<any>(
-      `SELECT * FROM personal_trails WHERE id = ?`,
-      [id],
+      `SELECT * FROM personal_trails WHERE id = ? AND owner_id = ?`,
+      [id, auth.user.id],
     );
     return row ? rowToPersonalTrail(row) : null;
+  },
+
+  /**
+   * Lấy một PersonalTrail theo client_recording_id từ SQLite
+   */
+  async getPersonalTrailByRecordingId(
+    clientRecordingId: string,
+  ): Promise<PersonalTrail | null> {
+    const db = await getDatabase();
+    const row = await db.getFirstAsync<any>(
+      `SELECT * FROM personal_trails WHERE client_recording_id = ?`,
+      [clientRecordingId],
+    );
+    return row ? rowToPersonalTrail(row) : null;
+  },
+
+  /**
+   * Xóa một PersonalTrail chỉ khỏi bảng personal_trails
+   */
+  async removePersonalTrailOnly(trailId: string): Promise<void> {
+    const db = await getDatabase();
+    await db.runAsync(`DELETE FROM personal_trails WHERE id = ?`, [trailId]);
+  },
+
+  /** Only remove a local trail after its exact server identity was fetched and cached. */
+  async getSyncedLocalTrailIds(
+    serverTrailIds: string[],
+    serverClientRecordingIds: string[] = [],
+  ): Promise<string[]> {
+    const auth = await readStoredAuth();
+    if (!auth?.user.id) return [];
+    const db = await getDatabase();
+    const rows = await db.getAllAsync<{
+      id: string;
+      client_recording_id: string | null;
+      server_personal_trail_id: string | null;
+    }>(
+      `SELECT pt.id, pt.client_recording_id, lr.server_personal_trail_id
+       FROM personal_trails pt LEFT JOIN local_recordings lr
+         ON pt.client_recording_id = lr.client_recording_id
+       WHERE pt.owner_id = ? AND NOT EXISTS (
+         SELECT 1 FROM raw_gps_samples gps
+         WHERE gps.client_recording_id = pt.client_recording_id AND gps.synced = 0
+       )`,
+      [auth.user.id],
+    );
+    return rows.filter((row) =>
+      serverTrailIds.includes(row.id) ||
+      (row.client_recording_id != null && serverClientRecordingIds.includes(row.client_recording_id)) ||
+      (row.server_personal_trail_id != null && serverTrailIds.includes(row.server_personal_trail_id))
+    ).map((row) => row.id);
+  },
+
+  /** A separate cache keeps server routes available offline without recording foreign keys. */
+  async cacheServerPersonalTrails(ownerId: string, trails: PersonalTrail[]): Promise<void> {
+    const db = await getDatabase();
+    await db.runAsync(
+      "INSERT OR REPLACE INTO personal_trail_cache (owner_id, trails_json) VALUES (?, ?)",
+      [ownerId, JSON.stringify(trails)],
+    );
+  },
+
+  async updateCachedServerPersonalTrail(ownerId: string, trail: PersonalTrail): Promise<void> {
+    const db = await getDatabase();
+    await db.runAsync(
+      `INSERT INTO personal_trail_cache (owner_id, trails_json) VALUES (?, json_array(json(?)))
+       ON CONFLICT(owner_id) DO UPDATE SET trails_json = json_insert(
+         (SELECT json_group_array(json(value)) FROM json_each(personal_trail_cache.trails_json)
+          WHERE json_extract(value, '$.id') != ?), '$[#]', json(?))`,
+      [ownerId, JSON.stringify(trail), trail.id, JSON.stringify(trail)],
+    );
+  },
+
+  async removeCachedServerPersonalTrail(ownerId: string, trailId: string): Promise<void> {
+    const db = await getDatabase();
+    await db.runAsync(
+      `UPDATE personal_trail_cache SET trails_json =
+         (SELECT json_group_array(json(value)) FROM json_each(trails_json)
+          WHERE json_extract(value, '$.id') != ?)
+       WHERE owner_id = ?`,
+      [trailId, ownerId],
+    );
+  },
+
+  async getCachedServerPersonalTrails(ownerId: string): Promise<PersonalTrail[]> {
+    const db = await getDatabase();
+    const row = await db.getFirstAsync<{ trails_json: string }>(
+      "SELECT trails_json FROM personal_trail_cache WHERE owner_id = ?", [ownerId],
+    );
+    return row ? JSON.parse(row.trails_json) as PersonalTrail[] : [];
+  },
+
+  /**
+   * Xóa những PersonalTrail đã có trên server khỏi bảng SQLite personal_trails
+   * để không lưu thừa thãi trên điện thoại
+   */
+  async removeSyncedPersonalTrails(serverTrailIds: string[]): Promise<void> {
+    if (serverTrailIds.length === 0) return;
+    const db = await getDatabase();
+    const placeholders = serverTrailIds.map(() => "?").join(",");
+    await db.withTransactionAsync(async () => {
+      const linkedRecordings = await db.getAllAsync<{
+        client_recording_id: string;
+      }>(
+        `SELECT DISTINCT lr.client_recording_id
+         FROM local_recordings lr
+         LEFT JOIN personal_trails pt
+           ON pt.client_recording_id = lr.client_recording_id
+         WHERE pt.id IN (${placeholders})
+           AND (
+             lr.status = 'READY'
+             OR lr.server_personal_trail_id IN (${placeholders})
+             OR EXISTS (
+               SELECT 1 FROM sync_outbox so
+               WHERE so.client_recording_id = lr.client_recording_id
+                 AND so.operation IN ('FINISH_RECORDING', 'CREATE_TRAIL')
+                 AND so.state = 'SYNCED'
+             )
+           )`,
+        [...serverTrailIds, ...serverTrailIds],
+      );
+
+      await db.runAsync(
+        `DELETE FROM personal_trails WHERE id IN (${placeholders})`,
+        serverTrailIds,
+      );
+
+      for (const recording of linkedRecordings) {
+        await db.runAsync(
+          `DELETE FROM local_recordings WHERE client_recording_id = ?`,
+          [recording.client_recording_id],
+        );
+      }
+    });
+  },
+
+  /**
+   * Dọn toàn bộ dữ liệu local sau khi backend đã ACK finish và outbox đã SYNCED.
+   * Xóa local_recordings sẽ cascade sang raw samples, checkpoints, outbox và trail.
+   */
+  async cleanupSyncedRecording(clientRecordingId: string): Promise<boolean> {
+    const db = await getDatabase();
+    let cleaned = false;
+
+    await db.withTransactionAsync(async () => {
+      const eligible = await db.getFirstAsync<{ client_recording_id: string }>(
+        `SELECT lr.client_recording_id
+         FROM local_recordings lr
+         WHERE lr.client_recording_id = ?
+           AND lr.status = 'READY'
+           AND NOT EXISTS (
+             SELECT 1 FROM raw_gps_samples gps
+             WHERE gps.client_recording_id = lr.client_recording_id
+               AND gps.synced = 0
+           )
+           AND EXISTS (
+             SELECT 1 FROM sync_outbox so
+             WHERE so.client_recording_id = lr.client_recording_id
+               AND so.operation IN ('FINISH_RECORDING', 'CREATE_TRAIL')
+               AND so.state = 'SYNCED'
+           )`,
+        [clientRecordingId],
+      );
+
+      if (!eligible) return;
+
+      await db.runAsync(
+        `DELETE FROM local_recordings WHERE client_recording_id = ?`,
+        [clientRecordingId],
+      );
+      cleaned = true;
+    });
+
+    return cleaned;
   },
 
   /**
@@ -818,6 +1240,7 @@ export const recordingDatabase = {
     const db = await getDatabase();
     await db.execAsync(`
       PRAGMA foreign_keys = OFF;
+      DELETE FROM personal_trail_cache;
       DELETE FROM personal_trails;
       DELETE FROM raw_gps_samples;
       DELETE FROM local_checkpoints;
