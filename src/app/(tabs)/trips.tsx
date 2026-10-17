@@ -8,6 +8,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -22,7 +23,17 @@ import { useMyBookings } from "@/features/bookings/hooks";
 import { TripCard } from "@/features/trips/components";
 import { usePublicTrips } from "@/features/trips/hooks";
 
-type TripFilter = "UPCOMING" | "PENDING" | "EXPLORE" | "HISTORY";
+type MainTab = "MY_TRIPS" | "PUBLIC_TRIPS";
+type TripFilter = "UPCOMING" | "PENDING" | "HISTORY";
+
+const DIFFICULTY_OPTIONS = ["Tất cả", "EASY", "MEDIUM", "HARD", "EXTREME"];
+const DIFFICULTY_LABELS: Record<string, string> = {
+  "Tất cả": "Tất cả",
+  EASY: "Dễ",
+  MEDIUM: "Trung bình",
+  HARD: "Khó",
+  EXTREME: "Thách thức",
+};
 
 const completedTrip = {
   id: "trip-bidoup-completed",
@@ -39,8 +50,12 @@ const completedTrip = {
 
 export default function TripsScreen() {
   const router = useRouter();
-  const { trips, activeTrip } = useApp();
+  const { trips, activeTrip, user } = useApp();
   const { accessToken } = useAuth();
+
+  const [mainTab, setMainTab] = useState<MainTab>("MY_TRIPS");
+  const [publicSearch, setPublicSearch] = useState("");
+  const [selectedDifficulty, setSelectedDifficulty] = useState<string>("Tất cả");
 
   // Real backend bookings & public trips
   const {
@@ -62,6 +77,21 @@ export default function TripsScreen() {
     await Promise.all([refetchBookings(), refreshPublicTrips()]);
     setRefreshing(false);
   }, [refetchBookings, refreshPublicTrips]);
+
+  const displayedPublicTrips = useMemo(() => {
+    return publicTripsList.filter((t) => {
+      const matchesSearch =
+        !publicSearch.trim() ||
+        t.title.toLowerCase().includes(publicSearch.toLowerCase()) ||
+        t.destination.name.toLowerCase().includes(publicSearch.toLowerCase());
+
+      const tripDiff = t.routes[0]?.snapshotDifficulty;
+      const matchesDifficulty =
+        selectedDifficulty === "Tất cả" || tripDiff === selectedDifficulty;
+
+      return matchesSearch && matchesDifficulty;
+    });
+  }, [publicTripsList, publicSearch, selectedDifficulty]);
 
   // Split bookings by status
   const pendingBookings = useMemo(
@@ -180,26 +210,22 @@ export default function TripsScreen() {
         <TouchableOpacity
           style={[
             styles.subFilterChip,
-            activeFilter === "EXPLORE" && styles.subFilterChipActive,
+            { backgroundColor: Colors.primaryPale, gap: 5 },
           ]}
-          onPress={() => setActiveFilter("EXPLORE")}
+          onPress={() => setMainTab("PUBLIC_TRIPS")}
         >
           <Ionicons
-            name="compass-outline"
+            name="compass"
             size={14}
-            color={
-              activeFilter === "EXPLORE"
-                ? Colors.inverseOnSurface
-                : Colors.onSurfaceVariant
-            }
+            color={Colors.primaryDark}
           />
           <Text
             style={[
               styles.subFilterText,
-              activeFilter === "EXPLORE" && styles.subFilterTextActive,
+              { color: Colors.primaryDark, fontWeight: "700" },
             ]}
           >
-            Khám phá chuyến
+            Khám phá Public Trip
           </Text>
         </TouchableOpacity>
 
@@ -244,7 +270,7 @@ export default function TripsScreen() {
         <TouchableOpacity
           style={[
             styles.subFilterChip,
-            { backgroundColor: Colors.primaryPale, gap: 5 },
+            { backgroundColor: Colors.surfaceContainer, gap: 5 },
           ]}
           onPress={() => router.push("/bookings" as any)}
         >
@@ -277,7 +303,7 @@ export default function TripsScreen() {
 
           <TouchableOpacity
             style={styles.emptyButton}
-            onPress={() => setActiveFilter("EXPLORE")}
+            onPress={() => setMainTab("PUBLIC_TRIPS")}
             activeOpacity={0.8}
           >
             <Text style={styles.emptyButtonText}>Khám phá chuyến mở bán</Text>
@@ -373,7 +399,7 @@ export default function TripsScreen() {
 
           <TouchableOpacity
             style={styles.emptyButton}
-            onPress={() => setActiveFilter("EXPLORE")}
+            onPress={() => setMainTab("PUBLIC_TRIPS")}
             activeOpacity={0.8}
           >
             <Text style={styles.emptyButtonText}>Khám phá chuyến mở bán</Text>
@@ -408,47 +434,141 @@ export default function TripsScreen() {
     );
   }
 
-  function renderExploreTrips() {
-    if (loadingPublicTrips && publicTripsList.length === 0) {
-      return (
-        <View style={[styles.emptyState, { paddingVertical: 40 }]}>
-          <ActivityIndicator size="large" color={Colors.primaryDark} />
-          <Text style={[styles.emptyDescription, { marginTop: 12 }]}>
-            Đang tải danh sách chuyến đi mở bán...
-          </Text>
-        </View>
-      );
-    }
-
-    if (publicTripsList.length === 0) {
-      return (
-        <View style={styles.emptyState}>
-          <View style={styles.emptyIcon}>
+  function renderPublicTripsTab() {
+    return (
+      <View style={{ flex: 1 }}>
+        {/* Leader Create Public Trip Banner (If Leader) */}
+        {user?.role === "LEADER" && (
+          <TouchableOpacity
+            style={styles.leaderCreateBanner}
+            onPress={() =>
+              router.push("/field-operations/leader-create-trip" as any)
+            }
+            activeOpacity={0.88}
+          >
+            <View style={styles.leaderCreateIconBox}>
+              <Ionicons name="add" size={22} color={Colors.onPrimary} />
+            </View>
+            <View style={styles.flexOne}>
+              <Text style={styles.leaderCreateTitle}>Tạo Public Trip mới</Text>
+              <Text style={styles.leaderCreateSub}>
+                Khảo sát cung đường, thiết lập mốc GPS và mở bán vé cho cộng đồng
+              </Text>
+            </View>
             <Ionicons
-              name="compass-outline"
-              size={34}
+              name="chevron-forward"
+              size={18}
               color={Colors.primaryDark}
             />
+          </TouchableOpacity>
+        )}
+
+        {/* Search Bar */}
+        <View style={styles.searchSection}>
+          <View style={styles.searchBar}>
+            <Ionicons
+              name="search"
+              size={18}
+              color={Colors.onSurfaceVariant}
+              style={{ marginRight: 8 }}
+            />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Tìm kiếm chuyến, địa danh..."
+              placeholderTextColor={Colors.mute}
+              value={publicSearch}
+              onChangeText={setPublicSearch}
+            />
+            {publicSearch.length > 0 && (
+              <TouchableOpacity onPress={() => setPublicSearch("")} hitSlop={8}>
+                <Ionicons name="close-circle" size={18} color={Colors.mute} />
+              </TouchableOpacity>
+            )}
           </View>
-
-          <Text style={styles.emptyTitle}>Chưa có chuyến đi công khai nào</Text>
-
-          <Text style={styles.emptyDescription}>
-            Hiện tại chưa có chuyến đi công khai nào đang mở bán. Vui lòng quay lại sau!
-          </Text>
         </View>
-      );
-    }
 
-    return (
-      <View style={{ paddingHorizontal: 16 }}>
-        {publicTripsList.map((pt) => (
-          <TripCard
-            key={pt.id}
-            trip={pt}
-            onPress={() => openTripDetail(pt.id)}
-          />
-        ))}
+        {/* Difficulty Filter Chips */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.difficultyRow}
+        >
+          {DIFFICULTY_OPTIONS.map((d) => {
+            const active = selectedDifficulty === d;
+            return (
+              <TouchableOpacity
+                key={d}
+                style={[styles.diffChip, active && styles.diffChipActive]}
+                onPress={() => setSelectedDifficulty(d)}
+                activeOpacity={0.8}
+              >
+                <Text
+                  style={[
+                    styles.diffChipText,
+                    active && styles.diffChipTextActive,
+                  ]}
+                >
+                  {DIFFICULTY_LABELS[d] || d}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+
+        {/* Results Counter & Reset Filter */}
+        <View style={styles.resultCountRow}>
+          <Text style={styles.resultCountText}>
+            {loadingPublicTrips
+              ? "Đang tải chuyến công khai..."
+              : `Có ${displayedPublicTrips.length} chuyến mở bán`}
+          </Text>
+          {(selectedDifficulty !== "Tất cả" || publicSearch.trim().length > 0) && (
+            <TouchableOpacity
+              onPress={() => {
+                setSelectedDifficulty("Tất cả");
+                setPublicSearch("");
+              }}
+            >
+              <Text style={styles.resetFilterText}>Xóa bộ lọc</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* Trips List / Empty / Loading */}
+        {loadingPublicTrips && publicTripsList.length === 0 ? (
+          <View style={[styles.emptyState, { paddingVertical: 40 }]}>
+            <ActivityIndicator size="large" color={Colors.primaryDark} />
+            <Text style={[styles.emptyDescription, { marginTop: 12 }]}>
+              Đang tải danh sách chuyến đi mở bán...
+            </Text>
+          </View>
+        ) : displayedPublicTrips.length === 0 ? (
+          <View style={styles.emptyState}>
+            <View style={styles.emptyIcon}>
+              <Ionicons
+                name="compass-outline"
+                size={34}
+                color={Colors.primaryDark}
+              />
+            </View>
+            <Text style={styles.emptyTitle}>Không tìm thấy chuyến đi phù hợp</Text>
+            <Text style={styles.emptyDescription}>
+              {publicSearch.trim() || selectedDifficulty !== "Tất cả"
+                ? "Thử thay đổi từ khóa tìm kiếm hoặc chọn mức độ khó khác."
+                : "Hiện tại chưa có chuyến đi công khai nào đang mở bán."}
+            </Text>
+          </View>
+        ) : (
+          <View style={{ paddingHorizontal: 16 }}>
+            {displayedPublicTrips.map((pt) => (
+              <TripCard
+                key={pt.id}
+                trip={pt}
+                onPress={() => openTripDetail(pt.id)}
+              />
+            ))}
+          </View>
+        )}
       </View>
     );
   }
@@ -473,7 +593,7 @@ export default function TripsScreen() {
 
           <TouchableOpacity
             style={styles.emptyButton}
-            onPress={() => setActiveFilter("EXPLORE")}
+            onPress={() => setMainTab("PUBLIC_TRIPS")}
             activeOpacity={0.8}
           >
             <Text style={styles.emptyButtonText}>Khám phá chuyến mở bán</Text>
@@ -520,37 +640,73 @@ export default function TripsScreen() {
         <View style={styles.segmentContainer}>
           <View style={styles.segmentBox}>
             <TouchableOpacity
-              style={[styles.segmentBtn, styles.segmentBtnActive]}
+              style={[
+                styles.segmentBtn,
+                mainTab === "MY_TRIPS" && styles.segmentBtnActive,
+              ]}
+              onPress={() => setMainTab("MY_TRIPS")}
+              activeOpacity={0.8}
             >
-              <Ionicons name="briefcase" size={16} color={Colors.onPrimary} />
-
-              <Text style={styles.segmentBtnTextActive}>Chuyến của tôi</Text>
+              <Ionicons
+                name="briefcase"
+                size={16}
+                color={
+                  mainTab === "MY_TRIPS"
+                    ? Colors.onPrimary
+                    : Colors.onSurfaceVariant
+                }
+              />
+              <Text
+                style={
+                  mainTab === "MY_TRIPS"
+                    ? styles.segmentBtnTextActive
+                    : styles.segmentBtnText
+                }
+              >
+                Chuyến của tôi
+              </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.segmentBtn}
-              onPress={() => router.push("/(tabs)/rental")}
+              style={[
+                styles.segmentBtn,
+                mainTab === "PUBLIC_TRIPS" && styles.segmentBtnActive,
+              ]}
+              onPress={() => setMainTab("PUBLIC_TRIPS")}
+              activeOpacity={0.8}
             >
               <Ionicons
-                name="basket-outline"
+                name="compass"
                 size={16}
-                color={Colors.onSurfaceVariant}
+                color={
+                  mainTab === "PUBLIC_TRIPS"
+                    ? Colors.onPrimary
+                    : Colors.onSurfaceVariant
+                }
               />
-
-              <Text style={styles.segmentBtnText}>Thuê thiết bị</Text>
+              <Text
+                style={
+                  mainTab === "PUBLIC_TRIPS"
+                    ? styles.segmentBtnTextActive
+                    : styles.segmentBtnText
+                }
+              >
+                Public Trips
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
 
-        {renderFilters()}
-
-        {activeFilter === "UPCOMING" && renderUpcomingTrips()}
-
-        {activeFilter === "PENDING" && renderPendingTrips()}
-
-        {activeFilter === "EXPLORE" && renderExploreTrips()}
-
-        {activeFilter === "HISTORY" && renderHistory()}
+        {mainTab === "MY_TRIPS" ? (
+          <>
+            {renderFilters()}
+            {activeFilter === "UPCOMING" && renderUpcomingTrips()}
+            {activeFilter === "PENDING" && renderPendingTrips()}
+            {activeFilter === "HISTORY" && renderHistory()}
+          </>
+        ) : (
+          renderPublicTripsTab()
+        )}
       </ScrollView>
 
       <TripPrepModal
@@ -1276,5 +1432,100 @@ const styles = StyleSheet.create({
     color: "#B91C1C",
     fontSize: 11,
     fontWeight: "900",
+  },
+  searchSection: {
+    paddingHorizontal: 16,
+    marginBottom: 10,
+  },
+  searchBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: Colors.surfaceContainerLowest,
+    borderRadius: Radius.full,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: Colors.surfaceContainerHigh,
+    ...Shadows.card,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 13,
+    color: Colors.onSurface,
+    padding: 0,
+  },
+  difficultyRow: {
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    flexDirection: "row",
+    gap: 8,
+  },
+  diffChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.surfaceContainer,
+  },
+  diffChipActive: {
+    backgroundColor: Colors.primaryDark,
+  },
+  diffChipText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: Colors.onSurfaceVariant,
+  },
+  diffChipTextActive: {
+    color: "#FFFFFF",
+    fontWeight: "700",
+  },
+  resultCountRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    marginBottom: 12,
+  },
+  resultCountText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: Colors.onSurfaceVariant,
+  },
+  resetFilterText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: Colors.secondary,
+  },
+  leaderCreateBanner: {
+    marginHorizontal: 16,
+    marginBottom: 14,
+    padding: 14,
+    borderRadius: Radius.xl,
+    backgroundColor: Colors.surfaceContainerLowest,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    ...Shadows.card,
+    borderWidth: 1,
+    borderColor: Colors.secondaryContainer,
+  },
+  leaderCreateIconBox: {
+    width: 38,
+    height: 38,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.primaryDark,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+  leaderCreateTitle: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: Colors.onSurface,
+  },
+  leaderCreateSub: {
+    fontSize: 11,
+    color: Colors.onSurfaceVariant,
+    marginTop: 2,
+    lineHeight: 15,
   },
 });
