@@ -1,25 +1,27 @@
-import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  Alert,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { Colors, Radius, Shadows } from '@/constants/theme';
-import { TacticalMap } from '@/components/TacticalMap';
-import { RouteDeviationAlert } from '@/components/RouteDeviationAlert';
 import { CheckpointMissionModal } from '@/components/CheckpointMissionModal';
+import { RouteDeviationAlert } from '@/components/RouteDeviationAlert';
+import { TacticalMap } from '@/components/TacticalMap';
 import { TrekGoLogo } from '@/components/TrekGoLogo';
+import { Colors, Radius, Shadows } from '@/constants/theme';
 import { useApp } from '@/context/AppContext';
 import { Checkpoint } from '@/types';
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import { StatusBar } from "expo-status-bar";
+import { useState } from 'react';
+import {
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export default function NavigationScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const {
     telemetry,
     activeTrail,
@@ -50,7 +52,8 @@ export default function NavigationScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <View style={[styles.safeArea, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+      <StatusBar style="dark" />
       {/* 1. Top HUD Header */}
       <View style={styles.topHudBar}>
         <View style={styles.topHudLeft}>
@@ -259,7 +262,7 @@ export default function NavigationScreen() {
         onClose={() => setActiveCheckpointModal(null)}
         onComplete={cpId => completeCheckpointMission(cpId)}
       />
-    </SafeAreaView>
+    </View>
   );
 }
 

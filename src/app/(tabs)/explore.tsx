@@ -8,7 +8,6 @@ import { Href, useRouter } from "expo-router";
 import { useState } from "react";
 import {
   Image,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -16,6 +15,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function ExploreScreen() {
   const router = useRouter();
@@ -123,6 +123,26 @@ export default function ExploreScreen() {
           </ScrollView>
         </View>
 
+        {/* Public Trips Entry Banner */}
+        <TouchableOpacity
+          style={styles.publicTripsBanner}
+          onPress={() => router.push("/public-trips" as Href)}
+          activeOpacity={0.88}
+        >
+          <View style={styles.publicTripsBannerLeft}>
+            <View style={styles.publicTripsIconBox}>
+              <Ionicons name="compass" size={20} color={Colors.primaryDark} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.publicTripsBannerTitle}>Chuyến đi công khai</Text>
+              <Text style={styles.publicTripsBannerSub}>
+                Khám phá & tham gia các đoàn trekking đang mở chỗ
+              </Text>
+            </View>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={Colors.primaryDark} />
+        </TouchableOpacity>
+
         {/* 2. Main Trail Canvas Card */}
         {!selectedTrail ? (
           <View style={styles.emptyCard}>
@@ -141,6 +161,15 @@ export default function ExploreScreen() {
               >
                 <Ionicons name="add-circle-outline" size={16} color="#FFFFFF" />
                 <Text style={styles.emptyPrimaryCtaText}>Tạo Private Trip</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.emptySecondaryCta}
+                onPress={() => router.push("/public-trips" as Href)}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="compass-outline" size={16} color={Colors.primaryDark} />
+                <Text style={styles.emptySecondaryCtaText}>Public Tours</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -457,10 +486,49 @@ const styles = StyleSheet.create({
   filterPillTextActive: {
     color: Colors.inverseOnSurface,
   },
+  publicTripsBanner: {
+    marginHorizontal: 16,
+    marginTop: 4,
+    marginBottom: 14,
+    padding: 14,
+    borderRadius: Radius.xl,
+    backgroundColor: Colors.surfaceContainerLowest,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    ...Shadows.card,
+    borderWidth: 1,
+    borderColor: Colors.secondaryContainer,
+  },
+  publicTripsBannerLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    flex: 1,
+    marginRight: 8,
+  },
+  publicTripsIconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.secondaryContainer,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  publicTripsBannerTitle: {
+    fontSize: 14,
+    fontWeight: "900",
+    color: Colors.onSurface,
+  },
+  publicTripsBannerSub: {
+    fontSize: 11,
+    color: Colors.mute,
+    marginTop: 2,
+  },
   mainTrailCard: {
     marginHorizontal: 16,
     backgroundColor: Colors.surfaceContainerLowest,
-    borderRadius: Radius.xl, // 24px signature rounded card
+    borderRadius: Radius.xl,
     overflow: "hidden",
     ...Shadows.hover,
     marginBottom: 24,
@@ -803,5 +871,21 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#FFFFFF",
   },
+  emptySecondaryCta: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.surfaceContainerLow,
+    borderWidth: 1,
+    borderColor: Colors.surfaceContainer,
+  },
+  emptySecondaryCtaText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: Colors.primaryDark,
+  },
 });
-
