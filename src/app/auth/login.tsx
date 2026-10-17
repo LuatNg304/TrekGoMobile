@@ -30,8 +30,11 @@ export default function LoginScreen() {
 
     try {
       const loggedUser = await signIn(email, password);
-      if (loggedUser?.role === "LEADER") {
+      const role = loggedUser?.role?.toUpperCase();
+      if (role === "LEADER") {
         router.replace("/trips/leader" as Href);
+      } else if (role === "STAFF_DELIVERY") {
+        router.replace("/(tabs)/rental" as Href);
       } else {
         router.replace("/(tabs)" as Href);
       }

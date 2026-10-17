@@ -1,5 +1,5 @@
 import { StatusBar } from "expo-status-bar";
-import { Stack, useRouter, useSegments } from "expo-router";
+import { type Href, Stack, useRouter, useSegments } from "expo-router";
 import React, { useEffect, useState } from "react";
 import { ActivityIndicator, Platform, StyleSheet, Text, View } from "react-native";
 import * as SQLite from "expo-sqlite";
@@ -56,12 +56,15 @@ function RootNavigator() {
     const isInAuthGroup = segments[0] === "auth";
 
     if (!isAuthenticated && !isInAuthGroup) {
-      router.replace("/auth/login");
+      router.replace("/auth/login" as Href);
     } else if (isAuthenticated && isInAuthGroup) {
-      if (user?.role === "LEADER") {
-        router.replace("/trips/leader");
+      const role = user?.role?.toUpperCase();
+      if (role === "LEADER") {
+        router.replace("/trips/leader" as Href);
+      } else if (role === "STAFF_DELIVERY") {
+        router.replace("/(tabs)/rental" as Href);
       } else {
-        router.replace("/(tabs)");
+        router.replace("/(tabs)" as Href);
       }
     }
   }, [isAuthenticated, isLoading, router, segments, user?.role]);

@@ -48,7 +48,14 @@ function toStoredState(session: AuthSession): StoredAuthState {
 }
 
 function isTrekGoMobileRole(role?: string) {
-  return !role || role === "USER" || role === "LEADER";
+  const normalized = role?.toUpperCase();
+  return (
+    !normalized ||
+    normalized === "USER" ||
+    normalized === "TREKKER" ||
+    normalized === "LEADER" ||
+    normalized === "STAFF_DELIVERY"
+  );
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {

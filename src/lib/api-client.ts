@@ -1,9 +1,6 @@
 import { Platform } from "react-native";
 
-const fallbackApiUrl = Platform.select({
-  android: "http://10.0.2.2:3000",
-  default: "http://127.0.0.1:3000",
-});
+const fallbackApiUrl = "http://192.168.1.7:3000";
 
 export const API_BASE_URL = (
   process.env.EXPO_PUBLIC_API_URL || fallbackApiUrl

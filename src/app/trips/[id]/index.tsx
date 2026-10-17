@@ -105,7 +105,7 @@ export default function TripDetailScreen() {
         for (let i = 0; i < routes.length; i++) {
           const r = routes[i];
           const matched = systemTrails.find(
-            (st) =>
+            (st: any) =>
               st.name.trim().toLowerCase() ===
               r.snapshotName.trim().toLowerCase(),
           );
