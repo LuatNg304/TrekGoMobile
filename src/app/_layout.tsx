@@ -4,11 +4,33 @@ import { AuthProvider, useAuth } from "@/features/auth/AuthContext";
 import { RentalSelectionProvider } from "@/features/rentals/RentalSelectionContext";
 import { Stack, useRouter, useSegments, type Href } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { ActivityIndicator, Platform, StyleSheet, Text, View } from "react-native";
+import * as SQLite from "expo-sqlite";
+import { useDrizzleStudio } from "expo-drizzle-studio-plugin";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-
+import { getDatabase } from "@/services/storage/recordingDatabase";
+import "@/services/location/backgroundLocationTask";
 export default function RootLayout() {
+  const [db, setDb] = useState<SQLite.SQLiteDatabase | null>(null);
+
+  useEffect(() => {
+    getDatabase()
+      .then((database) => {
+        setDb(database);
+        if (__DEV__) {
+          console.log("[SQLite] Drizzle Studio sẵn sàng: http://localhost:8081/_expo/plugins/expo-drizzle-studio-plugin");
+          console.log("[AsyncStorage] DevTools sẵn sàng: http://localhost:8081/_expo/plugins/@dev-plugins/async-storage");
+        }
+      })
+      .catch((err) => {
+        console.warn("[RootLayout] Khởi tạo SQLite cho Drizzle Studio thất bại:", err);
+      });
+  }, []);
+
+  useDrizzleStudio(db);
+  
+
   return (
     <SafeAreaProvider>
       <AuthProvider>
