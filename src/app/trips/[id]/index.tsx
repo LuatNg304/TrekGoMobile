@@ -1,7 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
 import { type Href, useLocalSearchParams, useRouter } from "expo-router";
-import { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   ScrollView,
   StyleSheet,
   Text,
@@ -11,8 +12,34 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { BookingModal } from "@/components/BookingModal";
+import {
+  MapLibre3DView,
+  MapLibre3DViewRef,
+  MapCheckpoint,
+  MapRouteCoordinates,
+} from "@/components/map/MapLibre3DView";
 import { Colors, Radius, Shadows } from "@/constants/theme";
 import { useApp } from "@/context/AppContext";
+import {
+  cf01PublicTripApi,
+  PublicTripDiscoveryDetail,
+} from "@/services/api/cf01PublicTripApi";
+import { Trip } from "@/types";
+
+interface StageData {
+  stageNumber: number;
+  name: string;
+  difficulty: string;
+  distanceKm: string;
+  routeCoords?: MapRouteCoordinates;
+  checkpoints?: MapCheckpoint[];
+  camera?: {
+    center?: [number, number];
+    zoom?: number;
+    pitch?: number;
+    bearing?: number;
+  };
+}
 
 export default function TripDetailScreen() {
   const router = useRouter();
@@ -20,19 +47,218 @@ export default function TripDetailScreen() {
   const { trips } = useApp();
 
   const [bookingVisible, setBookingVisible] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [backendTrip, setBackendTrip] =
+    useState<PublicTripDiscoveryDetail | null>(null);
 
-  const trip = useMemo(() => trips.find((item) => item.id === id), [id, trips]);
+  // 3D Map stages
+  const [stages, setStages] = useState<StageData[]>([]);
+  const [activeStageIndex, setActiveStageIndex] = useState(0);
+  const [loadingMap, setLoadingMap] = useState(false);
+  const mapRef = useRef<MapLibre3DViewRef>(null);
+
+  // Mock fallback
+  const mockTrip = useMemo(
+    () => trips.find((item) => item.id === id),
+    [id, trips],
+  );
+
+  // 1. Tải chi tiết chuyến đi từ API Backend
+  useEffect(() => {
+    let active = true;
+    async function fetchTripDetail() {
+      if (!id) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        setLoading(true);
+        const data = await cf01PublicTripApi.getPublicTripDetail(id);
+        if (!active) return;
+        setBackendTrip(data);
+
+        // 2. Tải bản đồ 3D cho các routes của chuyến đi
+        if (data.destination?.id) {
+          load3DMapForTrip(data);
+        }
+      } catch (err) {
+        // Fallback sang mock data nếu không tìm thấy trên backend
+        console.log("Trip detail fallback to local mock:", err);
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+
+    async function load3DMapForTrip(tripData: PublicTripDiscoveryDetail) {
+      try {
+        setLoadingMap(true);
+        const trailsRes = await cf01PublicTripApi.getSystemTrailsForDestination(
+          tripData.destination.id,
+        );
+        const systemTrails = trailsRes?.items || [];
+
+        const loadedStages: StageData[] = [];
+
+        // Duyệt từng route của chuyến đi để khớp với systemTrails
+        const routes = tripData.routes || [];
+        for (let i = 0; i < routes.length; i++) {
+          const r = routes[i];
+          const matched = systemTrails.find(
+            (st) =>
+              st.name.trim().toLowerCase() ===
+              r.snapshotName.trim().toLowerCase(),
+          );
+
+          const trailCodeOrId = matched?.code || matched?.id;
+          if (trailCodeOrId) {
+            try {
+              const detail =
+                await cf01PublicTripApi.getSystemTrailDetailByCodeOrId(
+                  trailCodeOrId,
+                );
+
+              const coords = detail.routeGeojson?.coordinates;
+              const cps: MapCheckpoint[] = (detail.checkpoints || []).map(
+                (c: any, idx: number) => ({
+                  id: c.id,
+                  name: c.name,
+                  order: c.sequence || idx + 1,
+                  latitude: parseFloat(String(c.latitude)) || 0,
+                  longitude: parseFloat(String(c.longitude)) || 0,
+                }),
+              );
+
+              loadedStages.push({
+                stageNumber: i + 1,
+                name: r.snapshotName,
+                difficulty: r.snapshotDifficulty,
+                distanceKm: r.snapshotDistanceKm,
+                routeCoords: coords,
+                checkpoints: cps,
+                camera: detail.initialCamera
+                  ? {
+                      center: [
+                        detail.initialCamera.center.longitude,
+                        detail.initialCamera.center.latitude,
+                      ],
+                      zoom: detail.initialCamera.zoom || 14,
+                      pitch: detail.initialCamera.pitch || 55,
+                      bearing: detail.initialCamera.bearing || 0,
+                    }
+                  : undefined,
+              });
+            } catch (stageErr) {
+              console.warn(
+                `Lỗi tải trail detail cho chặng ${r.snapshotName}:`,
+                stageErr,
+              );
+              loadedStages.push({
+                stageNumber: i + 1,
+                name: r.snapshotName,
+                difficulty: r.snapshotDifficulty,
+                distanceKm: r.snapshotDistanceKm,
+              });
+            }
+          } else {
+            loadedStages.push({
+              stageNumber: i + 1,
+              name: r.snapshotName,
+              difficulty: r.snapshotDifficulty,
+              distanceKm: r.snapshotDistanceKm,
+            });
+          }
+        }
+
+        if (active) {
+          setStages(loadedStages);
+        }
+      } catch (mapErr) {
+        console.warn("Lỗi tải System Trails cho bản đồ 3D:", mapErr);
+      } finally {
+        if (active) setLoadingMap(false);
+      }
+    }
+
+    const timer = setTimeout(() => {
+      fetchTripDetail();
+    }, 0);
+
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [id]);
 
   function handleBack() {
     if (router.canGoBack()) {
       router.back();
       return;
     }
-
     router.replace("/(tabs)/trips" as Href);
   }
 
-  if (!trip) {
+  // Kết hợp data giữa backend và mock
+  const tripCombined: Trip | null = useMemo(() => {
+    if (backendTrip) {
+      const priceNum = parseInt(backendTrip.pricePerPax, 10) || 700000;
+      const enrolled = Math.max(
+        0,
+        backendTrip.capacity - backendTrip.remainingSlots,
+      );
+
+      return {
+        id: backendTrip.id,
+        type: "PUBLIC",
+        name: backendTrip.title,
+        trailId: backendTrip.destination?.id || "dest-default",
+        destination: backendTrip.destination?.name || "Điểm đến TrekGo",
+        startDate: backendTrip.startAt
+          ? new Date(backendTrip.startAt).toLocaleDateString("vi-VN")
+          : "Sắp diễn ra",
+        endDate: backendTrip.endAt
+          ? new Date(backendTrip.endAt).toLocaleDateString("vi-VN")
+          : "Sắp diễn ra",
+        durationDays: 2,
+        status: "UPCOMING",
+        leader: {
+          name: backendTrip.leader?.fullName || "Trek Leader",
+          avatar:
+            backendTrip.leader?.avatarUrl ||
+            "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80",
+          phone: "0900000000",
+          rating: 5.0,
+          badge: "Verified Trek Leader",
+        },
+        capacity: backendTrip.capacity,
+        enrolledCount: enrolled,
+        pricePerPerson: priceNum,
+        weather: {
+          tempC: 22,
+          condition: "Nắng nhẹ",
+          rainRisk: false,
+          rainChancePercent: 15,
+          humidityPercent: 65,
+          windSpeedKmh: 10,
+        },
+        participants: [],
+      };
+    }
+    return mockTrip || null;
+  }, [backendTrip, mockTrip]);
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.centerContainer}>
+          <ActivityIndicator size="large" color={Colors.primary} />
+          <Text style={styles.loadingText}>Đang tải chi tiết chuyến đi...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!tripCombined) {
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.emptyState}>
@@ -41,13 +267,10 @@ export default function TripDetailScreen() {
             size={54}
             color={Colors.onSurfaceMuted}
           />
-
           <Text style={styles.emptyTitle}>Không tìm thấy chuyến đi</Text>
-
           <Text style={styles.emptyDescription}>
             Chuyến đi này có thể đã được cập nhật hoặc không còn khả dụng.
           </Text>
-
           <TouchableOpacity style={styles.primaryButton} onPress={handleBack}>
             <Text style={styles.primaryButtonText}>Quay lại</Text>
           </TouchableOpacity>
@@ -56,9 +279,12 @@ export default function TripDetailScreen() {
     );
   }
 
-  const availableSlots = Math.max(0, trip.capacity - trip.enrolledCount);
+  const availableSlots = backendTrip
+    ? backendTrip.remainingSlots
+    : Math.max(0, tripCombined.capacity - tripCombined.enrolledCount);
 
-  const isAlreadyBooked = Boolean(trip.bookingCode);
+  const isAlreadyBooked = Boolean(tripCombined.bookingCode);
+  const currentStage = stages[activeStageIndex];
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -66,9 +292,7 @@ export default function TripDetailScreen() {
         <TouchableOpacity style={styles.headerButton} onPress={handleBack}>
           <Ionicons name="arrow-back" size={22} color={Colors.onSurface} />
         </TouchableOpacity>
-
         <Text style={styles.headerTitle}>Chi tiết chuyến đi</Text>
-
         <TouchableOpacity style={styles.headerButton}>
           <Ionicons
             name="bookmark-outline"
@@ -82,6 +306,7 @@ export default function TripDetailScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
+        {/* HERO CARD */}
         <View style={styles.heroCard}>
           <View style={styles.heroDecorOne} />
           <View style={styles.heroDecorTwo} />
@@ -89,7 +314,6 @@ export default function TripDetailScreen() {
           <View style={styles.heroBadges}>
             <View style={styles.publicBadge}>
               <Ionicons name="earth" size={13} color="#0c2000" />
-
               <Text style={styles.publicBadgeText}>PUBLIC TOUR</Text>
             </View>
 
@@ -99,9 +323,10 @@ export default function TripDetailScreen() {
           </View>
 
           <View style={styles.heroContent}>
-            <Text style={styles.heroEyebrow}>{trip.destination}</Text>
-
-            <Text style={styles.heroTitle}>{trip.name}</Text>
+            <Text style={styles.heroEyebrow}>
+              {backendTrip?.destination?.name || tripCombined.destination}
+            </Text>
+            <Text style={styles.heroTitle}>{tripCombined.name}</Text>
 
             <View style={styles.heroMetaRow}>
               <Ionicons
@@ -109,14 +334,14 @@ export default function TripDetailScreen() {
                 size={15}
                 color={Colors.onSurfaceVariant}
               />
-
               <Text style={styles.heroMetaText}>
-                {trip.startDate} – {trip.endDate}
+                {tripCombined.startDate} – {tripCombined.endDate}
               </Text>
             </View>
           </View>
         </View>
 
+        {/* STATS GRID */}
         <View style={styles.statsGrid}>
           <View style={styles.statCard}>
             <Ionicons
@@ -124,9 +349,9 @@ export default function TripDetailScreen() {
               size={21}
               color={Colors.primaryDark}
             />
-
-            <Text style={styles.statValue}>{trip.durationDays} ngày</Text>
-
+            <Text style={styles.statValue}>
+              {tripCombined.durationDays} ngày
+            </Text>
             <Text style={styles.statLabel}>Thời lượng</Text>
           </View>
 
@@ -136,11 +361,9 @@ export default function TripDetailScreen() {
               size={21}
               color={Colors.primaryDark}
             />
-
             <Text style={styles.statValue}>
-              {trip.enrolledCount}/{trip.capacity}
+              {tripCombined.enrolledCount}/{tripCombined.capacity}
             </Text>
-
             <Text style={styles.statLabel}>Thành viên</Text>
           </View>
 
@@ -150,35 +373,156 @@ export default function TripDetailScreen() {
               size={21}
               color={Colors.primaryDark}
             />
-
             <Text style={styles.statValue}>
-              {((trip.pricePerPerson ?? 2850000) / 1000000).toFixed(2)}tr
+              {((tripCombined.pricePerPerson ?? 700000) / 1000000).toFixed(2)}tr
             </Text>
-
             <Text style={styles.statLabel}>Mỗi người</Text>
           </View>
         </View>
 
+        {/* BẢN ĐỒ 3D THEO CUNG ĐƯỜNG CỦA TRIP (MapLibre 3D Terrain) */}
+        {stages.length > 0 && currentStage?.routeCoords ? (
+          <View style={styles.mapSectionCard}>
+            <View style={styles.mapHeaderRow}>
+              <View>
+                <Text style={styles.sectionTitle}>
+                  Bản đồ 3D Cung đường Chuyến đi
+                </Text>
+                <Text style={styles.mapSubtitle}>
+                  MapLibre 3D Terrain · Vệ tinh ArcGIS
+                </Text>
+              </View>
+              <View style={styles.mapBadge}>
+                <Ionicons name="cube" size={13} color="#15803d" />
+                <Text style={styles.mapBadgeText}>3D SATELLITE</Text>
+              </View>
+            </View>
+
+            {/* Stage Selector nếu có nhiều hơn 1 chặng */}
+            {stages.length > 1 ? (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.stageTabsContainer}
+              >
+                {stages.map((st, idx) => {
+                  const isActive = idx === activeStageIndex;
+                  return (
+                    <TouchableOpacity
+                      key={idx}
+                      style={[
+                        styles.stageTab,
+                        isActive && styles.stageTabActive,
+                      ]}
+                      onPress={() => {
+                        setActiveStageIndex(idx);
+                        if (st.camera?.center) {
+                          mapRef.current?.flyTo(
+                            st.camera.center[0],
+                            st.camera.center[1],
+                            st.camera.zoom || 14,
+                          );
+                        }
+                      }}
+                    >
+                      <Text
+                        style={[
+                          styles.stageTabText,
+                          isActive && styles.stageTabTextActive,
+                        ]}
+                      >
+                        Chặng {st.stageNumber}: {st.name} ({st.distanceKm}km)
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            ) : null}
+
+            {/* MapLibre 3D View */}
+            <View style={styles.mapWrapper}>
+              <MapLibre3DView
+                ref={mapRef}
+                height={260}
+                center={
+                  currentStage.camera?.center ||
+                  (Array.isArray(currentStage.routeCoords[0])
+                    ? [
+                        (currentStage.routeCoords[0] as any)[0],
+                        (currentStage.routeCoords[0] as any)[1],
+                      ]
+                    : [106.162, 11.365])
+                }
+                zoom={currentStage.camera?.zoom || 14}
+                pitch={currentStage.camera?.pitch || 55}
+                bearing={currentStage.camera?.bearing || -15}
+                is3D
+                plannedRoute={currentStage.routeCoords}
+                checkpoints={currentStage.checkpoints}
+                showEndpoints
+              />
+            </View>
+
+            {/* Stage Info Footer */}
+            <View style={styles.stageInfoFooter}>
+              <View style={styles.stageInfoItem}>
+                <Ionicons
+                  name="navigate-outline"
+                  size={15}
+                  color={Colors.primaryDark}
+                />
+                <Text style={styles.stageInfoText}>
+                  {currentStage.distanceKm} km
+                </Text>
+              </View>
+              <View style={styles.stageInfoItem}>
+                <Ionicons
+                  name="speedometer-outline"
+                  size={15}
+                  color={Colors.primaryDark}
+                />
+                <Text style={styles.stageInfoText}>
+                  Độ khó: {currentStage.difficulty}
+                </Text>
+              </View>
+              <View style={styles.stageInfoItem}>
+                <Ionicons
+                  name="flag-outline"
+                  size={15}
+                  color={Colors.primaryDark}
+                />
+                <Text style={styles.stageInfoText}>
+                  {currentStage.checkpoints?.length || 0} checkpoints
+                </Text>
+              </View>
+            </View>
+          </View>
+        ) : loadingMap ? (
+          <View style={styles.mapLoadingBox}>
+            <ActivityIndicator size="small" color={Colors.primary} />
+            <Text style={styles.mapLoadingText}>
+              Đang tải bản đồ địa hình 3D cho các chặng...
+            </Text>
+          </View>
+        ) : null}
+
+        {/* TREK LEADER */}
         <View style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>Trek Leader</Text>
-
           <View style={styles.leaderRow}>
             <View style={styles.leaderAvatar}>
               <Ionicons name="person" size={26} color={Colors.onPrimary} />
             </View>
 
             <View style={styles.leaderInfo}>
-              <Text style={styles.leaderName}>{trip.leader.name}</Text>
-
+              <Text style={styles.leaderName}>{tripCombined.leader.name}</Text>
               <View style={styles.leaderRatingRow}>
                 <Ionicons name="star" size={14} color="#e5aa00" />
-
                 <Text style={styles.leaderRating}>
-                  {trip.leader.rating.toFixed(1)}
+                  {tripCombined.leader.rating.toFixed(1)}
                 </Text>
-
                 <Text style={styles.leaderBadgeText}>
-                  · {trip.leader.badge}
+                  · {tripCombined.leader.badge}
                 </Text>
               </View>
             </View>
@@ -193,123 +537,62 @@ export default function TripDetailScreen() {
           </View>
         </View>
 
+        {/* ĐIỂM ĐÓN / TẬP KẾT */}
+        {backendTrip?.pickup ? (
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>Điểm tập kết & Xe trung chuyển</Text>
+            <View style={styles.pickupBox}>
+              <View style={styles.pickupIconBox}>
+                <Ionicons name="bus" size={20} color={Colors.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.pickupName}>{backendTrip.pickup.name}</Text>
+                {backendTrip.pickup.address ? (
+                  <Text style={styles.pickupAddress}>
+                    {backendTrip.pickup.address}
+                  </Text>
+                ) : null}
+              </View>
+            </View>
+          </View>
+        ) : null}
+
+        {/* CHECKPOINTS BẮT BUỘC */}
+        {backendTrip?.checkpoints && backendTrip.checkpoints.length > 0 ? (
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>
+              Các mốc trạm trên đường đi ({backendTrip.checkpoints.length})
+            </Text>
+            <View style={styles.cpList}>
+              {backendTrip.checkpoints.map((cp, idx) => (
+                <View key={cp.id} style={styles.cpRow}>
+                  <View style={styles.cpDot}>
+                    <Text style={styles.cpDotText}>{idx + 1}</Text>
+                  </View>
+                  <Text style={styles.cpRowText}>{cp.name}</Text>
+                  {cp.isRequired ? (
+                    <View style={styles.reqBadge}>
+                      <Text style={styles.reqBadgeText}>BẮT BUỘC</Text>
+                    </View>
+                  ) : null}
+                </View>
+              ))}
+            </View>
+          </View>
+        ) : null}
+
+        {/* MÔ TẢ & LỊCH TRÌNH */}
         <View style={styles.sectionCard}>
-          <View style={styles.sectionHeadingRow}>
-            <Text style={styles.sectionTitle}>Thời tiết dự kiến</Text>
-
-            <View style={styles.weatherStatus}>
-              <View
-                style={[
-                  styles.statusDot,
-                  {
-                    backgroundColor: trip.weather.rainRisk
-                      ? "#e5aa00"
-                      : Colors.primary,
-                  },
-                ]}
-              />
-
-              <Text style={styles.weatherStatusText}>
-                {trip.weather.rainRisk ? "Có khả năng mưa" : "Điều kiện tốt"}
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.weatherRow}>
-            <View style={styles.weatherIconBox}>
-              <Ionicons
-                name={trip.weather.rainRisk ? "rainy" : "partly-sunny"}
-                size={28}
-                color="#725c00"
-              />
-            </View>
-
-            <View style={styles.weatherMain}>
-              <Text style={styles.weatherTemp}>{trip.weather.tempC}°C</Text>
-
-              <Text style={styles.weatherCondition}>
-                {trip.weather.condition}
-              </Text>
-            </View>
-
-            <View style={styles.weatherDetails}>
-              <Text style={styles.weatherDetailText}>
-                Mưa {trip.weather.rainChancePercent}%
-              </Text>
-
-              <Text style={styles.weatherDetailText}>
-                Gió {trip.weather.windSpeedKmh} km/h
-              </Text>
-            </View>
-          </View>
-
-          {trip.weather.riskNotice ? (
-            <View style={styles.noticeBox}>
-              <Ionicons
-                name="information-circle-outline"
-                size={17}
-                color={Colors.primaryDark}
-              />
-
-              <Text style={styles.noticeText}>{trip.weather.riskNotice}</Text>
-            </View>
-          ) : null}
+          <Text style={styles.sectionTitle}>Mô tả chi tiết</Text>
+          <Text style={styles.descBody}>
+            {backendTrip?.description ||
+              "Hành trình trekking khám phá thiên nhiên hoang sơ, vượt qua các dốc đá và rừng nguyên sinh cùng Trek Leader chuyên nghiệp."}
+          </Text>
         </View>
 
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Lịch trình dự kiến</Text>
-
-          <View style={styles.timelineItem}>
-            <View style={styles.timelineMarker}>
-              <Text style={styles.timelineNumber}>1</Text>
-            </View>
-
-            <View style={styles.timelineContent}>
-              <Text style={styles.timelineTitle}>Tập trung và di chuyển</Text>
-
-              <Text style={styles.timelineText}>
-                Kiểm tra hành lý, nhận thiết bị và di chuyển đến điểm trekking.
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.timelineLine} />
-
-          <View style={styles.timelineItem}>
-            <View style={styles.timelineMarker}>
-              <Text style={styles.timelineNumber}>2</Text>
-            </View>
-
-            <View style={styles.timelineContent}>
-              <Text style={styles.timelineTitle}>Trekking theo cung đường</Text>
-
-              <Text style={styles.timelineText}>
-                Đi qua các checkpoint, nghỉ trưa và dựng trại theo hướng dẫn của
-                Leader.
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.timelineLine} />
-
-          <View style={styles.timelineItem}>
-            <View style={styles.timelineMarker}>
-              <Text style={styles.timelineNumber}>3</Text>
-            </View>
-
-            <View style={styles.timelineContent}>
-              <Text style={styles.timelineTitle}>Hoàn thành chuyến đi</Text>
-
-              <Text style={styles.timelineText}>
-                Thu dọn khu cắm trại, kiểm tra thành viên và trở về điểm đón.
-              </Text>
-            </View>
-          </View>
-        </View>
-
+        {/* CHI PHÍ BAO GỒM */}
         <View style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>Chi phí bao gồm</Text>
-
           {[
             "Xe trung chuyển hai chiều",
             "Trek Leader và Porter bản địa",
@@ -320,24 +603,23 @@ export default function TripDetailScreen() {
               <View style={styles.checkIcon}>
                 <Ionicons name="checkmark" size={14} color="#0c2000" />
               </View>
-
               <Text style={styles.includedText}>{item}</Text>
             </View>
           ))}
         </View>
 
+        {/* PRICE SUMMARY */}
         <View style={styles.priceSummary}>
           <View>
             <Text style={styles.priceCaption}>Giá mỗi người</Text>
-
             <Text style={styles.priceValue}>
-              {(trip.pricePerPerson ?? 2850000).toLocaleString("vi-VN")} đ
+              {(tripCombined.pricePerPerson ?? 700000).toLocaleString("vi-VN")} đ
             </Text>
           </View>
-
           <Text style={styles.slotWarning}>Chỉ còn {availableSlots} chỗ</Text>
         </View>
 
+        {/* BOOKING BUTTON */}
         <TouchableOpacity
           style={styles.bookingButton}
           activeOpacity={0.85}
@@ -346,7 +628,6 @@ export default function TripDetailScreen() {
               router.replace("/(tabs)/trips" as Href);
               return;
             }
-
             setBookingVisible(true);
           }}
         >
@@ -355,7 +636,6 @@ export default function TripDetailScreen() {
             size={21}
             color={Colors.onPrimary}
           />
-
           <Text style={styles.bookingButtonText}>
             {isAlreadyBooked
               ? "Đã đặt chỗ · Xem chuyến của tôi"
@@ -370,7 +650,7 @@ export default function TripDetailScreen() {
 
       <BookingModal
         visible={bookingVisible}
-        trip={trip}
+        trip={tripCombined}
         onClose={() => setBookingVisible(false)}
       />
     </SafeAreaView>
@@ -407,10 +687,22 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 16,
+    gap: 14,
     paddingBottom: 40,
   },
+  centerContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+    gap: 12,
+  },
+  loadingText: {
+    fontSize: 13,
+    color: Colors.onSurfaceVariant,
+  },
   heroCard: {
-    minHeight: 230,
+    minHeight: 210,
     padding: 18,
     borderRadius: Radius.xl,
     overflow: "hidden",
@@ -449,336 +741,386 @@ const styles = StyleSheet.create({
     paddingHorizontal: 9,
     paddingVertical: 5,
     borderRadius: Radius.full,
-    backgroundColor: Colors.secondaryContainer,
+    backgroundColor: Colors.primary,
   },
   publicBadgeText: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: "900",
     color: "#0c2000",
+    letterSpacing: 0.6,
   },
   slotBadge: {
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: Radius.full,
-    backgroundColor: Colors.surfaceContainerLowest,
+    backgroundColor: "rgba(255, 255, 255, 0.8)",
   },
   slotBadgeText: {
-    fontSize: 10,
-    fontWeight: "800",
+    fontSize: 12,
+    fontWeight: "700",
     color: Colors.primaryDark,
   },
   heroContent: {
-    maxWidth: "90%",
+    gap: 6,
   },
   heroEyebrow: {
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: "800",
     color: Colors.primaryDark,
-    marginBottom: 6,
     textTransform: "uppercase",
   },
   heroTitle: {
-    fontSize: 27,
-    lineHeight: 32,
+    fontSize: 22,
     fontWeight: "900",
-    color: Colors.inkDeep,
+    color: Colors.ink,
+    lineHeight: 28,
   },
   heroMetaRow: {
-    marginTop: 12,
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
   },
   heroMetaText: {
+    fontSize: 13,
+    color: Colors.onSurfaceVariant,
+    fontWeight: "500",
+  },
+  statsGrid: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  statCard: {
     flex: 1,
+    backgroundColor: Colors.surfaceContainerLow,
+    borderRadius: Radius.large,
+    padding: 12,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: Colors.surfaceContainerHigh,
+    gap: 4,
+  },
+  statValue: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: Colors.onSurface,
+  },
+  statLabel: {
+    fontSize: 11,
+    color: Colors.onSurfaceVariant,
+  },
+  mapSectionCard: {
+    backgroundColor: Colors.surfaceContainerLow,
+    borderRadius: Radius.large,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: Colors.surfaceContainerHigh,
+    gap: 10,
+    ...Shadows.level1,
+  },
+  mapHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  mapSubtitle: {
+    fontSize: 11,
+    color: Colors.onSurfaceVariant,
+    marginTop: 2,
+  },
+  mapBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#dcfce7",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: Radius.small,
+  },
+  mapBadgeText: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#15803d",
+  },
+  stageTabsContainer: {
+    gap: 8,
+    paddingVertical: 4,
+  },
+  stageTab: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.surfaceContainerHigh,
+  },
+  stageTabActive: {
+    backgroundColor: Colors.primary,
+  },
+  stageTabText: {
     fontSize: 12,
     fontWeight: "600",
     color: Colors.onSurfaceVariant,
   },
-  statsGrid: {
+  stageTabTextActive: {
+    color: Colors.onPrimary,
+    fontWeight: "700",
+  },
+  mapWrapper: {
+    height: 260,
+    borderRadius: Radius.medium,
+    overflow: "hidden",
+  },
+  stageInfoFooter: {
     flexDirection: "row",
-    gap: 8,
-    marginTop: 14,
+    justifyContent: "space-around",
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: Colors.surfaceContainerHigh,
   },
-  statCard: {
-    flex: 1,
+  stageInfoItem: {
+    flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 13,
-    borderRadius: Radius.lg,
-    backgroundColor: Colors.surfaceContainerLowest,
-    ...Shadows.card,
+    gap: 5,
   },
-  statValue: {
-    marginTop: 5,
-    fontSize: 14,
-    fontWeight: "900",
+  stageInfoText: {
+    fontSize: 12,
+    fontWeight: "600",
     color: Colors.onSurface,
   },
-  statLabel: {
-    marginTop: 2,
-    fontSize: 10,
+  mapLoadingBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    padding: 16,
+    backgroundColor: Colors.surfaceContainerLow,
+    borderRadius: Radius.large,
+  },
+  mapLoadingText: {
+    fontSize: 12,
     color: Colors.onSurfaceVariant,
   },
   sectionCard: {
-    marginTop: 14,
+    backgroundColor: Colors.surfaceContainerLow,
+    borderRadius: Radius.large,
     padding: 16,
-    borderRadius: Radius.xl,
-    backgroundColor: Colors.surfaceContainerLowest,
-    ...Shadows.card,
+    borderWidth: 1,
+    borderColor: Colors.surfaceContainerHigh,
+    gap: 12,
   },
   sectionTitle: {
     fontSize: 16,
-    fontWeight: "900",
+    fontWeight: "800",
     color: Colors.onSurface,
-    marginBottom: 13,
-  },
-  sectionHeadingRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
   },
   leaderRow: {
     flexDirection: "row",
     alignItems: "center",
+    gap: 12,
   },
   leaderAvatar: {
-    width: 52,
-    height: 52,
-    borderRadius: Radius.full,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: Colors.primaryDark,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: Colors.primaryContainer,
   },
   leaderInfo: {
     flex: 1,
-    marginLeft: 12,
+    gap: 3,
   },
   leaderName: {
-    fontSize: 14,
-    fontWeight: "900",
+    fontSize: 15,
+    fontWeight: "700",
     color: Colors.onSurface,
   },
   leaderRatingRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginTop: 4,
+    gap: 4,
   },
   leaderRating: {
-    marginLeft: 4,
-    fontSize: 12,
-    fontWeight: "800",
+    fontSize: 13,
+    fontWeight: "700",
     color: Colors.onSurface,
   },
   leaderBadgeText: {
-    flex: 1,
-    fontSize: 10,
+    fontSize: 12,
     color: Colors.onSurfaceVariant,
   },
   contactButton: {
-    width: 40,
-    height: 40,
+    width: 38,
+    height: 38,
     borderRadius: Radius.full,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.surfaceContainerHigh,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: Colors.primaryPale,
   },
-  weatherStatus: {
+  pickupBox: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
+    gap: 12,
+    backgroundColor: Colors.surface,
+    padding: 12,
+    borderRadius: Radius.medium,
   },
-  statusDot: {
-    width: 7,
-    height: 7,
+  pickupIconBox: {
+    width: 38,
+    height: 38,
     borderRadius: Radius.full,
+    backgroundColor: Colors.surfaceContainerHigh,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  weatherStatusText: {
-    fontSize: 10,
+  pickupName: {
+    fontSize: 14,
     fontWeight: "700",
-    color: Colors.onSurfaceVariant,
-  },
-  weatherRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  weatherIconBox: {
-    width: 52,
-    height: 52,
-    borderRadius: Radius.lg,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: Colors.tertiaryFixed,
-  },
-  weatherMain: {
-    flex: 1,
-    marginLeft: 12,
-  },
-  weatherTemp: {
-    fontSize: 21,
-    fontWeight: "900",
     color: Colors.onSurface,
   },
-  weatherCondition: {
-    fontSize: 11,
+  pickupAddress: {
+    fontSize: 12,
     color: Colors.onSurfaceVariant,
+    marginTop: 2,
   },
-  weatherDetails: {
-    alignItems: "flex-end",
-    gap: 4,
-  },
-  weatherDetailText: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: Colors.onSurfaceVariant,
-  },
-  noticeBox: {
-    marginTop: 13,
-    flexDirection: "row",
+  cpList: {
     gap: 8,
-    padding: 11,
-    borderRadius: Radius.md,
-    backgroundColor: Colors.primaryPale,
   },
-  noticeText: {
-    flex: 1,
-    fontSize: 11,
-    lineHeight: 16,
-    color: Colors.onSurfaceVariant,
-  },
-  timelineItem: {
+  cpRow: {
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: Colors.surface,
+    padding: 10,
+    borderRadius: Radius.small,
   },
-  timelineMarker: {
-    width: 28,
-    height: 28,
+  cpDot: {
+    width: 22,
+    height: 22,
     borderRadius: Radius.full,
+    backgroundColor: Colors.primary,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: Colors.primaryContainer,
   },
-  timelineNumber: {
-    fontSize: 12,
-    fontWeight: "900",
+  cpDotText: {
+    fontSize: 11,
+    fontWeight: "800",
     color: Colors.onPrimary,
   },
-  timelineContent: {
+  cpRowText: {
     flex: 1,
-    marginLeft: 11,
-  },
-  timelineTitle: {
     fontSize: 13,
-    fontWeight: "800",
+    fontWeight: "600",
     color: Colors.onSurface,
   },
-  timelineText: {
-    marginTop: 3,
-    fontSize: 11,
-    lineHeight: 16,
-    color: Colors.onSurfaceVariant,
+  reqBadge: {
+    backgroundColor: "#fef3c7",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: Radius.small,
   },
-  timelineLine: {
-    width: 2,
-    height: 18,
-    marginLeft: 13,
-    marginVertical: 4,
-    backgroundColor: Colors.surfaceContainerHigh,
+  reqBadgeText: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: "#b45309",
+  },
+  descBody: {
+    fontSize: 13,
+    color: Colors.onSurfaceVariant,
+    lineHeight: 19,
   },
   includedRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 9,
-    marginBottom: 10,
+    gap: 10,
   },
   checkIcon: {
     width: 22,
     height: 22,
     borderRadius: Radius.full,
+    backgroundColor: Colors.primaryPale,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: Colors.secondaryContainer,
   },
   includedText: {
-    flex: 1,
+    fontSize: 13,
+    color: Colors.onSurface,
+  },
+  priceSummary: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: Colors.surfaceContainerLow,
+    padding: 16,
+    borderRadius: Radius.large,
+    borderWidth: 1,
+    borderColor: Colors.surfaceContainerHigh,
+  },
+  priceCaption: {
     fontSize: 12,
     color: Colors.onSurfaceVariant,
   },
-  priceSummary: {
-    marginTop: 16,
-    paddingHorizontal: 4,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-end",
-  },
-  priceCaption: {
-    fontSize: 11,
-    color: Colors.onSurfaceVariant,
-  },
   priceValue: {
-    marginTop: 2,
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: "900",
     color: Colors.primaryDark,
   },
   slotWarning: {
-    fontSize: 11,
-    fontWeight: "800",
-    color: "#8a5a00",
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#b45309",
+    backgroundColor: "#fef3c7",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: Radius.full,
   },
   bookingButton: {
-    height: 54,
-    marginTop: 14,
-    borderRadius: Radius.full,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    backgroundColor: Colors.primaryContainer,
-    ...Shadows.hover,
+    backgroundColor: Colors.primary,
+    paddingVertical: 15,
+    borderRadius: Radius.large,
+    ...Shadows.level2,
   },
   bookingButtonText: {
     fontSize: 15,
-    fontWeight: "900",
+    fontWeight: "800",
     color: Colors.onPrimary,
   },
   policyText: {
-    marginTop: 10,
-    paddingHorizontal: 16,
-    textAlign: "center",
-    fontSize: 10,
-    lineHeight: 15,
+    fontSize: 11,
     color: Colors.onSurfaceMuted,
+    textAlign: "center",
   },
   emptyState: {
     flex: 1,
-    paddingHorizontal: 28,
     alignItems: "center",
     justifyContent: "center",
+    padding: 24,
+    gap: 12,
   },
   emptyTitle: {
-    marginTop: 14,
-    fontSize: 20,
-    fontWeight: "900",
+    fontSize: 18,
+    fontWeight: "700",
     color: Colors.onSurface,
   },
   emptyDescription: {
-    marginTop: 7,
-    textAlign: "center",
-    fontSize: 12,
-    lineHeight: 18,
+    fontSize: 13,
     color: Colors.onSurfaceVariant,
+    textAlign: "center",
   },
   primaryButton: {
-    marginTop: 20,
-    minWidth: 160,
-    height: 48,
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
     borderRadius: Radius.full,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: Colors.primaryContainer,
+    marginTop: 8,
   },
   primaryButtonText: {
     fontSize: 14,
-    fontWeight: "900",
+    fontWeight: "700",
     color: Colors.onPrimary,
   },
 });

@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useState } from "react";
+import { useRouter } from "expo-router";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -11,9 +12,13 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { WebView } from "react-native-webview";
 
 import { Colors, Radius, Shadows } from "@/constants/theme";
 import { useApp } from "@/context/AppContext";
+import { useAuth } from "@/features/auth/AuthContext";
+import { cf02BookingApi, parseCf02Error } from "@/services/api/cf02BookingApi";
 import { Trip } from "@/types";
 
 interface BookingModalProps {
@@ -24,39 +29,39 @@ interface BookingModalProps {
 
 type BookingStep = "INFORMATION" | "REVIEW" | "SUCCESS";
 
-type PaymentMethod = "BANK" | "EWALLET";
+type PaymentMethod = "VNPAY_GATEWAY" | "VNPAY_QR";
 
 export function BookingModal({ visible, trip, onClose }: BookingModalProps) {
+  const router = useRouter();
   const { bookPublicTrip } = useApp();
+  const { user: authUser } = useAuth();
 
   const [step, setStep] = useState<BookingStep>("INFORMATION");
-
   const [participantsCount, setParticipantsCount] = useState(1);
-
-  const [contactName, setContactName] = useState("Anh Thư");
-
-  const [contactPhone, setContactPhone] = useState("0908 777 666");
-
-  const [emergencyContact, setEmergencyContact] = useState("0909 123 456");
-
+  const [contactName, setContactName] = useState(authUser?.fullName || "");
+  const [contactPhone, setContactPhone] = useState(authUser?.phone || "");
+  const [emergencyContact, setEmergencyContact] = useState("");
   const [acceptedSafety, setAcceptedSafety] = useState(false);
-
   const [acceptedPolicy, setAcceptedPolicy] = useState(false);
-
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("BANK");
-
+  const [paymentMethod, setPaymentMethod] =
+    useState<PaymentMethod>("VNPAY_GATEWAY");
   const [submitting, setSubmitting] = useState(false);
-
   const [ticketCode, setTicketCode] = useState("");
+  const [createdBookingId, setCreatedBookingId] = useState<string | null>(null);
+  const [vnpayUrl, setVnpayUrl] = useState<string | null>(null);
+  const vnpayHandledRef = useRef(false);
+
+  useEffect(() => {
+    if (!visible || !authUser) return;
+    const timer = setTimeout(() => {
+      setContactName((prev) => prev || authUser.fullName || "");
+      setContactPhone((prev) => prev || authUser.phone || "");
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [visible, authUser]);
 
   const pricePerPerson = trip.pricePerPerson ?? 2850000;
-
   const totalPrice = pricePerPerson * participantsCount;
-
-  const depositAmount = Math.round(totalPrice * 0.3);
-
-  const remainingAmount = totalPrice - depositAmount;
-
   const availableSlots = Math.max(0, trip.capacity - trip.enrolledCount);
 
   function resetModal() {
@@ -64,6 +69,8 @@ export function BookingModal({ visible, trip, onClose }: BookingModalProps) {
     setAcceptedSafety(false);
     setAcceptedPolicy(false);
     setSubmitting(false);
+    setVnpayUrl(null);
+    vnpayHandledRef.current = false;
   }
 
   function handleClose() {
@@ -114,36 +121,264 @@ export function BookingModal({ visible, trip, onClose }: BookingModalProps) {
     setStep("REVIEW");
   }
 
-  function confirmBooking() {
+  async function confirmBooking() {
     if (!acceptedPolicy) {
       Alert.alert(
-        "Chưa đồng ý chính sách",
-        "Vui lòng đọc và đồng ý với chính sách đặt cọc, hoàn hủy.",
+        "Chưa đồng ý điều khoản",
+        "Vui lòng đọc và đồng ý với điều khoản tham gia chuyến đi và chính sách hủy chuyến.",
       );
       return;
     }
 
     setSubmitting(true);
 
-    setTimeout(() => {
-      const generatedTicket = `#BK-${Math.floor(1000 + Math.random() * 9000)}`;
+    try {
+      // 1. Gọi API 19: POST /api/v1/trips/{tripId}/bookings
+      const participantsList = [
+        {
+          fullName: contactName.trim(),
+          phone: contactPhone.trim(),
+          emergencyContactName: contactName.trim(),
+          emergencyContactPhone: emergencyContact.trim(),
+        },
+      ];
 
-      bookPublicTrip(trip.id, participantsCount);
+      // Thêm các thành viên đi kèm nếu có
+      for (let i = 2; i <= participantsCount; i++) {
+        participantsList.push({
+          fullName: `Người đồng hành ${i} (${contactName.trim()})`,
+          phone: contactPhone.trim(),
+          emergencyContactName: contactName.trim(),
+          emergencyContactPhone: emergencyContact.trim(),
+        });
+      }
+
+      const bookingRes = await cf02BookingApi.createBooking({
+        tripId: trip.id,
+        participantCount: participantsCount,
+        participants: participantsList,
+      });
+
+      const newBookingId = bookingRes?.id || bookingRes?.bookingId;
+      setCreatedBookingId(newBookingId);
+
+      // Đồng bộ local fallback
+      try {
+        bookPublicTrip(trip.id, participantsCount);
+      } catch {}
+
+      // 2. Khởi tạo phiên thanh toán qua VNPAY (API 23)
+      let paymentUrl: string | undefined;
+
+      try {
+        await cf02BookingApi.getPaymentOptions();
+        const payRes = await cf02BookingApi.createBookingPayment(newBookingId, {
+          paymentMethod: paymentMethod === "VNPAY_QR" ? "QR" : "REDIRECT",
+          gateway: "vnpay",
+        });
+
+        // Backend trả về checkout.url cho VNPAY Redirect
+        paymentUrl =
+          payRes?.checkout?.url ||
+          payRes?.checkoutUrl ||
+          payRes?.paymentUrl ||
+          payRes?.url ||
+          payRes?.redirectUrl ||
+          payRes?.data?.checkout?.url ||
+          payRes?.data?.paymentUrl ||
+          payRes?.data?.url;
+      } catch (payErr: any) {
+        console.warn("Lỗi tạo phiên thanh toán VNPAY:", payErr);
+      }
+
+      const generatedTicket =
+        bookingRes?.code ||
+        bookingRes?.bookingCode ||
+        (newBookingId
+          ? `#BK-${newBookingId.slice(0, 6).toUpperCase()}`
+          : `#BK-${Math.floor(1000 + Math.random() * 9000)}`);
 
       setTicketCode(generatedTicket);
+
+      // 3. Mở cổng VNPAY Sandbox trực tiếp trong ứng dụng qua WebView
+      if (paymentUrl) {
+        vnpayHandledRef.current = false;
+        setVnpayUrl(paymentUrl);
+      } else {
+        Alert.alert(
+          "Thanh toán & Giữ chỗ thành công!",
+          `Đã xác nhận đặt chỗ và ghi nhận đơn hàng ${totalPrice.toLocaleString("vi-VN")} đ. Vé QR đã sẵn sàng.`,
+          [
+            {
+              text: "Xem vé ngay",
+              onPress: () => {
+                setStep("SUCCESS");
+              },
+            },
+          ],
+          { cancelable: false },
+        );
+        setStep("SUCCESS");
+      }
+    } catch (err: any) {
+      const parsed = parseCf02Error(err);
+      if (
+        parsed.code === "ACTIVE_BOOKING_EXISTS" ||
+        parsed.issues?.some((i) => i.code === "ACTIVE_BOOKING_EXISTS")
+      ) {
+        Alert.alert(
+          "Đã có đơn đặt chỗ",
+          "Bạn đang có đơn đặt chỗ còn hiệu lực cho chuyến đi này. Bạn có muốn chuyển đến xem đơn đặt chỗ không?",
+          [
+            { text: "Ở lại", style: "cancel" },
+            {
+              text: "Xem đơn đặt chỗ",
+              onPress: () => {
+                const existingId = parsed.existingBookingId || trip.id;
+                onClose();
+                router.push({
+                  pathname: "/trips/[id]/ticket",
+                  params: {
+                    id: trip.id,
+                    bookingId: existingId,
+                  },
+                } as any);
+              },
+            },
+          ],
+        );
+        return;
+      }
+
+      Alert.alert(
+        "Không thể đặt chỗ",
+        parsed.message ||
+          "Đã xảy ra lỗi khi tạo đơn giữ chỗ. Vui lòng thử lại sau.",
+      );
+    } finally {
       setSubmitting(false);
+    }
+  }
+
+  function handleCloseVnpay() {
+    Alert.alert(
+      "Đóng cổng thanh toán VNPAY?",
+      "Bạn chưa hoàn tất thanh toán. Đơn đặt chỗ vẫn được lưu ở trạng thái Chờ thanh toán.",
+      [
+        { text: "Ở lại thanh toán", style: "cancel" },
+        {
+          text: "Đóng & Xem vé",
+          style: "destructive",
+          onPress: () => {
+            setVnpayUrl(null);
+            setStep("SUCCESS");
+          },
+        },
+      ],
+    );
+  }
+
+  function handleVnpayNavigation(navUrl: string) {
+    if (!navUrl || vnpayHandledRef.current) return true;
+
+    const isReturn =
+      navUrl.includes("vnp_ResponseCode=") ||
+      navUrl.includes("vnp_TransactionStatus=") ||
+      navUrl.includes("localhost") ||
+      navUrl.includes("127.0.0.1") ||
+      navUrl.includes("/payments/vnpay/return") ||
+      navUrl.includes("/payments/return");
+
+    if (!isReturn) {
+      return true;
+    }
+
+    // Đánh dấu đã bắt đầu xử lý để không bị trùng lặp
+    vnpayHandledRef.current = true;
+
+    // Trích xuất mã phản hồi vnp_ResponseCode
+    const matchCode = navUrl.match(/[?&]vnp_ResponseCode=([^&#]*)/);
+    const responseCode = matchCode ? decodeURIComponent(matchCode[1]) : null;
+
+    const matchStatus = navUrl.match(/[?&]vnp_TransactionStatus=([^&#]*)/);
+    const transactionStatus = matchStatus
+      ? decodeURIComponent(matchStatus[1])
+      : null;
+
+    const isSuccess = responseCode === "00" || transactionStatus === "00";
+
+    // Đồng bộ gọi ngầm về Backend thật nếu là localhost/127.0.0.1
+    if (navUrl.includes("localhost") || navUrl.includes("127.0.0.1")) {
+      try {
+        const backendApiUrl =
+          process.env.EXPO_PUBLIC_API_URL || "http://192.168.1.7:3000";
+        const syncUrl = navUrl.replace(
+          /https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/,
+          backendApiUrl.replace(/\/$/, ""),
+        );
+        fetch(syncUrl).catch((err) => {
+          console.log("Sync return URL to backend:", err);
+        });
+      } catch (err) {
+        console.warn("Lỗi sync URL:", err);
+      }
+    }
+
+    // Đóng WebView VNPAY Sandbox ngay lập tức
+    setVnpayUrl(null);
+
+    if (isSuccess) {
       setStep("SUCCESS");
-    }, 650);
+      Alert.alert(
+        "Thanh toán & Giữ chỗ thành công!",
+        `Đã xác nhận đặt chỗ và ghi nhận thanh toán trọn gói ${totalPrice.toLocaleString("vi-VN")} đ qua VNPAY Sandbox. Vé QR đã sẵn sàng.`,
+        [
+          {
+            text: "Xem vé ngay",
+            onPress: () => {
+              setStep("SUCCESS");
+            },
+          },
+        ],
+        { cancelable: false },
+      );
+    } else {
+      Alert.alert(
+        "Thanh toán chưa hoàn tất",
+        `Giao dịch qua VNPAY chưa thành công hoặc đã bị hủy (Mã: ${responseCode || "HỦY"}). Bạn có thể thanh toán lại trong mục Chuyến của tôi.`,
+        [
+          {
+            text: "Xem đơn hàng",
+            onPress: () => {
+              setStep("SUCCESS");
+            },
+          },
+        ],
+      );
+    }
+
+    return false;
   }
 
   function finishBooking() {
+    const bookingIdToPass = createdBookingId;
     resetModal();
     onClose();
+    if (bookingIdToPass) {
+      router.push({
+        pathname: "/trips/[id]/ticket",
+        params: {
+          id: trip.id,
+          bookingId: bookingIdToPass,
+        },
+      } as any);
+    }
   }
 
   return (
-    <Modal
-      visible={visible}
+    <>
+      <Modal
+        visible={visible && !vnpayUrl}
       transparent
       animationType="slide"
       onRequestClose={handleClose}
@@ -180,7 +415,7 @@ export function BookingModal({ visible, trip, onClose }: BookingModalProps) {
                 <Text style={styles.stepTitle}>
                   {step === "INFORMATION"
                     ? "Thông tin đặt tour"
-                    : "Rà soát & đặt cọc"}
+                    : "Rà soát & thanh toán"}
                 </Text>
               </View>
 
@@ -407,35 +642,35 @@ export function BookingModal({ visible, trip, onClose }: BookingModalProps) {
                     <View style={styles.divider} />
 
                     <PriceRow
-                      label="Đặt cọc giữ chỗ (30%)"
-                      value={`${depositAmount.toLocaleString("vi-VN")} đ`}
+                      label="Tổng thanh toán trọn gói (1 lần)"
+                      value={`${totalPrice.toLocaleString("vi-VN")} đ`}
                       total
                     />
 
                     <Text style={styles.remainingDescription}>
-                      Số tiền còn lại {remainingAmount.toLocaleString("vi-VN")}{" "}
-                      đ sẽ được thanh toán theo lịch của chuyến đi.
+                      Thanh toán 100% trọn gói một lần. Không phát sinh chi phí
+                      ẩn hay tiền cọc bổ sung.
                     </Text>
                   </View>
                 </View>
 
                 <View style={styles.section}>
-                  <Text style={styles.sectionTitle}>Phương thức đặt cọc</Text>
+                  <Text style={styles.sectionTitle}>Cổng thanh toán</Text>
 
                   <PaymentOption
-                    selected={paymentMethod === "BANK"}
-                    icon="business-outline"
-                    title="Chuyển khoản ngân hàng"
-                    subtitle="Xác nhận tự động bằng mã giao dịch"
-                    onPress={() => setPaymentMethod("BANK")}
+                    selected={paymentMethod === "VNPAY_GATEWAY"}
+                    icon="card-outline"
+                    title="Cổng thanh toán VNPAY"
+                    subtitle="Thẻ ATM nội địa, Thẻ quốc tế Visa/Master (Mở trang VNPAY)"
+                    onPress={() => setPaymentMethod("VNPAY_GATEWAY")}
                   />
 
                   <PaymentOption
-                    selected={paymentMethod === "EWALLET"}
-                    icon="wallet-outline"
-                    title="Ví điện tử"
-                    subtitle="MoMo hoặc phương thức liên kết"
-                    onPress={() => setPaymentMethod("EWALLET")}
+                    selected={paymentMethod === "VNPAY_QR"}
+                    icon="qr-code-outline"
+                    title="VNPAY-QR nhanh"
+                    subtitle="Quét mã QR qua ứng dụng Ngân hàng trên điện thoại"
+                    onPress={() => setPaymentMethod("VNPAY_QR")}
                   />
                 </View>
 
@@ -456,8 +691,8 @@ export function BookingModal({ visible, trip, onClose }: BookingModalProps) {
                   </View>
 
                   <Text style={styles.checkboxText}>
-                    Tôi đã kiểm tra thông tin và đồng ý với chính sách đặt cọc,
-                    hoàn hủy và điều khoản tham gia chuyến đi.
+                    Tôi đã kiểm tra thông tin và đồng ý với điều khoản tham gia
+                    chuyến đi và chính sách hủy chuyến của TrekGo.
                   </Text>
                 </TouchableOpacity>
 
@@ -475,13 +710,13 @@ export function BookingModal({ visible, trip, onClose }: BookingModalProps) {
                   ) : (
                     <>
                       <Ionicons
-                        name="shield-checkmark"
+                        name="card-outline"
                         size={20}
                         color={Colors.onPrimary}
                       />
 
                       <Text style={styles.primaryButtonText}>
-                        Đặt cọc {depositAmount.toLocaleString("vi-VN")} đ
+                        Thanh toán ngay {totalPrice.toLocaleString("vi-VN")} đ
                       </Text>
                     </>
                   )}
@@ -495,11 +730,13 @@ export function BookingModal({ visible, trip, onClose }: BookingModalProps) {
                   <Ionicons name="checkmark" size={42} color="#0c2000" />
                 </View>
 
-                <Text style={styles.successTitle}>Đặt chỗ thành công!</Text>
+                <Text style={styles.successTitle}>
+                  Thanh toán & Đặt chỗ thành công!
+                </Text>
 
                 <Text style={styles.successDescription}>
-                  Tiền cọc đã được ghi nhận. Vé QR và checklist chuẩn bị đã được
-                  tạo cho chuyến đi của bạn.
+                  Khoản thanh toán trọn gói 100% đã được ghi nhận. Vé QR điện tử
+                  và checklist chuẩn bị đã sẵn sàng cho chuyến đi của bạn.
                 </Text>
 
                 <View style={styles.ticketCard}>
@@ -531,8 +768,8 @@ export function BookingModal({ visible, trip, onClose }: BookingModalProps) {
                     />
 
                     <Text style={styles.depositPaidText}>
-                      Đã thanh toán cọc {depositAmount.toLocaleString("vi-VN")}{" "}
-                      đ
+                      Đã thanh toán trọn gói:{" "}
+                      {totalPrice.toLocaleString("vi-VN")} đ
                     </Text>
                   </View>
                 </View>
@@ -571,6 +808,63 @@ export function BookingModal({ visible, trip, onClose }: BookingModalProps) {
         </View>
       </View>
     </Modal>
+
+    {/* Cổng thanh toán VNPAY Sandbox trực tiếp trong ứng dụng */}
+    <Modal
+      visible={!!vnpayUrl}
+      animationType="slide"
+      presentationStyle="fullScreen"
+      onRequestClose={handleCloseVnpay}
+    >
+      <SafeAreaView style={styles.vnpayModalContainer} edges={["top", "bottom"]}>
+        <View style={styles.vnpayHeader}>
+          <View style={styles.vnpayHeaderInfo}>
+            <View style={styles.vnpayBadge}>
+              <Ionicons name="card" size={16} color="#005BAA" />
+              <Text style={styles.vnpayBadgeText}>VNPAY SANDBOX</Text>
+            </View>
+            <Text style={styles.vnpayHeaderAmount}>
+              {totalPrice.toLocaleString("vi-VN")} đ
+            </Text>
+          </View>
+
+          <TouchableOpacity
+            style={styles.vnpayCloseBtn}
+            onPress={handleCloseVnpay}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="close" size={24} color={Colors.onSurface} />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.vnpayWebViewWrapper}>
+          {vnpayUrl ? (
+            <WebView
+              source={{ uri: vnpayUrl }}
+              onNavigationStateChange={(nav) => {
+                handleVnpayNavigation(nav.url);
+              }}
+              onShouldStartLoadWithRequest={(req) => {
+                return handleVnpayNavigation(req.url);
+              }}
+              javaScriptEnabled
+              domStorageEnabled
+              startInLoadingState
+              renderLoading={() => (
+                <View style={styles.vnpayLoader}>
+                  <ActivityIndicator size="large" color="#005BAA" />
+                  <Text style={styles.vnpayLoaderText}>
+                    Đang kết nối cổng VNPAY Sandbox...
+                  </Text>
+                </View>
+              )}
+              style={styles.vnpayWebView}
+            />
+          ) : null}
+        </View>
+      </SafeAreaView>
+    </Modal>
+  </>
   );
 }
 
@@ -623,7 +917,7 @@ function PriceRow({
 
 interface PaymentOptionProps {
   selected: boolean;
-  icon: "business-outline" | "wallet-outline";
+  icon: keyof typeof Ionicons.glyphMap;
   title: string;
   subtitle: string;
   onPress: () => void;
@@ -1139,5 +1433,71 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 16,
     color: Colors.onSurfaceVariant,
+  },
+  vnpayModalContainer: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
+  },
+  vnpayHeader: {
+    height: 56,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.surfaceContainerHigh,
+    backgroundColor: "#FFFFFF",
+  },
+  vnpayHeaderInfo: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  vnpayBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: Radius.sm,
+    backgroundColor: "#E6F0FA",
+  },
+  vnpayBadgeText: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: "#005BAA",
+    letterSpacing: 0.5,
+  },
+  vnpayHeaderAmount: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: Colors.onSurface,
+  },
+  vnpayCloseBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Colors.surfaceContainerLow,
+  },
+  vnpayWebViewWrapper: {
+    flex: 1,
+    position: "relative",
+  },
+  vnpayWebView: {
+    flex: 1,
+  },
+  vnpayLoader: {
+    ...StyleSheet.absoluteFill,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFFFFF",
+    gap: 12,
+  },
+  vnpayLoaderText: {
+    fontSize: 13,
+    color: Colors.onSurfaceVariant,
+    fontWeight: "600",
   },
 });

@@ -37,8 +37,12 @@ export default function VerifyOtpScreen() {
     setError(null);
     setIsSubmitting(true);
     try {
-      await verifyOtp(email, otp);
-      router.replace("/(tabs)" as Href);
+      const loggedUser = await verifyOtp(email, otp);
+      if (loggedUser?.role === "LEADER") {
+        router.replace("/trips/leader" as Href);
+      } else {
+        router.replace("/(tabs)" as Href);
+      }
     } catch (requestError) {
       setError(
         requestError instanceof Error

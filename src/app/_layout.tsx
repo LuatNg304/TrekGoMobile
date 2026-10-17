@@ -48,7 +48,7 @@ export default function RootLayout() {
 function RootNavigator() {
   const router = useRouter();
   const segments = useSegments();
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, user } = useAuth();
 
   useEffect(() => {
     if (isLoading) return;
@@ -58,9 +58,13 @@ function RootNavigator() {
     if (!isAuthenticated && !isInAuthGroup) {
       router.replace("/auth/login");
     } else if (isAuthenticated && isInAuthGroup) {
-      router.replace("/(tabs)");
+      if (user?.role === "LEADER") {
+        router.replace("/trips/leader");
+      } else {
+        router.replace("/(tabs)");
+      }
     }
-  }, [isAuthenticated, isLoading, router, segments]);
+  }, [isAuthenticated, isLoading, router, segments, user?.role]);
 
   if (isLoading) {
     return (

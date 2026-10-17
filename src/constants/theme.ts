@@ -84,8 +84,11 @@ export const Typography = {
 export const Radius = {
   xs: 4,
   sm: 8,
+  small: 8,
   md: 12,
+  medium: 12,
   lg: 16,
+  large: 16,
   xl: 24,      // Signature 24px rounded card
   full: 9999,  // Signature pill buttons
 };
@@ -111,5 +114,19 @@ export const Shadows = {
     shadowOpacity: 0.35,
     shadowRadius: 12,
     elevation: 6,
+  },
+  level1: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  level2: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 4,
   },
 };

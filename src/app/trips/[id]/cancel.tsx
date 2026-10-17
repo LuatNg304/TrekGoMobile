@@ -12,6 +12,8 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { cf02BookingApi, parseCf02Error } from "@/services/api/cf02BookingApi";
+
 type CancellationStep = "FORM" | "REVIEW" | "SUCCESS";
 
 const reasons = [
@@ -27,33 +29,28 @@ export default function CancelBookingScreen() {
 
   const params = useLocalSearchParams<{
     id: string;
+    bookingId?: string;
     name?: string;
     bookingCode?: string;
     amount?: string;
   }>();
 
+  const targetBookingId = params.bookingId || params.id;
   const tripName = params.name || "Tà Năng – Phan Dũng (3N2Đ)";
-
-  const bookingCode = params.bookingCode || "#BK-8842";
-
+  const bookingCode = params.bookingCode || (targetBookingId ? `#BK-${targetBookingId.slice(0, 6).toUpperCase()}` : "#BK-8842");
   const paidAmount = Number(params.amount) || 2850000;
-
   const cancellationFee = Math.round(paidAmount * 0.1);
-
   const refundAmount = paidAmount - cancellationFee;
 
   const [step, setStep] = useState<CancellationStep>("FORM");
-
   const [selectedReason, setSelectedReason] = useState<string | null>(null);
-
   const [acceptedPolicy, setAcceptedPolicy] = useState(false);
-
   const [submitting, setSubmitting] = useState(false);
+  const [actualRefund, setActualRefund] = useState<number>(refundAmount);
 
   function continueToReview() {
     if (!selectedReason) {
       Alert.alert("Chưa chọn lý do", "Bạn cần chọn lý do hủy booking.");
-
       return;
     }
 
@@ -62,7 +59,6 @@ export default function CancelBookingScreen() {
         "Chưa xác nhận chính sách",
         "Bạn cần đọc và đồng ý với chính sách hủy chuyến.",
       );
-
       return;
     }
 
@@ -72,22 +68,37 @@ export default function CancelBookingScreen() {
   function confirmCancellation() {
     Alert.alert(
       "Xác nhận hủy booking",
-      "Sau khi xác nhận, booking sẽ không thể khôi phục.",
+      "Sau khi xác nhận, booking sẽ bị hủy vĩnh viễn và không thể khôi phục.",
       [
         {
           text: "Quay lại",
           style: "cancel",
         },
         {
-          text: "Hủy booking",
+          text: "Hủy booking ngay",
           style: "destructive",
-          onPress: () => {
+          onPress: async () => {
             setSubmitting(true);
+            try {
+              // Gọi API 24: POST /api/v1/bookings/{id}/cancel
+              const res = await cf02BookingApi.cancelBooking(targetBookingId, {
+                reason: selectedReason || "Lý do cá nhân",
+              });
 
-            setTimeout(() => {
-              setSubmitting(false);
+              if (res?.refundableAmount) {
+                setActualRefund(Number(res.refundableAmount));
+              }
+
               setStep("SUCCESS");
-            }, 1200);
+            } catch (err: any) {
+              const parsed = parseCf02Error(err);
+              Alert.alert(
+                "Không thể hủy",
+                parsed.message || "Đã xảy ra lỗi khi hủy booking. Vui lòng thử lại sau.",
+              );
+            } finally {
+              setSubmitting(false);
+            }
           },
         },
       ],
@@ -445,7 +456,7 @@ export default function CancelBookingScreen() {
             <Text style={styles.successRefundLabel}>Khoản hoàn dự kiến</Text>
 
             <Text style={styles.successRefundValue}>
-              {refundAmount.toLocaleString("vi-VN")}đ
+              {actualRefund.toLocaleString("vi-VN")}đ
             </Text>
           </View>
 

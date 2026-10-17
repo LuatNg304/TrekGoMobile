@@ -27,9 +27,9 @@ interface AuthContextValue {
   accessToken: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  signIn: (email: string, password: string) => Promise<void>;
+  signIn: (email: string, password: string) => Promise<AuthUser>;
   register: (input: RegisterInput) => Promise<RegisterResponse>;
-  verifyOtp: (email: string, otp: string) => Promise<void>;
+  verifyOtp: (email: string, otp: string) => Promise<AuthUser>;
   resendOtp: (email: string) => Promise<MessageResponse>;
   requestPasswordReset: (email: string) => Promise<MessageResponse>;
   signOut: () => Promise<void>;
@@ -128,6 +128,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     async (email: string, password: string) => {
       const nextSession = await authApi.login(email.trim().toLowerCase(), password);
       await persistSession(nextSession);
+      return nextSession.user;
     },
     [persistSession],
   );
@@ -148,6 +149,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         otp.trim(),
       );
       await persistSession(nextSession);
+      return nextSession.user;
     },
     [persistSession],
   );

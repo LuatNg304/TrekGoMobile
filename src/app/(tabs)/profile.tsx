@@ -27,7 +27,7 @@ type MenuItem = {
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const { signOut } = useAuth();
+  const { signOut, user: authUser } = useAuth();
   const {
     user,
     trekkerAccount,
@@ -39,6 +39,7 @@ export default function ProfileScreen() {
     userNotifications,
     savedTrailIds,
   } = useApp();
+  const isLeader = authUser?.role === "LEADER" || user.role === "LEADER";
 
   const completedTrips = trips.filter((trip) => trip.status === "COMPLETED").length;
   const upcomingTrips = trips.filter((trip) => trip.status === "UPCOMING").length;
@@ -60,6 +61,18 @@ export default function ProfileScreen() {
   );
 
   const menuItems: MenuItem[] = [
+    ...(isLeader
+      ? [
+          {
+            icon: "shield-checkmark-outline" as const,
+            title: "Quản lý Chuyến đi Leader (CF01)",
+            subtitle: "Tạo bản nháp, lên lộ trình 3D & xuất bản",
+            route: "/trips/leader" as Href,
+            badge: "LEADER",
+            accent: "GREEN" as const,
+          },
+        ]
+      : []),
     {
       icon: "person-outline",
       title: "Thông tin cá nhân",
@@ -164,9 +177,27 @@ export default function ProfileScreen() {
                 <Ionicons name="checkmark-circle" size={17} color={Colors.primary} />
               </View>
               <Text style={styles.userEmail}>{user.email}</Text>
-              <View style={styles.levelPill}>
-                <Ionicons name="footsteps" size={12} color={Colors.ink} />
-                <Text style={styles.levelPillText}>MOUNTAIN EXPLORER · LV.3</Text>
+              <View
+                style={[
+                  styles.levelPill,
+                  isLeader && { backgroundColor: "#dcfce7" },
+                ]}
+              >
+                <Ionicons
+                  name={isLeader ? "shield-checkmark" : "footsteps"}
+                  size={12}
+                  color={isLeader ? "#15803d" : Colors.ink}
+                />
+                <Text
+                  style={[
+                    styles.levelPillText,
+                    isLeader && { color: "#15803d" },
+                  ]}
+                >
+                  {isLeader
+                    ? "LEADER PHỤ TRÁCH · VERIFIED"
+                    : "MOUNTAIN EXPLORER · LV.3"}
+                </Text>
               </View>
             </View>
 
