@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { type Href, useLocalSearchParams, useRouter } from "expo-router";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
@@ -14,15 +14,11 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { TacticalMap } from "@/components/TacticalMap";
 import { Colors, Radius, Shadows } from "@/constants/theme";
 import { useApp } from "@/context/AppContext";
-import {
-  Checkpoint,
-  DifficultyLevel,
-  PersonalTrail,
-  PersonalTrailRoutePoint,
-} from "@/types";
+import { DifficultyLevel } from "@/types";
+import { ApiError } from "@/lib/api-client";
+import { isUUID } from "@/services/api/personalTrailApi";
 
 const difficultyOptions: DifficultyLevel[] = [
   "Dễ",
@@ -30,65 +26,6 @@ const difficultyOptions: DifficultyLevel[] = [
   "Khó",
   "Thách thức",
 ];
-
-const routeOptions: {
-  value: PersonalTrail["routePreset"];
-  label: string;
-  description: string;
-  icon: keyof typeof Ionicons.glyphMap;
-}[] = [
-  {
-    value: "RIDGE",
-    label: "Sống núi",
-    description: "Route cao dần theo sườn núi",
-    icon: "trending-up-outline",
-  },
-  {
-    value: "FOREST",
-    label: "Rừng",
-    description: "Route uốn lượn trong rừng",
-    icon: "leaf-outline",
-  },
-  {
-    value: "WATERFALL",
-    label: "Thác nước",
-    description: "Route men theo suối và thác",
-    icon: "water-outline",
-  },
-];
-
-const routePointsByPreset: Record<
-  PersonalTrail["routePreset"],
-  PersonalTrailRoutePoint[]
-> = {
-  RIDGE: [
-    { id: "ridge-1", x: 42, y: 304 },
-    { id: "ridge-2", x: 112, y: 252 },
-    { id: "ridge-3", x: 208, y: 196 },
-    { id: "ridge-4", x: 294, y: 116 },
-    { id: "ridge-5", x: 356, y: 62 },
-  ],
-  FOREST: [
-    { id: "forest-1", x: 38, y: 292 },
-    { id: "forest-2", x: 126, y: 238 },
-    { id: "forest-3", x: 230, y: 172 },
-    { id: "forest-4", x: 346, y: 86 },
-  ],
-  WATERFALL: [
-    { id: "waterfall-1", x: 36, y: 300 },
-    { id: "waterfall-2", x: 98, y: 232 },
-    { id: "waterfall-3", x: 188, y: 244 },
-    { id: "waterfall-4", x: 270, y: 154 },
-    { id: "waterfall-5", x: 350, y: 92 },
-  ],
-};
-
-function numericValue(value: string) {
-  const normalized = value.replace(",", ".").trim();
-  const parsed = Number(normalized);
-
-  return Number.isFinite(parsed) ? parsed : 0;
-}
 
 export default function PersonalTrailEditScreen() {
   const router = useRouter();
@@ -98,84 +35,59 @@ export default function PersonalTrailEditScreen() {
   const trailId = Array.isArray(params.id) ? params.id[0] : params.id;
 
   const { personalTrails, updatePersonalTrail } = useApp();
-  const trail = useMemo(
-    () => personalTrails.find((current) => current.id === trailId),
-    [personalTrails, trailId],
-  );
+  const trail = useMemo(() => {
+    if (!trailId) return personalTrails[0];
+    const exact = personalTrails.find((current) => current.id === trailId);
+    if (exact) return exact;
+
+    if (!isUUID(trailId)) {
+      const matched = personalTrails.find(
+        (t) =>
+          (t.clientRecordingId && trailId.includes(t.clientRecordingId)) ||
+          (t.clientRecordingId && t.clientRecordingId === trailId),
+      );
+      if (matched) return matched;
+
+      const tsMatch = trailId.match(/personal-trail-(\d+)/);
+      if (tsMatch) {
+        const localTs = Number(tsMatch[1]);
+        const matchedByTime = personalTrails.find((t) => {
+          if (!t.createdAt) return false;
+          const tTime = new Date(t.createdAt).getTime();
+          return !isNaN(tTime) && Math.abs(tTime - localTs) < 30 * 60 * 1000;
+        });
+        if (matchedByTime) return matchedByTime;
+      }
+    }
+
+    return personalTrails.find((current) => current.id === trailId);
+  }, [personalTrails, trailId]);
 
   const [name, setName] = useState(trail?.name ?? "");
   const [region, setRegion] = useState(trail?.region ?? "");
   const [difficulty, setDifficulty] = useState<DifficultyLevel>(
     trail?.difficulty ?? "Trung bình",
   );
-  const [distanceKm, setDistanceKm] = useState(String(trail?.distanceKm ?? 0));
-  const [elevationGainM, setElevationGainM] = useState(
-    String(trail?.elevationGainM ?? 0),
-  );
   const [duration, setDuration] = useState(trail?.duration ?? "1 ngày");
   const [terrainType, setTerrainType] = useState(
-    trail?.terrainType ?? "Đường mòn & Rừng",
+    trail?.terrainType ?? "Rừng & Đồi dốc",
   );
   const [description, setDescription] = useState(trail?.description ?? "");
-  const [routePreset, setRoutePreset] = useState<PersonalTrail["routePreset"]>(
-    trail?.routePreset ?? "RIDGE",
-  );
-  const [checkpoints, setCheckpoints] = useState<Checkpoint[]>(
-    trail?.checkpoints.map((checkpoint) => ({ ...checkpoint })) ?? [],
-  );
-  const [checkpointName, setCheckpointName] = useState("");
-  const [checkpointDistance, setCheckpointDistance] = useState("");
-  const [checkpointElevation, setCheckpointElevation] = useState("");
+
+  const [prevTrailId, setPrevTrailId] = useState<string | undefined>(trail?.id);
+  if (trail && trail.id !== prevTrailId) {
+    setPrevTrailId(trail.id);
+    setName(trail.name ?? "");
+    setRegion(trail.region ?? "");
+    setDifficulty(trail.difficulty ?? "Trung bình");
+    setDuration(trail.duration ?? "1 ngày");
+    setTerrainType(trail.terrainType ?? "Rừng & Đồi dốc");
+    setDescription(trail.description ?? "");
+  }
 
   const canEdit =
     trail?.verificationStatus === "DRAFT" ||
     trail?.verificationStatus === "REJECTED";
-
-  function addCheckpoint() {
-    const nextName = checkpointName.trim();
-    const nextDistance = numericValue(checkpointDistance);
-    const nextElevation = numericValue(checkpointElevation);
-
-    if (!nextName) {
-      Alert.alert("Thiếu tên checkpoint", "Hãy nhập tên mốc trên tuyến.");
-      return;
-    }
-
-    const routePoints = routePointsByPreset[routePreset];
-    const fallbackPoint =
-      routePoints[Math.min(checkpoints.length, routePoints.length - 1)];
-
-    setCheckpoints((current) => [
-      ...current,
-      {
-        id: `personal-cp-${Date.now()}`,
-        order: current.length + 1,
-        name: nextName,
-        elevation: Math.max(0, Math.round(nextElevation)),
-        distanceFromStartKm: Math.max(0, nextDistance),
-        status: "PENDING",
-        coords: {
-          x: fallbackPoint?.x ?? 42,
-          y: fallbackPoint?.y ?? 304,
-        },
-      },
-    ]);
-
-    setCheckpointName("");
-    setCheckpointDistance("");
-    setCheckpointElevation("");
-  }
-
-  function removeCheckpoint(checkpointId: string) {
-    setCheckpoints((current) =>
-      current
-        .filter((checkpoint) => checkpoint.id !== checkpointId)
-        .map((checkpoint, index) => ({
-          ...checkpoint,
-          order: index + 1,
-        })),
-    );
-  }
 
   function validate() {
     if (!name.trim() || !region.trim()) {
@@ -183,11 +95,6 @@ export default function PersonalTrailEditScreen() {
         "Thiếu thông tin",
         "Hãy nhập tên Trail và khu vực trước khi lưu.",
       );
-      return false;
-    }
-
-    if (numericValue(distanceKm) <= 0) {
-      Alert.alert("Khoảng cách chưa hợp lệ", "Khoảng cách phải lớn hơn 0 km.");
       return false;
     }
 
@@ -199,55 +106,64 @@ export default function PersonalTrailEditScreen() {
       return false;
     }
 
-    if (checkpoints.length === 0) {
-      Alert.alert(
-        "Chưa có checkpoint",
-        "Trail cần ít nhất một checkpoint trước khi lưu.",
-      );
-      return false;
-    }
-
     return true;
   }
 
-  function saveTrail(submitForVerification: boolean) {
-    if (!trail || !canEdit || !validate()) {
+  const savingRef = useRef(false);
+  const [saving, setSaving] = useState(false);
+
+  async function saveTrail(submitForVerification: boolean) {
+    if (savingRef.current || !trail || !canEdit || !validate()) {
       return;
     }
 
-    updatePersonalTrail(trail.id, {
-      name,
-      region,
-      difficulty,
-      distanceKm: numericValue(distanceKm),
-      elevationGainM: Math.max(0, Math.round(numericValue(elevationGainM))),
-      duration,
-      terrainType,
-      description,
-      routePreset,
-      routePoints: routePointsByPreset[routePreset],
-      checkpoints,
-      submitForVerification,
-    });
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      await updatePersonalTrail(trail.id, {
+        name,
+        region,
+        difficulty,
+        distanceKm: trail.distanceKm,
+        elevationGainM: trail.elevationGainM,
+        duration,
+        terrainType,
+        description,
+        gpsSegments: trail.gpsSegments,
+        gpsRoute: trail.gpsRoute,
+        checkpoints: trail.checkpoints || [],
+        submitForVerification,
+      });
 
-    Alert.alert(
-      submitForVerification ? "Đã gửi lại Trail" : "Đã lưu bản nháp",
-      submitForVerification
-        ? "Trail đã chuyển sang trạng thái chờ Admin xác minh."
-        : "Các thay đổi đã được lưu trong mock state của phiên hiện tại.",
-      [
-        {
-          text: "Xem chi tiết",
-          onPress: () =>
-            router.replace({
-              pathname: "/personal-trails/[id]",
-              params: {
-                id: trail.id,
-              },
-            } as unknown as Href),
-        },
-      ],
-    );
+      Alert.alert(
+        submitForVerification ? "Đã gửi lại Trail" : "Đã lưu bản nháp",
+        submitForVerification
+          ? "Trail đã chuyển sang trạng thái chờ Admin xác minh."
+          : isUUID(trail.id)
+            ? "Các thay đổi đã được cập nhật trên máy chủ."
+            : "Các thay đổi đã được lưu trên thiết bị.",
+        [
+          {
+            text: "Xem chi tiết",
+            onPress: () =>
+              router.dismissTo({
+                pathname: "/personal-trails/[id]",
+                params: {
+                  id: trail.id,
+                },
+              } as unknown as Href),
+          },
+        ],
+      );
+    } catch (error) {
+      Alert.alert(
+        error instanceof ApiError && error.status === 0 ? "Network error" : "Không thể hoàn tất",
+        error instanceof Error ? error.message : "Vui lòng thử lại.",
+      );
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
   }
 
   if (!trail) {
@@ -261,105 +177,118 @@ export default function PersonalTrailEditScreen() {
           <View style={styles.headerSpacer} />
         </View>
 
-        <View style={styles.emptyState}>
-          <Ionicons name="map-outline" size={44} color={Colors.primaryDark} />
-          <Text style={styles.emptyTitle}>Không tìm thấy Trail</Text>
-          <Text style={styles.emptyDescription}>
-            Trail có thể đã bị xóa hoặc mock data đã được reset.
+        <View style={styles.missingCard}>
+          <Ionicons
+            name="alert-circle-outline"
+            size={34}
+            color={Colors.primaryDark}
+          />
+          <Text style={styles.missingTitle}>Không tìm thấy cung đường</Text>
+          <Text style={styles.missingDescription}>
+            Cung đường có thể đã bị xóa khỏi thiết bị.
           </Text>
           <TouchableOpacity
-            style={styles.primaryButton}
+            style={styles.backButton}
             onPress={() => router.replace("/personal-trails" as Href)}
           >
-            <Text style={styles.primaryButtonText}>Về danh sách</Text>
+            <Text style={styles.backButtonText}>Quay lại danh sách</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
   }
 
-  if (!canEdit) {
-    return (
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.headerBar}>
-          <TouchableOpacity style={styles.headerButton} onPress={router.back}>
-            <Ionicons name="arrow-back" size={21} color={Colors.onSurface} />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Chỉnh sửa Personal Trail</Text>
-          <View style={styles.headerSpacer} />
-        </View>
-
-        <View style={styles.emptyState}>
-          <Ionicons name="lock-closed" size={42} color="#7A5700" />
-          <Text style={styles.emptyTitle}>Trail đang bị khóa chỉnh sửa</Text>
-          <Text style={styles.emptyDescription}>
-            Trail ở trạng thái {trail.verificationStatus}. Chỉ bản nháp hoặc
-            Trail bị từ chối mới có thể chỉnh sửa.
-          </Text>
-          <TouchableOpacity
-            style={styles.primaryButton}
-            onPress={() => router.back()}
-          >
-            <Text style={styles.primaryButtonText}>Quay lại chi tiết</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
-    );
-  }
+  const pointCount =
+    trail.gpsSegments && trail.gpsSegments.length > 0
+      ? trail.gpsSegments.reduce((sum, seg) => sum + seg.length, 0)
+      : (trail.gpsRoute?.length || 0);
 
   return (
     <SafeAreaView style={styles.safeArea}>
+      <View style={styles.headerBar}>
+        <TouchableOpacity style={styles.headerButton} onPress={router.back}>
+          <Ionicons name="arrow-back" size={21} color={Colors.onSurface} />
+        </TouchableOpacity>
+
+        <View style={styles.headerTitleBox}>
+          <Text style={styles.headerTitle}>Chỉnh sửa Trail</Text>
+          <Text style={styles.headerSubtitle}>
+            {canEdit ? "Chế độ chỉnh sửa" : "Chỉ xem (đang chờ duyệt)"}
+          </Text>
+        </View>
+
+        <View style={styles.headerSpacer} />
+      </View>
+
       <KeyboardAvoidingView
         style={styles.flexOne}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        <View style={styles.headerBar}>
-          <TouchableOpacity style={styles.headerButton} onPress={router.back}>
-            <Ionicons name="arrow-back" size={21} color={Colors.onSurface} />
-          </TouchableOpacity>
-
-          <View style={styles.headerTitleBox}>
-            <Text style={styles.headerTitle}>Chỉnh sửa Personal Trail</Text>
-            <Text style={styles.headerSubtitle}>
-              {trail.verificationStatus === "REJECTED"
-                ? "Bổ sung theo phản hồi Admin"
-                : "Cập nhật bản nháp của bạn"}
-            </Text>
-          </View>
-
-          <View style={styles.headerSpacer} />
-        </View>
-
         <ScrollView
           showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
           contentContainerStyle={styles.scrollContent}
         >
-          {trail.verificationStatus === "REJECTED" && trail.rejectionReason ? (
+          {trail.verificationStatus === "REJECTED" &&
+          trail.rejectionReason ? (
             <View style={styles.rejectionCard}>
-              <Ionicons name="alert-circle-outline" size={22} color="#B91C1C" />
+              <Ionicons name="alert-circle" size={20} color="#B91C1C" />
               <View style={styles.flexOne}>
-                <Text style={styles.rejectionTitle}>Phản hồi từ Admin</Text>
-                <Text style={styles.rejectionText}>
-                  {trail.rejectionReason}
-                </Text>
+                <Text style={styles.rejectionTitle}>Yêu cầu chỉnh sửa từ Admin</Text>
+                <Text style={styles.rejectionText}>{trail.rejectionReason}</Text>
               </View>
             </View>
           ) : null}
 
+          {/* Vệt GPS thực tế (Bất biến) */}
           <View style={styles.sectionCard}>
             <SectionHeading
-              icon="information-circle-outline"
-              title="Thông tin Trail"
-              subtitle="Cập nhật nội dung hiển thị của cung đường"
+              icon="locate-outline"
+              title="Thông số GPS thực địa"
+              subtitle="Thu nhận từ vệ tinh WGS84 ngoài thực tế"
             />
 
-            <FieldLabel text="Tên Personal Trail" required />
+            <View style={styles.gpsGrid}>
+              <View style={styles.gpsGridItem}>
+                <Text style={styles.gpsGridValue}>{trail.distanceKm} km</Text>
+                <Text style={styles.gpsGridLabel}>Quãng đường</Text>
+              </View>
+              <View style={styles.gpsGridItem}>
+                <Text style={styles.gpsGridValue}>+{trail.elevationGainM} m</Text>
+                <Text style={styles.gpsGridLabel}>Độ cao tích lũy</Text>
+              </View>
+              <View style={styles.gpsGridItem}>
+                <Text style={styles.gpsGridValue}>{pointCount}</Text>
+                <Text style={styles.gpsGridLabel}>Điểm GPS</Text>
+              </View>
+            </View>
+
+            <View style={styles.gpsNoticeBox}>
+              <Ionicons
+                name="shield-checkmark"
+                size={16}
+                color={Colors.primaryDark}
+              />
+              <Text style={styles.gpsNoticeText}>
+                Vệt GPS là dữ liệu gốc được ghi ngoài thực địa và được bảo toàn nguyên vẹn nhằm đảm bảo tính minh bạch khi xét duyệt.
+              </Text>
+            </View>
+          </View>
+
+          {/* Thông tin chỉnh sửa được */}
+          <View style={styles.sectionCard}>
+            <SectionHeading
+              icon="create-outline"
+              title="Thông tin mô tả"
+              subtitle="Cập nhật chi tiết để cộng đồng dễ tiếp cận"
+            />
+
+            <FieldLabel text="Tên cung đường" required />
             <TextInput
               style={styles.input}
               value={name}
               onChangeText={setName}
-              placeholder="Ví dụ: Đường mòn săn mây Pinhatt"
+              editable={canEdit}
+              placeholder="VD: Sống núi Langbiang phía Bắc"
               placeholderTextColor={Colors.onSurfaceVariant}
             />
 
@@ -368,7 +297,8 @@ export default function PersonalTrailEditScreen() {
               style={styles.input}
               value={region}
               onChangeText={setRegion}
-              placeholder="Đà Lạt, Lâm Đồng"
+              editable={canEdit}
+              placeholder="VD: Lạc Dương, Lâm Đồng"
               placeholderTextColor={Colors.onSurfaceVariant}
             />
 
@@ -381,15 +311,16 @@ export default function PersonalTrailEditScreen() {
                   <TouchableOpacity
                     key={option}
                     style={[
-                      styles.optionPill,
-                      selected && styles.optionPillSelected,
+                      styles.optionChip,
+                      selected && styles.optionChipSelected,
+                      !canEdit && styles.optionChipDisabled,
                     ]}
-                    onPress={() => setDifficulty(option)}
+                    onPress={() => canEdit && setDifficulty(option)}
                   >
                     <Text
                       style={[
-                        styles.optionPillText,
-                        selected && styles.optionPillTextSelected,
+                        styles.optionChipText,
+                        selected && styles.optionChipTextSelected,
                       ]}
                     >
                       {option}
@@ -399,38 +330,13 @@ export default function PersonalTrailEditScreen() {
               })}
             </View>
 
-            <View style={styles.twoColumnRow}>
-              <View style={styles.flexOne}>
-                <FieldLabel text="Khoảng cách (km)" required />
-                <TextInput
-                  style={styles.input}
-                  value={distanceKm}
-                  onChangeText={setDistanceKm}
-                  keyboardType="decimal-pad"
-                  placeholder="8.6"
-                  placeholderTextColor={Colors.onSurfaceVariant}
-                />
-              </View>
-
-              <View style={styles.flexOne}>
-                <FieldLabel text="Tăng độ cao (m)" />
-                <TextInput
-                  style={styles.input}
-                  value={elevationGainM}
-                  onChangeText={setElevationGainM}
-                  keyboardType="number-pad"
-                  placeholder="420"
-                  placeholderTextColor={Colors.onSurfaceVariant}
-                />
-              </View>
-            </View>
-
-            <FieldLabel text="Thời lượng" required />
+            <FieldLabel text="Thời lượng dự kiến" required />
             <TextInput
               style={styles.input}
               value={duration}
               onChangeText={setDuration}
-              placeholder="1 ngày"
+              editable={canEdit}
+              placeholder="VD: 1 ngày hoặc 6 giờ"
               placeholderTextColor={Colors.onSurfaceVariant}
             />
 
@@ -439,7 +345,8 @@ export default function PersonalTrailEditScreen() {
               style={styles.input}
               value={terrainType}
               onChangeText={setTerrainType}
-              placeholder="Rừng thông & Sống núi"
+              editable={canEdit}
+              placeholder="VD: Rừng thông & Đồi dốc"
               placeholderTextColor={Colors.onSurfaceVariant}
             />
 
@@ -448,6 +355,7 @@ export default function PersonalTrailEditScreen() {
               style={[styles.input, styles.multilineInput]}
               value={description}
               onChangeText={setDescription}
+              editable={canEdit}
               multiline
               textAlignVertical="top"
               placeholder="Mô tả đường đi, điểm nổi bật và lưu ý an toàn..."
@@ -455,182 +363,37 @@ export default function PersonalTrailEditScreen() {
             />
           </View>
 
-          <View style={styles.sectionCard}>
-            <SectionHeading
-              icon="map-outline"
-              title="Route mô phỏng"
-              subtitle="Chọn preset để thay route trên bản đồ demo"
-            />
-
-            <View style={styles.routeOptionList}>
-              {routeOptions.map((option) => {
-                const selected = routePreset === option.value;
-
-                return (
-                  <TouchableOpacity
-                    key={option.value}
-                    style={[
-                      styles.routeOption,
-                      selected && styles.routeOptionSelected,
-                    ]}
-                    onPress={() => setRoutePreset(option.value)}
-                  >
-                    <View
-                      style={[
-                        styles.routeIcon,
-                        selected && styles.routeIconSelected,
-                      ]}
-                    >
-                      <Ionicons
-                        name={option.icon}
-                        size={20}
-                        color={selected ? Colors.onPrimary : Colors.primaryDark}
-                      />
-                    </View>
-                    <View style={styles.flexOne}>
-                      <Text style={styles.routeOptionTitle}>
-                        {option.label}
-                      </Text>
-                      <Text style={styles.routeOptionDescription}>
-                        {option.description}
-                      </Text>
-                    </View>
-                    <Ionicons
-                      name={selected ? "checkmark-circle" : "ellipse-outline"}
-                      size={22}
-                      color={
-                        selected
-                          ? Colors.primaryContainer
-                          : Colors.onSurfaceVariant
-                      }
-                    />
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-
-            <View style={styles.mapWrapper}>
-              <TacticalMap
-                isOnRoute
-                height={240}
-                checkpoints={checkpoints}
-                interactive={false}
-              />
-            </View>
-
-            <View style={styles.mockNotice}>
-              <Ionicons
-                name="information-circle-outline"
-                size={18}
-                color="#725C00"
-              />
-              <Text style={styles.mockNoticeText}>
-                Bản demo đang dùng route preset. Khi nối API/GPS, phần này sẽ
-                nhận tọa độ thực do người dùng vẽ hoặc ghi hành trình.
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.sectionCard}>
-            <SectionHeading
-              icon="flag-outline"
-              title="Checkpoint"
-              subtitle={`${checkpoints.length} mốc trên tuyến`}
-            />
-
-            {checkpoints.map((checkpoint) => (
-              <View key={checkpoint.id} style={styles.checkpointRow}>
-                <View style={styles.checkpointOrder}>
-                  <Text style={styles.checkpointOrderText}>
-                    {checkpoint.order}
-                  </Text>
-                </View>
-                <View style={styles.flexOne}>
-                  <Text style={styles.checkpointTitle}>{checkpoint.name}</Text>
-                  <Text style={styles.checkpointMeta}>
-                    {checkpoint.distanceFromStartKm} km · {checkpoint.elevation}{" "}
-                    m
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  style={styles.deleteCheckpointButton}
-                  onPress={() => removeCheckpoint(checkpoint.id)}
-                >
-                  <Ionicons name="trash-outline" size={18} color="#B91C1C" />
-                </TouchableOpacity>
-              </View>
-            ))}
-
-            <View style={styles.checkpointForm}>
-              <Text style={styles.checkpointFormTitle}>
-                Thêm checkpoint mới
-              </Text>
-              <TextInput
-                style={styles.input}
-                value={checkpointName}
-                onChangeText={setCheckpointName}
-                placeholder="Tên checkpoint"
-                placeholderTextColor={Colors.onSurfaceVariant}
-              />
-
-              <View style={styles.twoColumnRow}>
-                <TextInput
-                  style={[styles.input, styles.flexOne]}
-                  value={checkpointDistance}
-                  onChangeText={setCheckpointDistance}
-                  keyboardType="decimal-pad"
-                  placeholder="Khoảng cách (km)"
-                  placeholderTextColor={Colors.onSurfaceVariant}
+          {canEdit ? (
+            <View style={styles.actionCard}>
+              <TouchableOpacity
+                style={styles.draftButton}
+                disabled={saving}
+                onPress={() => saveTrail(false)}
+                activeOpacity={0.85}
+              >
+                <Ionicons
+                  name="save-outline"
+                  size={19}
+                  color={Colors.primaryDark}
                 />
-                <TextInput
-                  style={[styles.input, styles.flexOne]}
-                  value={checkpointElevation}
-                  onChangeText={setCheckpointElevation}
-                  keyboardType="number-pad"
-                  placeholder="Độ cao (m)"
-                  placeholderTextColor={Colors.onSurfaceVariant}
-                />
-              </View>
+                <Text style={styles.draftButtonText}>Lưu bản nháp</Text>
+              </TouchableOpacity>
 
               <TouchableOpacity
-                style={styles.addCheckpointButton}
-                onPress={addCheckpoint}
+                style={styles.submitButton}
+                disabled={saving}
+                onPress={() => saveTrail(true)}
+                activeOpacity={0.85}
               >
-                <Ionicons name="add" size={19} color={Colors.primaryDark} />
-                <Text style={styles.addCheckpointButtonText}>
-                  Thêm checkpoint
+                <Ionicons name="send" size={19} color={Colors.onPrimary} />
+                <Text style={styles.submitButtonText}>
+                  {trail.verificationStatus === "REJECTED"
+                    ? "Gửi lại Admin"
+                    : "Lưu và gửi xác minh"}
                 </Text>
               </TouchableOpacity>
             </View>
-          </View>
-
-          <View style={styles.actionCard}>
-            <TouchableOpacity
-              style={styles.draftButton}
-              onPress={() => saveTrail(false)}
-              activeOpacity={0.85}
-            >
-              <Ionicons
-                name="save-outline"
-                size={19}
-                color={Colors.primaryDark}
-              />
-              <Text style={styles.draftButtonText}>Lưu bản nháp</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.submitButton}
-              onPress={() => saveTrail(true)}
-              activeOpacity={0.85}
-            >
-              <Ionicons name="send" size={19} color={Colors.onPrimary} />
-              <Text style={styles.submitButtonText}>
-                {trail.verificationStatus === "REJECTED"
-                  ? "Gửi lại Admin"
-                  : "Lưu và gửi xác minh"}
-              </Text>
-            </TouchableOpacity>
-          </View>
+          ) : null}
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -683,7 +446,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   headerBar: {
-    minHeight: 62,
+    minHeight: 56,
     paddingHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
@@ -691,15 +454,15 @@ const styles = StyleSheet.create({
     borderBottomColor: Colors.surfaceContainer,
   },
   headerButton: {
-    width: 40,
-    height: 40,
+    width: 38,
+    height: 38,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: Radius.full,
     backgroundColor: Colors.surfaceContainerLow,
   },
   headerSpacer: {
-    width: 40,
+    width: 38,
   },
   headerTitleBox: {
     flex: 1,
@@ -713,14 +476,14 @@ const styles = StyleSheet.create({
   headerSubtitle: {
     marginTop: 2,
     color: Colors.onSurfaceVariant,
-    fontSize: 9,
+    fontSize: 10,
   },
   scrollContent: {
-    padding: 14,
-    paddingBottom: 42,
+    padding: 16,
+    paddingBottom: 40,
+    gap: 14,
   },
   rejectionCard: {
-    marginBottom: 13,
     padding: 14,
     flexDirection: "row",
     alignItems: "flex-start",
@@ -738,25 +501,24 @@ const styles = StyleSheet.create({
   rejectionText: {
     marginTop: 4,
     color: "#991B1B",
-    fontSize: 10,
-    lineHeight: 15,
+    fontSize: 11,
+    lineHeight: 16,
   },
   sectionCard: {
-    marginBottom: 13,
-    padding: 14,
-    borderRadius: Radius.lg,
+    padding: 16,
+    borderRadius: Radius.xl,
     backgroundColor: Colors.surface,
     ...Shadows.card,
   },
   sectionHeader: {
-    marginBottom: 13,
+    marginBottom: 14,
     flexDirection: "row",
     alignItems: "center",
-    gap: 9,
+    gap: 10,
   },
   sectionIcon: {
-    width: 34,
-    height: 34,
+    width: 36,
+    height: 36,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: Radius.md,
@@ -764,19 +526,56 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     color: Colors.onSurface,
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: "900",
   },
   sectionSubtitle: {
     marginTop: 2,
     color: Colors.onSurfaceVariant,
+    fontSize: 10,
+  },
+  gpsGrid: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 12,
+  },
+  gpsGridItem: {
+    flex: 1,
+    padding: 12,
+    alignItems: "center",
+    borderRadius: Radius.md,
+    backgroundColor: Colors.surfaceContainerLow,
+  },
+  gpsGridValue: {
+    color: Colors.primaryDark,
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  gpsGridLabel: {
+    marginTop: 2,
+    color: Colors.onSurfaceVariant,
     fontSize: 9,
+    fontWeight: "600",
+  },
+  gpsNoticeBox: {
+    padding: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.primaryPale,
+  },
+  gpsNoticeText: {
+    flex: 1,
+    color: Colors.primaryDark,
+    fontSize: 10,
+    lineHeight: 15,
   },
   fieldLabel: {
-    marginTop: 10,
+    marginTop: 12,
     marginBottom: 6,
     color: Colors.onSurface,
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: "800",
   },
   requiredMark: {
@@ -790,243 +589,106 @@ const styles = StyleSheet.create({
     borderRadius: Radius.md,
     backgroundColor: Colors.surfaceContainerLow,
     color: Colors.onSurface,
-    fontSize: 11,
+    fontSize: 12,
   },
   multilineInput: {
-    minHeight: 102,
+    minHeight: 100,
     paddingTop: 12,
   },
   optionWrap: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 7,
-  },
-  optionPill: {
-    minHeight: 38,
-    paddingHorizontal: 13,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: Colors.surfaceContainer,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.surfaceContainerLow,
-  },
-  optionPillSelected: {
-    borderColor: Colors.primaryContainer,
-    backgroundColor: Colors.primaryPale,
-  },
-  optionPillText: {
-    color: Colors.onSurfaceVariant,
-    fontSize: 10,
-    fontWeight: "700",
-  },
-  optionPillTextSelected: {
-    color: Colors.primaryDark,
-    fontWeight: "900",
-  },
-  twoColumnRow: {
-    flexDirection: "row",
-    gap: 9,
-  },
-  routeOptionList: {
     gap: 8,
   },
-  routeOption: {
-    minHeight: 64,
-    padding: 10,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
+  optionChip: {
+    paddingHorizontal: 13,
+    paddingVertical: 7,
     borderWidth: 1,
-    borderColor: Colors.surfaceContainer,
-    borderRadius: Radius.md,
+    borderColor: Colors.surfaceContainerHigh,
+    borderRadius: Radius.full,
     backgroundColor: Colors.surfaceContainerLow,
   },
-  routeOptionSelected: {
-    borderColor: Colors.primaryContainer,
-    backgroundColor: Colors.primaryPale,
+  optionChipSelected: {
+    borderColor: Colors.primaryDark,
+    backgroundColor: Colors.primaryDark,
   },
-  routeIcon: {
-    width: 38,
-    height: 38,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: Radius.full,
-    backgroundColor: Colors.surface,
+  optionChipDisabled: {
+    opacity: 0.6,
   },
-  routeIconSelected: {
-    backgroundColor: Colors.primaryContainer,
-  },
-  routeOptionTitle: {
-    color: Colors.onSurface,
-    fontSize: 11,
-    fontWeight: "900",
-  },
-  routeOptionDescription: {
-    marginTop: 2,
+  optionChipText: {
     color: Colors.onSurfaceVariant,
-    fontSize: 9,
+    fontSize: 11,
+    fontWeight: "700",
   },
-  mapWrapper: {
-    marginTop: 12,
-    overflow: "hidden",
-    borderRadius: Radius.lg,
+  optionChipTextSelected: {
+    color: Colors.onPrimary,
   },
-  mockNotice: {
-    marginTop: 10,
-    padding: 10,
+  actionCard: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 7,
-    borderRadius: Radius.md,
-    backgroundColor: "#FFF7D6",
+    gap: 12,
+    marginTop: 6,
   },
-  mockNoticeText: {
+  draftButton: {
     flex: 1,
-    color: "#725C00",
-    fontSize: 9,
-    lineHeight: 14,
-  },
-  checkpointRow: {
-    minHeight: 58,
-    paddingVertical: 8,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.surfaceContainerLow,
-  },
-  checkpointOrder: {
-    width: 30,
-    height: 30,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: Radius.full,
-    backgroundColor: Colors.primaryPale,
-  },
-  checkpointOrderText: {
-    color: Colors.primaryDark,
-    fontSize: 11,
-    fontWeight: "900",
-  },
-  checkpointTitle: {
-    color: Colors.onSurface,
-    fontSize: 11,
-    fontWeight: "800",
-  },
-  checkpointMeta: {
-    marginTop: 3,
-    color: Colors.onSurfaceVariant,
-    fontSize: 9,
-  },
-  deleteCheckpointButton: {
-    width: 36,
-    height: 36,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: Radius.full,
-    backgroundColor: "#FEF2F2",
-  },
-  checkpointForm: {
-    marginTop: 14,
-    padding: 12,
-    gap: 9,
-    borderWidth: 1,
-    borderColor: Colors.surfaceContainer,
-    borderRadius: Radius.md,
-    backgroundColor: Colors.surfaceContainerLow,
-  },
-  checkpointFormTitle: {
-    color: Colors.onSurface,
-    fontSize: 11,
-    fontWeight: "900",
-  },
-  addCheckpointButton: {
-    minHeight: 42,
+    height: 48,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
     borderWidth: 1,
-    borderColor: Colors.primaryContainer,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.surface,
-  },
-  addCheckpointButtonText: {
-    color: Colors.primaryDark,
-    fontSize: 10,
-    fontWeight: "900",
-  },
-  actionCard: {
-    padding: 13,
-    gap: 9,
-    borderRadius: Radius.lg,
-    backgroundColor: Colors.surface,
-    ...Shadows.card,
-  },
-  draftButton: {
-    minHeight: 49,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    borderWidth: 1,
-    borderColor: Colors.primaryContainer,
+    borderColor: Colors.primaryDark,
     borderRadius: Radius.full,
     backgroundColor: Colors.surface,
   },
   draftButtonText: {
     color: Colors.primaryDark,
-    fontSize: 12,
-    fontWeight: "900",
+    fontSize: 13,
+    fontWeight: "800",
   },
   submitButton: {
-    minHeight: 51,
+    flex: 1.2,
+    height: 48,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
+    gap: 6,
     borderRadius: Radius.full,
-    backgroundColor: Colors.primaryContainer,
+    backgroundColor: Colors.primaryDark,
     ...Shadows.card,
   },
   submitButtonText: {
     color: Colors.onPrimary,
-    fontSize: 12,
-    fontWeight: "900",
+    fontSize: 13,
+    fontWeight: "800",
   },
-  primaryButton: {
-    minHeight: 49,
-    marginTop: 16,
-    paddingHorizontal: 18,
+  missingCard: {
+    marginTop: 60,
+    padding: 30,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: Radius.full,
-    backgroundColor: Colors.primaryContainer,
   },
-  primaryButtonText: {
+  missingTitle: {
+    marginTop: 12,
+    color: Colors.onSurface,
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  missingDescription: {
+    marginTop: 6,
+    textAlign: "center",
+    color: Colors.onSurfaceVariant,
+    fontSize: 12,
+  },
+  backButton: {
+    marginTop: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.primaryDark,
+  },
+  backButtonText: {
     color: Colors.onPrimary,
     fontSize: 12,
-    fontWeight: "900",
-  },
-  emptyState: {
-    flex: 1,
-    paddingHorizontal: 28,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  emptyTitle: {
-    marginTop: 13,
-    color: Colors.onSurface,
-    fontSize: 17,
-    fontWeight: "900",
-    textAlign: "center",
-  },
-  emptyDescription: {
-    marginTop: 7,
-    color: Colors.onSurfaceVariant,
-    fontSize: 11,
-    lineHeight: 17,
-    textAlign: "center",
+    fontWeight: "800",
   },
 });

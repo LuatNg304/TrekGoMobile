@@ -27,7 +27,7 @@ interface AuthContextValue {
   accessToken: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  signIn: (email: string, password: string) => Promise<AuthUser>;
+  signIn: (email: string, password: string) => Promise<void>;
   register: (input: RegisterInput) => Promise<RegisterResponse>;
   verifyOtp: (email: string, otp: string) => Promise<void>;
   resendOtp: (email: string) => Promise<MessageResponse>;
@@ -48,13 +48,7 @@ function toStoredState(session: AuthSession): StoredAuthState {
 }
 
 function isTrekGoMobileRole(role?: string) {
-  return (
-    !role ||
-    role === "USER" ||
-    role === "LEADER" ||
-    role === "STAFF_DELIVERY" ||
-    role === "STAFF"
-  );
+  return !role || role === "USER" || role === "LEADER";
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -64,7 +58,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const persistSession = useCallback(async (nextSession: AuthSession) => {
     if (!isTrekGoMobileRole(nextSession.user.role)) {
       throw new AuthApiError(
-        "Tài khoản này không có quyền truy cập ứng dụng TrekGo Mobile.",
+        "Tài khoản nhân sự không sử dụng ứng dụng Trekker Mobile.",
         403,
       );
     }
@@ -131,10 +125,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signIn = useCallback(
-    async (email: string, password: string): Promise<AuthUser> => {
+    async (email: string, password: string) => {
       const nextSession = await authApi.login(email.trim().toLowerCase(), password);
       await persistSession(nextSession);
-      return nextSession.user;
     },
     [persistSession],
   );

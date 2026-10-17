@@ -5,7 +5,7 @@ export const Colors = {
   primaryActive: '#cdffad',
   primaryNeutral: '#c5edab',
   primaryPale: '#e2f6d5',
-  primaryDark: '#2f6c00',      // Alpine Forest Green
+  primaryDark: '#63ad29',      // Alpine Forest Green
   onPrimaryDark: '#ffffff',
   primaryContainer: '#9fe870',
   onPrimaryContainer: '#2e6900',

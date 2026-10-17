@@ -42,7 +42,7 @@ export interface Checkpoint {
   id: string;
   order: number;
   name: string;
-  elevation: number;
+  elevation?: number | null;
   distanceFromStartKm: number;
   status: CheckpointStatus;
   mission?: CheckpointMission;
@@ -79,6 +79,10 @@ export interface PersonalTrailRoutePoint {
   id: string;
   x: number;
   y: number;
+  lat?: number;
+  lng?: number;
+  elevation?: number;
+  segmentId?: number;
 }
 
 export interface PersonalTrail {
@@ -95,9 +99,12 @@ export interface PersonalTrail {
   visibility: PersonalTrailVisibility;
   verificationStatus: PersonalTrailVerificationStatus;
   rejectionReason?: string;
-  routePreset: "RIDGE" | "FOREST" | "WATERFALL";
-  routePoints: PersonalTrailRoutePoint[];
+  routePreset?: string;
+  routePoints?: PersonalTrailRoutePoint[];
+  gpsSegments: [number, number, number?][][]; // Phân đoạn toạ độ GPS 3D thực tế (GeoJSON MultiLineString) - Nguồn dữ liệu cốt lõi
+  gpsRoute?: [number, number, number?][]; // [lng, lat, elev?][] toạ độ phẳng làm từ gpsSegments
   checkpoints: Checkpoint[];
+  clientRecordingId?: string; // ID phiên ghi SQLite local_recordings (nếu tạo từ Live Trail Recorder)
   createdAt: string;
   updatedAt: string;
 }
@@ -111,10 +118,13 @@ export interface CreatePersonalTrailInput {
   duration: string;
   terrainType: string;
   description: string;
-  routePreset: PersonalTrail["routePreset"];
-  routePoints: PersonalTrailRoutePoint[];
-  checkpoints: Checkpoint[];
-  submitForVerification: boolean;
+  routePreset?: string;
+  routePoints?: PersonalTrailRoutePoint[];
+  gpsSegments: [number, number, number?][][];
+  gpsRoute?: [number, number, number?][];
+  checkpoints?: Checkpoint[];
+  submitForVerification?: boolean;
+  clientRecordingId?: string;
 }
 
 export type CommunityAuthorRole = "TREKKER" | "LEADER";
@@ -346,7 +356,7 @@ export interface UserProfile {
   name: string;
   email: string;
   avatar: string;
-  role: 'TREKKER' | 'LEADER' | 'STAFF_DELIVERY';
+  role: "TREKKER" | "LEADER";
   completedTripsCount: number;
   totalDistanceKm: number;
   unlockedTrailsCount: number;
@@ -442,3 +452,5 @@ export interface LiveNavTelemetry {
   deviationMeters: number;
   isWarningDismissed: boolean;
 }
+
+export * from "./recording";
