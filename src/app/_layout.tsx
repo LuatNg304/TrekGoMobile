@@ -1,22 +1,24 @@
+import { NetworkLoggerModal } from "@/components/common/NetworkLoggerModal";
 import { Colors } from "@/constants/theme";
 import { AppProvider, useApp } from "@/context/AppContext";
 import { AuthProvider, useAuth } from "@/features/auth/AuthContext";
-import { NetworkLoggerModal } from "@/components/common/NetworkLoggerModal";
 import { Stack, useRouter, useSegments, type Href } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import React, { useEffect } from "react";
+import { useEffect } from "react";
 import { ActivityIndicator, Platform, StyleSheet, Text, View } from "react-native";
+
 import { SafeAreaProvider } from "react-native-safe-area-context";
+
 
 export default function RootLayout() {
   return (
-    <AuthProvider>
-      <AppProvider>
-        <SafeAreaProvider>
+    <SafeAreaProvider>
+      <AuthProvider>
+        <AppProvider>
           <RootNavigator />
-        </SafeAreaProvider>
-      </AppProvider>
-    </AuthProvider>
+        </AppProvider>
+      </AuthProvider>
+    </SafeAreaProvider>
   );
 }
 

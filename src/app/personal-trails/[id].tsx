@@ -3,13 +3,13 @@ import { type Href, useLocalSearchParams, useRouter } from "expo-router";
 import { useMemo } from "react";
 import {
   Alert,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 import { TacticalMap } from "@/components/TacticalMap";
 import { Colors, Radius, Shadows } from "@/constants/theme";
