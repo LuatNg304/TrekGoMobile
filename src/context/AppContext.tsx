@@ -1,20 +1,10 @@
-import React, {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { Alert } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Network from "expo-network";
-import { leaderMembers } from "@/data/fieldOpsMock";
 import { ApiError } from "@/lib/api-client";
 
 import {
-  CommunityAuthorRole,
   CommunityNotification,
   CommunityPost,
   CommunityProfile,
@@ -35,9 +25,7 @@ import {
   Trip,
   UserNotification,
   UserProfile,
-  FieldWorkflowStatus,
   LeaderMemberAttendance,
-  LeaderGpsStatus,
   DeliveryItemStatus,
   DeliveryItemState,
   ReturnItemState,
@@ -88,9 +76,7 @@ export interface RentalSettlement {
 }
 
 export type {
-  FieldWorkflowStatus,
   LeaderMemberAttendance,
-  LeaderGpsStatus,
   DeliveryItemStatus,
   DeliveryItemState,
   ReturnItemState,
@@ -109,101 +95,7 @@ export interface GroupTripActionResult {
   status?: GroupTrip["joinStatus"];
 }
 
-
-export type FieldWorkflowStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED';
-export type LeaderMemberAttendance = 'CHECKED_IN' | 'PENDING' | 'NO_SHOW';
-export type LeaderGpsStatus = 'OK' | 'LOST';
-export type DeliveryItemStatus = 'PENDING' | 'OK' | 'MISSING' | 'DAMAGED';
-export interface DeliveryItemState {
-  status: DeliveryItemStatus;
-  note: string;
-}
-export interface ReturnItemState {
-  status: DeliveryItemStatus;
-  note: string;
-}
-
-export interface FieldWorkflowState {
-  leaderTripStatus: 'PREPARING' | 'IN_PROGRESS' | 'COMPLETED';
-  leaderPretripApproved: boolean;
-  leaderAttendance: { memberName: string; status: LeaderMemberAttendance }[];
-  requiredCheckpointIds: string[];
-  completedCheckpointIds: string[];
-  leaderSafetyAlert: {
-    status: 'ACTIVE' | 'RESOLVED';
-    selectedOption: string | null;
-  };
-  gpsStatus: LeaderGpsStatus;
-  isOnline: boolean;
-  pendingSyncCount: number;
-  leaderReportSent: boolean;
-  handoverRequested: boolean;
-  deliveryStatus: FieldWorkflowStatus;
-  packageReceived: boolean;
-  arrivedAtPickup: boolean;
-  deliveryVerified: boolean;
-  deliveryItems: DeliveryItemState[];
-  deliveryPhotoUri: string | null;
-  deliverySigned: boolean;
-  returnStatus: FieldWorkflowStatus;
-  returnArrived: boolean;
-  returnVerified: boolean;
-  returnItems: ReturnItemState[];
-  returnConditionRecorded: boolean;
-  returnSigned: boolean;
-  depositStatus: 'HELD' | 'PENDING_INSPECTION' | 'REFUNDED';
-  lastUpdated: string;
-}
-
-const FIELD_WORKFLOW_STORAGE_KEY = 'trekgo.field-workflow.v1';
-
-const initialFieldWorkflow: FieldWorkflowState = {
-  leaderTripStatus: 'PREPARING',
-  leaderPretripApproved: false,
-  leaderAttendance: leaderMembers.map((member) => ({
-    memberName: member.name,
-    status: member.status === 'Đã check-in' ? 'CHECKED_IN' : 'PENDING',
-  })),
-  requiredCheckpointIds: mockTrails[0].checkpoints.map((checkpoint) => checkpoint.id),
-  completedCheckpointIds: [],
-  leaderSafetyAlert: { status: 'ACTIVE', selectedOption: null },
-  gpsStatus: 'OK',
-  isOnline: true,
-  pendingSyncCount: 0,
-  leaderReportSent: false,
-  handoverRequested: false,
-  deliveryStatus: 'PENDING',
-  packageReceived: false,
-  arrivedAtPickup: false,
-  deliveryVerified: false,
-  deliveryItems: [
-    { status: 'PENDING', note: '' },
-    { status: 'PENDING', note: '' },
-    { status: 'PENDING', note: '' },
-    { status: 'PENDING', note: '' },
-  ],
-  deliveryPhotoUri: null,
-  deliverySigned: false,
-  returnStatus: 'PENDING',
-  returnArrived: false,
-  returnVerified: false,
-  returnItems: [
-    { status: 'PENDING', note: '' },
-    { status: 'PENDING', note: '' },
-    { status: 'PENDING', note: '' },
-    { status: 'PENDING', note: '' },
-  ],
-  returnConditionRecorded: false,
-  returnSigned: false,
-  depositStatus: 'HELD',
-  lastUpdated: new Date().toISOString(),
-};
-
 interface AppContextType {
-  authRole: 'STAFF_DELIVERY' | 'LEADER' | null;
-  signInAsRole: (role: 'STAFF_DELIVERY' | 'LEADER') => void;
-  signOut: () => void;
-  publishPublicTrip: (draft: { name: string; startDate: string; endDate: string; slots: number; trailId: string; checkpointIds: string[] }) => void;
   user: UserProfile;
   setUser: React.Dispatch<React.SetStateAction<UserProfile>>;
   toggleUserRole: () => void;
@@ -289,7 +181,7 @@ interface AppContextType {
     quantity: number;
   }[];
   addToCart: (item: EquipmentItem, quantity: number) => void;
-  setCartQuantity: (item: EquipmentItem, quantity: number) => void;
+    setCartQuantity: (item: EquipmentItem, quantity: number) => void;
   removeFromCart: (itemId: string) => void;
   checkoutRental: (tripId: string, days: number) => void;
   confirmRentalPickup: (orderId: string) => void;
@@ -304,6 +196,7 @@ interface AppContextType {
   reconnectToRoute: () => void;
   completeCheckpointMission: (checkpointId: string) => void;
   resolveMemberAlert: (memberId: string) => void;
+
   fieldWorkflow: FieldWorkflowState;
   setLeaderMemberAttendance: (memberName: string, status: LeaderMemberAttendance) => void;
   completeLeaderCheckpoint: (checkpointId: string) => void;
@@ -329,7 +222,7 @@ interface AppContextType {
   completeReturn: () => void;
   enableReturnDemo: () => void;
   resetFieldWorkflow: () => void;
-};
+}
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
@@ -695,7 +588,7 @@ const initialCommunityProfiles: CommunityProfile[] = [
     avatar: mockUserProfile.avatar,
     coverImage:
       "https://images.unsplash.com/photo-1464278533981-50106e6176b1?auto=format&fit=crop&w=1200&q=80",
-    role: (mockUserProfile.role === "LEADER" ? "LEADER" : "TREKKER") as CommunityAuthorRole,
+    role: mockUserProfile.role === "LEADER" ? "LEADER" : "TREKKER",
     verified: mockUserProfile.role === "LEADER",
     badge:
       mockUserProfile.role === "LEADER" ? "Verified Leader" : "Trail Explorer",
@@ -877,232 +770,6 @@ export const AppProvider: React.FC<{
   }, [authenticatedUser?.id]);
   const [authRole, setAuthRole] = useState<"STAFF_DELIVERY" | "LEADER" | null>(null);
   const [localUser, setUser] = useState<UserProfile>(mockUserProfile);
-  const [authRole, setAuthRole] = useState<'STAFF_DELIVERY' | 'LEADER' | null>(null);
-  const [fieldWorkflow, setFieldWorkflow] = useState<FieldWorkflowState>(initialFieldWorkflow);
-  const [workflowHydrated, setWorkflowHydrated] = useState(false);
-
-  useEffect(() => {
-    AsyncStorage.getItem(FIELD_WORKFLOW_STORAGE_KEY)
-      .then((value) => {
-        if (value) {
-          const stored = JSON.parse(value) as Partial<FieldWorkflowState> & {
-            deliveryItems?: (boolean | DeliveryItemState)[];
-            returnItems?: (boolean | ReturnItemState)[];
-          };
-          const deliveryItems =
-            stored.deliveryItems?.map((item) =>
-              typeof item === 'boolean'
-                ? ({ status: item ? 'OK' : 'PENDING', note: '' } as DeliveryItemState)
-                : item,
-            ) ?? initialFieldWorkflow.deliveryItems;
-          const returnItems =
-            stored.returnItems?.map((item) =>
-              typeof item === 'boolean'
-                ? ({ status: item ? 'OK' : 'PENDING', note: '' } as ReturnItemState)
-                : item,
-            ) ?? initialFieldWorkflow.returnItems;
-          setFieldWorkflow({ ...initialFieldWorkflow, ...stored, deliveryItems, returnItems });
-        }
-      })
-      .catch(() => undefined)
-      .finally(() => setWorkflowHydrated(true));
-  }, []);
-
-  useEffect(() => {
-    if (!workflowHydrated) return;
-    AsyncStorage.setItem(FIELD_WORKFLOW_STORAGE_KEY, JSON.stringify(fieldWorkflow)).catch(() => undefined);
-  }, [fieldWorkflow, workflowHydrated]);
-
-  const updateFieldWorkflow = (update: Partial<FieldWorkflowState>) => {
-    setFieldWorkflow((prev) => ({ ...prev, ...update, lastUpdated: new Date().toISOString() }));
-  };
-
-  const approveLeaderPretrip = () => updateFieldWorkflow({ leaderPretripApproved: true });
-
-  const publishPublicTrip = (draft: {
-    name: string;
-    startDate: string;
-    endDate: string;
-    slots: number;
-    trailId: string;
-    checkpointIds: string[];
-  }) => {
-    const trail = trails.find((item) => item.id === draft.trailId);
-    if (!trail) return;
-    const nextTripSequence =
-      trips.reduce((highestSequence, item) => {
-        const match = /^trip-public-(\d+)$/.exec(item.id);
-        return match
-          ? Math.max(highestSequence, Number(match[1]))
-          : highestSequence;
-      }, 0) + 1;
-    const newTrip: Trip = {
-      id: `trip-public-${nextTripSequence}`,
-      type: 'PUBLIC',
-      name: draft.name,
-      trailId: trail.id,
-      destination: trail.region,
-      startDate: draft.startDate,
-      endDate: draft.endDate,
-      durationDays: 1,
-      status: 'UPCOMING',
-      leader: {
-        name: 'Minh Khoa',
-        avatar: '',
-        phone: '',
-        rating: 5,
-        badge: 'Mountain Leader',
-      },
-      capacity: draft.slots,
-      enrolledCount: 0,
-      pricePerPerson: 0,
-      bookingCode: `TG-${String(nextTripSequence).padStart(6, "0")}`,
-      weather: {
-        tempC: 0,
-        condition: 'Chưa cập nhật',
-        rainRisk: false,
-        rainChancePercent: 0,
-        humidityPercent: 0,
-        windSpeedKmh: 0,
-      },
-      participants: [],
-    };
-    setTrips((prev) => [newTrip, ...prev]);
-  };
-
-  const setLeaderMemberAttendance = (memberName: string, status: LeaderMemberAttendance) => {
-    setFieldWorkflow((prev) => ({
-      ...prev,
-      leaderAttendance: prev.leaderAttendance.map((member) =>
-        member.memberName === memberName ? { ...member, status } : member,
-      ),
-      lastUpdated: new Date().toISOString(),
-    }));
-  };
-
-  const startLeaderTrip = () => {
-    setFieldWorkflow((prev) => {
-      const hasPendingAttendance = prev.leaderAttendance.some((member) => member.status === 'PENDING');
-      const hasCheckedInMember = prev.leaderAttendance.some((member) => member.status === 'CHECKED_IN');
-      if (!prev.leaderPretripApproved || hasPendingAttendance || !hasCheckedInMember) return prev;
-      return { ...prev, leaderTripStatus: 'IN_PROGRESS', lastUpdated: new Date().toISOString() };
-    });
-  };
-
-  const completeLeaderCheckpoint = (checkpointId: string) => {
-    setFieldWorkflow((prev) =>
-      prev.leaderTripStatus !== 'IN_PROGRESS' ||
-      !prev.requiredCheckpointIds.includes(checkpointId) ||
-      prev.completedCheckpointIds.includes(checkpointId)
-        ? prev
-        : {
-            ...prev,
-            completedCheckpointIds: [...prev.completedCheckpointIds, checkpointId],
-            lastUpdated: new Date().toISOString(),
-          },
-    );
-  };
-
-  const resolveLeaderSafetyAlert = (selectedOption: string) => {
-    updateFieldWorkflow({
-      leaderSafetyAlert: { status: 'RESOLVED', selectedOption },
-    });
-  };
-
-  const toggleLeaderGpsStatus = () => {
-    setFieldWorkflow((prev) => ({
-      ...prev,
-      gpsStatus: prev.gpsStatus === 'OK' ? 'LOST' : 'OK',
-      pendingSyncCount: prev.gpsStatus === 'OK' ? prev.pendingSyncCount + 1 : prev.pendingSyncCount,
-      lastUpdated: new Date().toISOString(),
-    }));
-  };
-
-  const toggleLeaderOnlineStatus = () => {
-    setFieldWorkflow((prev) => {
-      if (!prev.isOnline) {
-        setTimeout(() => {
-          setFieldWorkflow((current) => ({
-            ...current,
-            pendingSyncCount: 0,
-            lastUpdated: new Date().toISOString(),
-          }));
-        }, 1000);
-      }
-      return {
-        ...prev,
-        isOnline: !prev.isOnline,
-        pendingSyncCount: prev.isOnline ? prev.pendingSyncCount + 1 : prev.pendingSyncCount,
-        lastUpdated: new Date().toISOString(),
-      };
-    });
-  };
-
-  const completeLeaderTrip = () => {
-    setFieldWorkflow((prev) => {
-      const hasMissingCheckpoint = prev.requiredCheckpointIds.some((id) => !prev.completedCheckpointIds.includes(id));
-      if (prev.leaderTripStatus !== 'IN_PROGRESS' || hasMissingCheckpoint) return prev;
-      return { ...prev, leaderTripStatus: 'COMPLETED', lastUpdated: new Date().toISOString() };
-    });
-  };
-
-  const sendLeaderReport = () =>
-    updateFieldWorkflow({
-      leaderReportSent: true,
-      handoverRequested: true,
-      returnStatus: 'IN_PROGRESS',
-    });
-
-  const receiveDeliveryPackage = (packageCode: string) => {
-    const readyOrder = rentalOrders.find((order) => order.status === 'READY_FOR_DELIVERY');
-    if (!readyOrder || packageCode !== 'PKG-7892-A') return false;
-    updateFieldWorkflow({ packageReceived: true });
-    return true;
-  };
-
-  const markArrivedAtPickup = () => updateFieldWorkflow({ arrivedAtPickup: true });
-  const setDeliveryVerified = (verified: boolean) => updateFieldWorkflow({ deliveryVerified: verified });
-  const setDeliveryItem = (index: number, status: DeliveryItemStatus, note: string) =>
-    updateFieldWorkflow({
-      deliveryItems: fieldWorkflow.deliveryItems.map((item, itemIndex) =>
-        itemIndex === index ? { status, note } : item,
-      ),
-    });
-  const setDeliveryPhoto = (uri: string | null) => updateFieldWorkflow({ deliveryPhotoUri: uri });
-  const setDeliverySigned = (signed: boolean) => updateFieldWorkflow({ deliverySigned: signed });
-  const completeDelivery = () =>
-    updateFieldWorkflow({ deliveryStatus: 'COMPLETED', returnStatus: 'PENDING', depositStatus: 'HELD' });
-  const markReturnArrived = () => updateFieldWorkflow({ returnArrived: true, returnStatus: 'IN_PROGRESS' });
-  const setReturnVerified = (verified: boolean) => updateFieldWorkflow({ returnVerified: verified });
-  const setReturnItem = (index: number, status: DeliveryItemStatus, note: string) =>
-    updateFieldWorkflow({
-      returnItems: fieldWorkflow.returnItems.map((item, itemIndex) =>
-        itemIndex === index ? { status, note } : item,
-      ),
-    });
-  const setReturnConditionRecorded = (recorded: boolean) => updateFieldWorkflow({ returnConditionRecorded: recorded });
-  const setReturnSigned = (signed: boolean) => updateFieldWorkflow({ returnSigned: signed });
-  const completeReturn = () =>
-    updateFieldWorkflow({ returnStatus: 'COMPLETED', depositStatus: 'PENDING_INSPECTION' });
-  const enableReturnDemo = () =>
-    updateFieldWorkflow({
-      handoverRequested: true,
-      leaderReportSent: true,
-      returnStatus: 'IN_PROGRESS',
-    });
-  const resetFieldWorkflow = () =>
-    setFieldWorkflow({ ...initialFieldWorkflow, lastUpdated: new Date().toISOString() });
-
-  const signInAsRole = (role: 'STAFF_DELIVERY' | 'LEADER') => {
-    setAuthRole(role);
-    setUser((prev) => ({
-      ...prev,
-      role,
-      name: role === 'LEADER' ? 'Minh Khoa' : 'Hoàng Văn Tuấn',
-    }));
-  };
-
-  const signOut = () => setAuthRole(null);
   const user: UserProfile = authenticatedUser
     ? {
         ...localUser,
@@ -2262,7 +1929,7 @@ export const AppProvider: React.FC<{
       // Keep the cached routes already displayed; a network failure must not empty the list.
       console.warn("[AppContext] Không thể làm mới personal trails:", error);
     }
-  }, [authenticatedUser?.id, setPersonalTrails]);
+  }, [authenticatedUser?.id]);
 
 
   // Tự động làm mới và dọn dẹp các cung đường đã đồng bộ ngay khi hoàn tất hydrate bộ nhớ
@@ -2300,7 +1967,7 @@ export const AppProvider: React.FC<{
         id: user.id,
         name: user.name,
         avatar: user.avatar,
-        role: (user.role === "LEADER" ? "LEADER" : "TREKKER") as CommunityAuthorRole,
+        role: user.role === "LEADER" ? "LEADER" : "TREKKER",
         verified: user.role === "LEADER",
         badge: user.role === "LEADER" ? "Verified Leader" : "Trekker",
       },
@@ -2372,7 +2039,7 @@ export const AppProvider: React.FC<{
                 id: user.id,
                 name: user.name,
                 avatar: user.avatar,
-                role: (user.role === "LEADER" ? "LEADER" : "TREKKER") as CommunityAuthorRole,
+                role: user.role === "LEADER" ? "LEADER" : "TREKKER",
                 verified: user.role === "LEADER",
                 badge: user.role === "LEADER" ? "Verified Leader" : "Trekker",
               },
@@ -2461,24 +2128,24 @@ export const AppProvider: React.FC<{
     const normalizedQuantity = Math.max(0, Math.floor(quantity));
 
     setCart((current) => {
-      const existing = current.some((entry) => entry.item.id === item.id);
+      let next;
 
       if (normalizedQuantity === 0) {
-        return current.filter((entry) => entry.item.id !== item.id);
-      }
-
-      if (existing) {
-        return current.map((entry) =>
+        next = current.filter((entry) => entry.item.id !== item.id);
+      } else if (current.some((entry) => entry.item.id === item.id)) {
+        next = current.map((entry) =>
           entry.item.id === item.id
             ? { item, quantity: normalizedQuantity }
             : entry,
         );
+      } else {
+        next = [...current, { item, quantity: normalizedQuantity }];
       }
 
-      return [...current, { item, quantity: normalizedQuantity }];
+      accountStorage.saveRentalCart(next);
+      return next;
     });
   };
-
   const removeFromCart = (itemId: string) => {
     setCart((current) => {
       const next = current.filter((entry) => entry.item.id !== itemId);
@@ -2792,6 +2459,7 @@ export const AppProvider: React.FC<{
         rentalSettlements,
         cart,
         addToCart,
+
         setCartQuantity,
         removeFromCart,
         checkoutRental,
@@ -2806,10 +2474,6 @@ export const AppProvider: React.FC<{
         reconnectToRoute,
         completeCheckpointMission,
         resolveMemberAlert,
-        authRole,
-        signInAsRole,
-        signOut,
-        publishPublicTrip,
         fieldWorkflow,
         setLeaderMemberAttendance,
         completeLeaderCheckpoint,
@@ -2835,6 +2499,8 @@ export const AppProvider: React.FC<{
         completeReturn,
         enableReturnDemo,
         resetFieldWorkflow,
+        authRole,
+        signOut,
       }}
     >
       {children}
@@ -2851,4 +2517,3 @@ export const useApp = () => {
 
   return context;
 };
-
