@@ -1,4 +1,5 @@
 import { Platform } from "react-native";
+import { readStoredAuth } from "@/features/auth/storage";
 
 const fallbackApiUrl = Platform.select({
   android: "http://10.0.2.2:3000",
@@ -93,8 +94,20 @@ export async function apiRequest<T>(
     requestHeaders.set("Content-Type", "application/json");
   }
 
-  if (accessToken) {
-    requestHeaders.set("Authorization", `Bearer ${accessToken}`);
+  let token = accessToken;
+  if (!token && !requestHeaders.has("Authorization")) {
+    try {
+      const stored = await readStoredAuth();
+      if (stored?.accessToken) {
+        token = stored.accessToken;
+      }
+    } catch {
+      // Ignore read error
+    }
+  }
+
+  if (token && !requestHeaders.has("Authorization")) {
+    requestHeaders.set("Authorization", `Bearer ${token}`);
   }
 
   try {

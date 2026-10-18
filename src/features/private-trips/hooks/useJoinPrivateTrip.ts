@@ -1,9 +1,13 @@
 import { ApiError } from "@/lib/api-client";
 import { useCallback, useState } from "react";
+import { useAuth } from "@/features/auth/AuthContext";
 import { joinPrivateTripByCode } from "../services/private-trips.api";
 import type { JoinTripResponse } from "../types";
 
-export function useJoinPrivateTrip() {
+export function useJoinPrivateTrip(explicitAccessToken?: string | null) {
+  const { accessToken: contextToken } = useAuth();
+  const token = explicitAccessToken !== undefined ? explicitAccessToken : contextToken;
+
   const [joinResult, setJoinResult] = useState<JoinTripResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -15,7 +19,7 @@ export function useJoinPrivateTrip() {
       setError(null);
       setErrorCode(null);
       try {
-        const res = await joinPrivateTripByCode(code);
+        const res = await joinPrivateTripByCode(code, token || undefined);
         setJoinResult(res);
         return res;
       } catch (err: any) {

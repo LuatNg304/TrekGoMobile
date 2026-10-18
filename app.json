@@ -43,6 +43,12 @@
           "isAndroidBackgroundLocationEnabled": true,
           "isAndroidForegroundServiceEnabled": true
         }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Cho phép TrekGo sử dụng máy ảnh để quét mã QR tham gia Private Trip và kiểm tra trang thiết bị."
+        }
       ]
     ],
     "experiments": {

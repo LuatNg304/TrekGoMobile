@@ -13,15 +13,30 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { BookingModal } from "@/components/BookingModal";
 import { Colors, Radius, Shadows } from "@/constants/theme";
 import { useApp } from "@/context/AppContext";
+import { PublicTripDetailScreen } from "@/features/trips/screens/PublicTripDetailScreen";
+import type { Trip } from "@/types";
 
 export default function TripDetailScreen() {
-  const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { trips } = useApp();
 
-  const [bookingVisible, setBookingVisible] = useState(false);
+  // If this ID belongs to the legacy mock list (starts with 'trip-'), render legacy screen
+  const isMockTrip = id?.startsWith("trip-");
+  const mockTrip = useMemo(
+    () => (isMockTrip ? trips.find((item) => item.id === id) : null),
+    [id, isMockTrip, trips],
+  );
 
-  const trip = useMemo(() => trips.find((item) => item.id === id), [id, trips]);
+  if (!isMockTrip && id) {
+    return <PublicTripDetailScreen tripId={id} />;
+  }
+
+  return <LegacyMockTripDetail trip={mockTrip} />;
+}
+
+function LegacyMockTripDetail({ trip }: { trip?: Trip | null }) {
+  const router = useRouter();
+  const [bookingVisible, setBookingVisible] = useState(false);
 
   function handleBack() {
     if (router.canGoBack()) {

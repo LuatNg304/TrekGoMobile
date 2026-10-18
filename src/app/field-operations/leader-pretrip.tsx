@@ -18,7 +18,7 @@ export default function LeaderPretripScreen() {
   const [isApproving, setIsApproving] = useState(false);
   const members = useMemo(() => leaderMembers.map(member => ({
     ...member,
-    attendance: fieldWorkflow.leaderAttendance.find(item => item.memberName === member.name)?.status ?? 'PENDING',
+    attendance: fieldWorkflow.leaderAttendance.find((item: { memberName: string; status: string }) => item.memberName === member.name)?.status ?? 'PENDING',
   })), [fieldWorkflow.leaderAttendance]);
   const processedMembers = members.every(member => member.attendance !== 'PENDING');
   const ready = done.every(Boolean) && processedMembers;

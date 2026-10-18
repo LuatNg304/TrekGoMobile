@@ -8,7 +8,7 @@ interface LeaderProgressTrackerProps {
 
 export function LeaderProgressTracker({ fieldWorkflow }: LeaderProgressTrackerProps) {
   const checkedInCount = fieldWorkflow.leaderAttendance.filter(
-    (member) => member.status === "CHECKED_IN",
+    (member: { memberName: string; status: string }) => member.status === "CHECKED_IN",
   ).length;
   const checkpointCount = fieldWorkflow.completedCheckpointIds.length;
   const requiredCheckpointCount = fieldWorkflow.requiredCheckpointIds.length;

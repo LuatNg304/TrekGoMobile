@@ -174,11 +174,12 @@ export async function previewTripInvite(code: string) {
 }
 
 /** POST /private-trip-invitations/:code/join — Xác nhận tham gia chuyến đi */
-export async function joinPrivateTripByCode(code: string) {
+export async function joinPrivateTripByCode(code: string, accessToken?: string) {
   return apiRequest<JoinTripResponse>(
     `/api/v1/private-trip-invitations/${encodeURIComponent(code)}/join`,
     {
       method: "POST",
+      accessToken,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({}),
     },

@@ -8,13 +8,14 @@ import {
   FlatList,
   Modal,
   RefreshControl,
-  SafeAreaView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { QRScannerModal } from "@/components/common/QRScannerModal";
 import { PrivateTripCard } from "../components/PrivateTripCard";
 import { useMyPrivateTrips } from "../hooks/useMyPrivateTrips";
 import type { PrivateTrip } from "../types";
@@ -31,6 +32,7 @@ export function MyPrivateTripsScreen() {
   // Invite code input modal
   const [showCodeModal, setShowCodeModal] = useState(false);
   const [inviteCodeInput, setInviteCodeInput] = useState("");
+  const [showQRScanner, setShowQRScanner] = useState(false);
 
   async function handleRefresh() {
     setRefreshing(true);
@@ -63,7 +65,7 @@ export function MyPrivateTripsScreen() {
 
   function handleTripPress(trip: PrivateTrip) {
     router.push({
-      pathname: "/private-trips/[id]",
+      pathname: "/private-trips/[id]/room",
       params: { id: trip.id },
     } as any);
   }
@@ -90,11 +92,20 @@ export function MyPrivateTripsScreen() {
 
         <View style={styles.headerActions}>
           <TouchableOpacity
+            style={styles.qrButton}
+            onPress={() => setShowQRScanner(true)}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="qr-code-outline" size={15} color={Colors.primaryDark} />
+            <Text style={styles.qrButtonText}>Quét QR</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
             style={styles.codeButton}
             onPress={() => setShowCodeModal(true)}
             activeOpacity={0.85}
           >
-            <Ionicons name="key-outline" size={16} color={Colors.primaryDark} />
+            <Ionicons name="key-outline" size={15} color={Colors.primaryDark} />
             <Text style={styles.codeButtonText}>Nhập mã</Text>
           </TouchableOpacity>
 
@@ -103,7 +114,7 @@ export function MyPrivateTripsScreen() {
             onPress={handleCreateTrip}
             activeOpacity={0.85}
           >
-            <Ionicons name="add" size={18} color="#FFFFFF" />
+            <Ionicons name="add" size={17} color="#FFFFFF" />
             <Text style={styles.createButtonText}>Tạo chuyến</Text>
           </TouchableOpacity>
         </View>
@@ -250,6 +261,20 @@ export function MyPrivateTripsScreen() {
               autoCorrect={false}
             />
 
+            <TouchableOpacity
+              style={styles.modalQRScannerBtn}
+              onPress={() => {
+                setShowCodeModal(false);
+                setShowQRScanner(true);
+              }}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="camera-outline" size={18} color={Colors.primaryDark} />
+              <Text style={styles.modalQRScannerBtnText}>
+                Hoặc quét mã QR từ màn hình web
+              </Text>
+            </TouchableOpacity>
+
             <View style={styles.modalBtnRow}>
               <TouchableOpacity
                 style={styles.modalCancelBtn}
@@ -268,6 +293,13 @@ export function MyPrivateTripsScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* QR Scanner Modal */}
+      <QRScannerModal
+        visible={showQRScanner}
+        onClose={() => setShowQRScanner(false)}
+        onManualInputPress={() => setShowCodeModal(true)}
+      />
     </SafeAreaView>
   );
 }
@@ -296,11 +328,27 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
   },
+  qrButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 7,
+    borderRadius: Radius.full,
+    backgroundColor: "#e7f6e3",
+    borderWidth: 1,
+    borderColor: "#c4e3b7",
+  },
+  qrButtonText: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: Colors.primaryDark,
+  },
   codeButton: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    paddingHorizontal: 10,
+    paddingHorizontal: 9,
     paddingVertical: 7,
     borderRadius: Radius.full,
     backgroundColor: Colors.surfaceContainerLow,
@@ -310,7 +358,7 @@ const styles = StyleSheet.create({
   codeButtonText: {
     fontSize: 12,
     fontWeight: "700",
-    color: Colors.primaryDark,
+    color: Colors.onSurface,
   },
   createButton: {
     flexDirection: "row",
@@ -376,6 +424,24 @@ const styles = StyleSheet.create({
     color: Colors.onSurface,
     backgroundColor: Colors.surfaceContainerLow,
     marginBottom: 16,
+  },
+  modalQRScannerBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    width: "100%",
+    paddingVertical: 10,
+    backgroundColor: "#e7f6e3",
+    borderRadius: Radius.md,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#c4e3b7",
+  },
+  modalQRScannerBtnText: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: Colors.primaryDark,
   },
   modalBtnRow: {
     flexDirection: "row",

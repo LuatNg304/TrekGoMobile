@@ -40,7 +40,7 @@ function parseDateToIso(str: string, timeStr = "06:00:00"): string {
 export function LeaderCreateTripScreen() {
   const router = useRouter();
   const { user: authUser, accessToken } = useAuth();
-  const { authRole } = useApp();
+  const { user } = useApp();
 
   const {
     loading: apiLoading,
@@ -56,7 +56,7 @@ export function LeaderCreateTripScreen() {
     publish,
   } = useLeaderTripCreation(accessToken);
 
-  const canCreatePublicTrip = authUser?.role === "LEADER" || authRole === "LEADER";
+  const canCreatePublicTrip = authUser?.role === "LEADER" || user?.role === "LEADER";
 
   const [step, setStep] = useState<"form" | "review">("form");
   const [destinations, setDestinations] = useState<TripOptionDestination[]>([]);

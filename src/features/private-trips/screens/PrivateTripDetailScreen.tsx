@@ -5,13 +5,13 @@ import React, { useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
-  View,
+  View
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { CancelTripModal } from "../components/CancelTripModal";
 import { EditPrivateTripModal } from "../components/EditPrivateTripModal";
 import { InviteShareModal } from "../components/InviteShareModal";

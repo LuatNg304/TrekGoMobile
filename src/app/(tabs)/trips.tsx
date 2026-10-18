@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { type Href, useRouter } from "expo-router";
+import { type Href, useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -20,6 +20,9 @@ import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/features/auth/AuthContext";
 import { BookingCard } from "@/features/bookings/components";
 import { useMyBookings } from "@/features/bookings/hooks";
+import { PrivateTripCard } from "@/features/private-trips/components/PrivateTripCard";
+import { useMyPrivateTrips } from "@/features/private-trips/hooks/useMyPrivateTrips";
+import type { PrivateTrip } from "@/features/private-trips/types";
 import { TripCard } from "@/features/trips/components";
 import { usePublicTrips } from "@/features/trips/hooks";
 
@@ -51,18 +54,25 @@ const completedTrip = {
 export default function TripsScreen() {
   const router = useRouter();
   const { trips, activeTrip, user } = useApp();
-  const { accessToken } = useAuth();
+  const { user: authUser, accessToken } = useAuth();
+  const isLeader = authUser?.role === "LEADER" || user?.role === "LEADER";
 
   const [mainTab, setMainTab] = useState<MainTab>("MY_TRIPS");
   const [publicSearch, setPublicSearch] = useState("");
   const [selectedDifficulty, setSelectedDifficulty] = useState<string>("Tất cả");
 
-  // Real backend bookings & public trips
+  // Real backend bookings & public trips & private trips
   const {
     bookings,
     isLoading: loadingBookings,
     refetch: refetchBookings,
   } = useMyBookings();
+
+  const {
+    trips: privateTrips,
+    loading: loadingPrivateTrips,
+    refetch: refetchPrivateTrips,
+  } = useMyPrivateTrips(true);
 
   const {
     trips: publicTripsList,
@@ -74,9 +84,21 @@ export default function TripsScreen() {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([refetchBookings(), refreshPublicTrips()]);
+    await Promise.all([
+      refetchBookings(),
+      refreshPublicTrips(),
+      refetchPrivateTrips(),
+    ]);
     setRefreshing(false);
-  }, [refetchBookings, refreshPublicTrips]);
+  }, [refetchBookings, refreshPublicTrips, refetchPrivateTrips]);
+
+  // Refetch private trips & bookings automatically on focus (e.g. after joining a trip)
+  useFocusEffect(
+    useCallback(() => {
+      void refetchBookings();
+      void refetchPrivateTrips();
+    }, [refetchBookings, refetchPrivateTrips]),
+  );
 
   const displayedPublicTrips = useMemo(() => {
     return publicTripsList.filter((t) => {
@@ -113,6 +135,23 @@ export default function TripsScreen() {
         ["COMPLETED", "CANCELLED", "EXPIRED", "NO_SHOW"].includes(b.status),
       ),
     [bookings],
+  );
+
+  // Split private trips by status
+  const upcomingPrivateTrips = useMemo(
+    () =>
+      privateTrips.filter(
+        (t) => t.status === "OPEN" || t.status === "IN_PROGRESS",
+      ),
+    [privateTrips],
+  );
+
+  const historyPrivateTrips = useMemo(
+    () =>
+      privateTrips.filter(
+        (t) => t.status === "COMPLETED" || t.status === "CANCELLED",
+      ),
+    [privateTrips],
   );
 
   const [activeFilter, setActiveFilter] = useState<TripFilter>(
@@ -174,9 +213,11 @@ export default function TripsScreen() {
             Sắp tới
           </Text>
 
-          {confirmedBookings.length > 0 && (
+          {confirmedBookings.length + upcomingPrivateTrips.length > 0 && (
             <View style={styles.countBadge}>
-              <Text style={styles.countBadgeText}>{confirmedBookings.length}</Text>
+              <Text style={styles.countBadgeText}>
+                {confirmedBookings.length + upcomingPrivateTrips.length}
+              </Text>
             </View>
           )}
         </TouchableOpacity>
@@ -245,10 +286,10 @@ export default function TripsScreen() {
             Lịch sử đã đi
           </Text>
 
-          {historyBookings.length > 0 && (
+          {historyBookings.length + historyPrivateTrips.length > 0 && (
             <View style={styles.historyCountBadge}>
               <Text style={styles.historyCountBadgeText}>
-                {historyBookings.length}
+                {historyBookings.length + historyPrivateTrips.length}
               </Text>
             </View>
           )}
@@ -265,6 +306,18 @@ export default function TripsScreen() {
           <Text style={[styles.subFilterText, { color: "#564500", fontWeight: "700" }]}>
             Chuyến riêng
           </Text>
+          {privateTrips.length > 0 && (
+            <View
+              style={[
+                styles.countBadge,
+                { backgroundColor: "#564500", minWidth: 18, height: 18, paddingHorizontal: 4 },
+              ]}
+            >
+              <Text style={[styles.countBadgeText, { fontSize: 10 }]}>
+                {privateTrips.length}
+              </Text>
+            </View>
+          )}
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -284,7 +337,10 @@ export default function TripsScreen() {
   }
 
   function renderUpcomingTrips() {
-    if (confirmedBookings.length === 0) {
+    const hasUpcoming =
+      confirmedBookings.length > 0 || upcomingPrivateTrips.length > 0;
+
+    if (!hasUpcoming) {
       return (
         <View style={styles.emptyState}>
           <View style={styles.emptyIcon}>
@@ -346,6 +402,20 @@ export default function TripsScreen() {
                 router.push({
                   pathname: "/bookings/[id]",
                   params: { id: b.id },
+                } as any)
+              }
+            />
+          </View>
+        ))}
+
+        {upcomingPrivateTrips.map((pt) => (
+          <View key={pt.id} style={{ marginBottom: 14 }}>
+            <PrivateTripCard
+              trip={pt}
+              onPress={() =>
+                router.push({
+                  pathname: "/private-trips/[id]/room",
+                  params: { id: pt.id },
                 } as any)
               }
             />
@@ -438,7 +508,7 @@ export default function TripsScreen() {
     return (
       <View style={{ flex: 1 }}>
         {/* Leader Create Public Trip Banner (If Leader) */}
-        {user?.role === "LEADER" && (
+        {isLeader && (
           <TouchableOpacity
             style={styles.leaderCreateBanner}
             onPress={() =>
@@ -574,7 +644,10 @@ export default function TripsScreen() {
   }
 
   function renderHistory() {
-    if (historyBookings.length === 0) {
+    const hasHistory =
+      historyBookings.length > 0 || historyPrivateTrips.length > 0;
+
+    if (!hasHistory) {
       return (
         <View style={styles.emptyState}>
           <View style={styles.emptyIcon}>
@@ -612,6 +685,20 @@ export default function TripsScreen() {
                 router.push({
                   pathname: "/bookings/[id]",
                   params: { id: b.id },
+                } as any)
+              }
+            />
+          </View>
+        ))}
+
+        {historyPrivateTrips.map((pt) => (
+          <View key={pt.id} style={{ marginBottom: 14 }}>
+            <PrivateTripCard
+              trip={pt}
+              onPress={() =>
+                router.push({
+                  pathname: "/private-trips/[id]/room",
+                  params: { id: pt.id },
                 } as any)
               }
             />

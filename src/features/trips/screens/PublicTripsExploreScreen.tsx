@@ -7,13 +7,13 @@ import React, { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
-  SafeAreaView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 const DIFFICULTY_FILTERS = ["Tất cả", "EASY", "MEDIUM", "HARD", "EXTREME"];
 const DIFFICULTY_LABELS: Record<string, string> = {

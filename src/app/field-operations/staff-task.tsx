@@ -27,7 +27,7 @@ export default function StaffTaskScreen() {
   const signed = fieldWorkflow.deliverySigned;
   const photoUri = fieldWorkflow.deliveryPhotoUri;
   const allItemsReviewed = fieldWorkflow.deliveryItems.length === equipment.length
-    && fieldWorkflow.deliveryItems.every(item => item.status !== 'PENDING' && (item.status === 'OK' || item.note.trim().length > 0));
+    && fieldWorkflow.deliveryItems.every((item: { status: string; note: string }) => item.status !== 'PENDING' && (item.status === 'OK' || item.note.trim().length > 0));
   const step = !fieldWorkflow.packageReceived ? 0 : !fieldWorkflow.arrivedAtPickup ? 1 : !verified ? 2 : !allItemsReviewed ? 3 : 4;
 
   const setItemStatus = (index: number, status: DeliveryItemStatus) => {

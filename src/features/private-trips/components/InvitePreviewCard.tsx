@@ -10,6 +10,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useAuth } from "@/features/auth/AuthContext";
 import { useJoinPrivateTrip } from "../hooks/useJoinPrivateTrip";
 import { usePreviewTripInvite } from "../hooks/usePreviewTripInvite";
 import type { InvitePreviewData } from "../types";
@@ -28,18 +29,21 @@ export interface InvitePreviewCardProps {
 export function InvitePreviewCard({
   inviteCode,
   data: propData,
-  isLoggedIn = true,
+  isLoggedIn: propIsLoggedIn,
   loading: propLoading = false,
   onJoin,
   onLogin,
   onJoinSuccess,
 }: InvitePreviewCardProps) {
+  const { isAuthenticated, accessToken } = useAuth();
+  const isLoggedIn = propIsLoggedIn !== undefined ? propIsLoggedIn : isAuthenticated;
+
   // If data not provided, fetch via hook
   const shouldFetch = !propData && Boolean(inviteCode);
   const { preview: apiPreview, loading: loadingPreview, error: previewError } =
     usePreviewTripInvite(inviteCode, shouldFetch);
 
-  const { joinTrip, loading: joining } = useJoinPrivateTrip();
+  const { joinTrip, loading: joining } = useJoinPrivateTrip(accessToken);
 
   const data = propData || apiPreview;
   const loading = propLoading || loadingPreview || joining;

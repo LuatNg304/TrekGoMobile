@@ -23,9 +23,9 @@ export default function StaffReturnScreen() {
   const [complete, setComplete] = useState(false);
   const [feedback, setFeedback] = useState<{ title: string; message: string } | null>(null);
   const locked = !fieldWorkflow.handoverRequested;
-  const allReviewed = fieldWorkflow.returnItems.length === equipment.length && fieldWorkflow.returnItems.every(item => item.status !== 'PENDING' && (item.status === 'OK' || item.note.trim().length > 0));
-  const normalCount = fieldWorkflow.returnItems.filter(item => item.status === 'OK').length;
-  const issueCount = fieldWorkflow.returnItems.filter(item => item.status === 'MISSING' || item.status === 'DAMAGED').length;
+  const allReviewed = fieldWorkflow.returnItems.length === equipment.length && fieldWorkflow.returnItems.every((item: { status: string; note: string }) => item.status !== 'PENDING' && (item.status === 'OK' || item.note.trim().length > 0));
+  const normalCount = fieldWorkflow.returnItems.filter((item: { status: string }) => item.status === 'OK').length;
+  const issueCount = fieldWorkflow.returnItems.filter((item: { status: string }) => item.status === 'MISSING' || item.status === 'DAMAGED').length;
   const step = !fieldWorkflow.returnArrived ? 0 : !fieldWorkflow.returnVerified ? 1 : !allReviewed ? 2 : 3;
 
   const setStatus = (index: number, status: ItemStatus) => {

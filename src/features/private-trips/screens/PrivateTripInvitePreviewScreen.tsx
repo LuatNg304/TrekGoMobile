@@ -3,14 +3,16 @@ import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React from "react";
 import {
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
-  View,
+  View
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { InvitePreviewCard } from "../components";
+
+import { useAuth } from "@/features/auth/AuthContext";
 
 export interface PrivateTripInvitePreviewScreenProps {
   inviteCode?: string;
@@ -19,9 +21,11 @@ export interface PrivateTripInvitePreviewScreenProps {
 
 export function PrivateTripInvitePreviewScreen({
   inviteCode: propCode,
-  isLoggedIn = true,
+  isLoggedIn: propIsLoggedIn,
 }: PrivateTripInvitePreviewScreenProps) {
   const router = useRouter();
+  const { isAuthenticated } = useAuth();
+  const isLoggedIn = propIsLoggedIn !== undefined ? propIsLoggedIn : isAuthenticated;
   const params = useLocalSearchParams<{ code?: string | string[] }>();
   const code =
     propCode || (Array.isArray(params.code) ? params.code[0] : params.code);

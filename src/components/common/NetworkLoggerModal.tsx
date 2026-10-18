@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+// @ts-ignore
 import NetworkLogger, { startNetworkLogging } from "react-native-network-logger";
 import { SafeAreaView } from "react-native-safe-area-context";
 

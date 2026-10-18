@@ -7,13 +7,13 @@ import {
   Alert,
   Modal,
   Platform,
-  SafeAreaView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 export interface CancelBookingModalProps {
   visible: boolean;

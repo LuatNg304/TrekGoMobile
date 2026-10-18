@@ -61,10 +61,10 @@ export function LeaderDashboardScreen() {
   const activeLeaderTrip = leaderTrips.length > 0 ? leaderTrips[0] : null;
 
   const checkedInCount = fieldWorkflow.leaderAttendance.filter(
-    (member) => member.status === "CHECKED_IN",
+    (member: { memberName: string; status: string }) => member.status === "CHECKED_IN",
   ).length;
   const attendanceComplete = fieldWorkflow.leaderAttendance.every(
-    (member) => member.status !== "PENDING",
+    (member: { memberName: string; status: string }) => member.status !== "PENDING",
   );
 
   const nextStep =
@@ -195,7 +195,7 @@ export function LeaderDashboardScreen() {
               {checkedInCount}/{fieldWorkflow.leaderAttendance.length} CHECK-IN
             </Text>
           </View>
-          {fieldWorkflow.leaderAttendance.map((member) => (
+          {fieldWorkflow.leaderAttendance.map((member: { memberName: string; status: string }) => (
             <View key={member.memberName} style={styles.memberRow}>
               <View
                 style={[
