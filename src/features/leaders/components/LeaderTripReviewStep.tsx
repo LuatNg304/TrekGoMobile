@@ -26,6 +26,7 @@ interface LeaderTripReviewStepProps {
   selectedDestination?: TripOptionDestination;
   selectedPickup?: TripOptionPickupPoint;
   selectedCheckpoints: TripOptionCheckpoint[];
+  selectedTrail?: any;
   conflictWarning?: string | null;
   submitError?: string | null;
   readinessIssues?: string[];
@@ -42,6 +43,7 @@ export function LeaderTripReviewStep({
   selectedDestination,
   selectedPickup,
   selectedCheckpoints,
+  selectedTrail,
   conflictWarning,
   submitError,
   readinessIssues = [],
@@ -104,7 +106,7 @@ export function LeaderTripReviewStep({
           </TouchableOpacity>
           <View>
             <Text style={styles.headerTitle}>XEM LẠI CHUYẾN ĐI</Text>
-            <Text style={styles.headerSubtitle}>BƯỚC 2/2 · KIỂM DUYỆT & XUẤT BẢN</Text>
+            <Text style={styles.headerSubtitle}>BƯỚC 3/3 · KIỂM DUYỆT & XUẤT BẢN</Text>
           </View>
         </View>
         <View style={styles.badgeVfrs}>
@@ -118,9 +120,9 @@ export function LeaderTripReviewStep({
         <View style={styles.progressRow}>
           <View style={styles.progressLabelRow}>
             <View style={styles.progressStepCircle}>
-              <Text style={styles.progressStepNum}>2</Text>
+              <Text style={styles.progressStepNum}>3</Text>
             </View>
-            <Text style={styles.progressStepText}>BƯỚC 2/2: XÁC NHẬN & MỞ BÁN CÔNG KHAI</Text>
+            <Text style={styles.progressStepText}>BƯỚC 3/3: XÁC NHẬN & MỞ BÁN CÔNG KHAI</Text>
           </View>
           <Text style={styles.progressPercent}>100%</Text>
         </View>
@@ -179,14 +181,19 @@ export function LeaderTripReviewStep({
           <ReviewRow
             icon="bus-outline"
             label="Điểm đón khách"
-            value={selectedPickup?.name ?? "Sa Pa Hub, Số 02 Cầu Mây"}
+            value={selectedPickup?.name ?? "Điểm tập kết toàn đoàn"}
+          />
+          <ReviewRow
+            icon="trail-sign-outline"
+            label="Cung đường thẩm định (Trail)"
+            value={selectedTrail?.name ?? "Cung đường chuẩn VFRS"}
           />
           <ReviewRow
             icon="shield-checkmark-outline"
             label="Trạm kiểm soát (Checkpoints)"
             value={
               selectedCheckpoints.length > 0
-                ? selectedCheckpoints.map((cp) => cp.name).join(", ")
+                ? selectedCheckpoints.map((cp) => cp.name).join(" → ")
                 : "Tất cả checkpoint hợp lệ của tuyến"
             }
           />
@@ -356,7 +363,7 @@ export function LeaderTripReviewStep({
         activeOpacity={0.8}
       >
         <Ionicons name="create-outline" size={16} color="#125238" />
-        <Text style={styles.editBtnText}>QUAY LẠI CHỈNH SỬA THÔNG TIN</Text>
+        <Text style={styles.editBtnText}>QUAY LẠI THIẾT LẬP LỘ TRÌNH</Text>
       </TouchableOpacity>
     </View>
   );

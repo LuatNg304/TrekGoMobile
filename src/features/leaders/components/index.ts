@@ -6,3 +6,4 @@ export * from "./LeaderTripSuccessView";
 export * from "./LeaderActiveTripCard";
 export * from "./LeaderProgressTracker";
 export * from "./LeaderTripList";
+export * from "./LeaderTripRouteStep";

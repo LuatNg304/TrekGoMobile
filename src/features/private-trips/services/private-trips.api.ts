@@ -49,34 +49,157 @@ export async function getSystemTrailDetail(idOrCode: string) {
   );
 }
 
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
+// ─── TRAIL PURCHASE SESSION CACHE (Idempotent Session Reuse) ─────────────────
+
+export interface TrailPurchaseSession {
+  idempotencyKey: string;
+  paymentMethod: "REDIRECT" | "QR";
+  gateway: "vnpay" | "momo";
+  checkoutUrl?: string;
+  expiresAt: string; // ISO string từ Backend
+}
+
+const SESSION_STORAGE_PREFIX = "@trekgo/trail-purchase-session:";
+const activeTrailSessions = new Map<string, TrailPurchaseSession>();
+
+/** Lấy thông tin phiên thanh toán đang hoạt động cho cung đường */
+export async function getTrailPurchaseSession(
+  trailId: string,
+): Promise<TrailPurchaseSession | null> {
+  const mem = activeTrailSessions.get(trailId);
+  const now = Date.now();
+  if (mem) {
+    if (new Date(mem.expiresAt).getTime() > now) {
+      return mem;
+    }
+    activeTrailSessions.delete(trailId);
+  }
+
+  try {
+    const raw = await AsyncStorage.getItem(`${SESSION_STORAGE_PREFIX}${trailId}`);
+    if (raw) {
+      const parsed = JSON.parse(raw) as TrailPurchaseSession;
+      if (new Date(parsed.expiresAt).getTime() > now) {
+        activeTrailSessions.set(trailId, parsed);
+        return parsed;
+      }
+      await AsyncStorage.removeItem(`${SESSION_STORAGE_PREFIX}${trailId}`);
+    }
+  } catch {
+    // Không ném lỗi storage
+  }
+  return null;
+}
+
+/** Lưu thông tin phiên thanh toán đang chờ */
+export async function saveTrailPurchaseSession(
+  trailId: string,
+  session: TrailPurchaseSession,
+): Promise<void> {
+  activeTrailSessions.set(trailId, session);
+  try {
+    await AsyncStorage.setItem(
+      `${SESSION_STORAGE_PREFIX}${trailId}`,
+      JSON.stringify(session),
+    );
+  } catch {
+    // Không ném lỗi storage
+  }
+}
+
+/** Xóa phiên thanh toán khi giao dịch hoàn tất hoặc hủy */
+export async function clearTrailPurchaseSession(trailId: string): Promise<void> {
+  activeTrailSessions.delete(trailId);
+  try {
+    await AsyncStorage.removeItem(`${SESSION_STORAGE_PREFIX}${trailId}`);
+  } catch {
+    // Không ném lỗi storage
+  }
+}
+
+// Giữ lại alias để tương thích ngược
+export const clearTrailIdempotencyKey = clearTrailPurchaseSession;
+
 /** GET /trails/{trailId}/access — Kiểm tra quyền truy cập của User với System Trail */
 export async function checkTrailAccess(trailId: string) {
   return apiRequest<TrailAccessResponse>(`/api/v1/trails/${trailId}/access`);
 }
 
-/** POST /trails/{trailId}/purchase — Mua quyền sử dụng System Trail */
+/** POST /trails/{trailId}/purchase — Mua quyền sử dụng System Trail qua cổng VNPAY */
 export async function purchaseTrailAccess(
   trailId: string,
-  payload: PurchaseTrailPayload = { paymentMethod: "QR" },
-  idempotencyKey?: string,
+  payload: PurchaseTrailPayload = { paymentMethod: "REDIRECT", gateway: "vnpay" },
+  customIdempotencyKey?: string,
 ) {
-  const key =
-    idempotencyKey ||
-    (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-      ? crypto.randomUUID()
-      : `idemp-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`);
+  const now = Date.now();
+  const existingSession = await getTrailPurchaseSession(trailId);
 
-  return apiRequest<PurchaseTrailResponse>(
-    `/api/v1/trails/${trailId}/purchase`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "idempotency-key": key,
+  let idempotencyKey: string;
+  let methodToSend: "REDIRECT" | "QR" = payload.paymentMethod || "REDIRECT";
+  let gatewayToSend: "vnpay" | "momo" = payload.gateway || "vnpay";
+
+  // Kiểm tra nếu phiên cũ vẫn còn hiệu lực (< 15 phút)
+  if (existingSession && new Date(existingSession.expiresAt).getTime() > now) {
+    idempotencyKey = customIdempotencyKey || existingSession.idempotencyKey;
+    methodToSend = existingSession.paymentMethod;
+    gatewayToSend = existingSession.gateway;
+  } else {
+    // Tạo key mới nếu chưa có hoặc đã hết hạn
+    const cleanTrailId = trailId.replace(/[^a-zA-Z0-9]/g, "").slice(0, 8);
+    idempotencyKey = customIdempotencyKey || `mob-${cleanTrailId}-${now}`;
+  }
+
+  try {
+    // Backend schema: .strict() - chỉ gửi đúng 2 trường paymentMethod & gateway
+    const res = await apiRequest<PurchaseTrailResponse>(
+      `/api/v1/trails/${trailId}/purchase`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": idempotencyKey,
+        },
+        body: JSON.stringify({
+          paymentMethod: methodToSend,
+          gateway: gatewayToSend,
+        }),
       },
-      body: JSON.stringify(payload),
-    },
-  );
+    );
+
+    const checkoutUrl = res.checkout?.url || res.checkout?.paymentUrl;
+    if (res.paymentId || checkoutUrl) {
+      const expiresAt =
+        res.expiresAt ||
+        res.checkout?.expiresAt ||
+        new Date(now + 14 * 60 * 1000).toISOString();
+
+      await saveTrailPurchaseSession(trailId, {
+        idempotencyKey,
+        paymentMethod: methodToSend,
+        gateway: gatewayToSend,
+        checkoutUrl,
+        expiresAt,
+      });
+    }
+
+    return res;
+  } catch (error: any) {
+    const errCode = error?.code || (error as any)?.details?.code;
+
+    // Nếu bị lỗi payload khác nhau do đổi method, xóa key cũ để lần sau tạo key mới
+    if (errCode === "IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD") {
+      await clearTrailPurchaseSession(trailId);
+    }
+
+    // Nếu người dùng đã mở khóa trước đó (ACTIVE)
+    if (errCode === "PAYMENT_INVALID_STATE") {
+      await clearTrailPurchaseSession(trailId);
+    }
+
+    throw error;
+  }
 }
 
 /** GET /private-trip-options/pickup-points — Lấy điểm đón theo địa điểm */

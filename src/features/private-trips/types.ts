@@ -228,9 +228,13 @@ export interface PurchaseTrailResponse {
   invoiceId: string | null;
   amount: string;
   currency: string;
+  expiresAt?: string;
   checkout: {
+    url?: string;
     paymentUrl?: string;
     qrCode?: string;
+    qrData?: string;
     expiresAt?: string;
+    type?: string;
   } | null;
 }

@@ -18,6 +18,26 @@ import { CreateTripTrailStep } from "../components/CreateTripTrailStep";
 import { useCreatePrivateTrip } from "../hooks/useCreatePrivateTrip";
 import type { PrivateTrailSource } from "../types";
 
+// Dynamic initial trip dates (next Saturday 06:00 to Sunday 18:00)
+function getDefaultTripDates() {
+  const now = new Date();
+  const day = now.getDay();
+  // Next Saturday: if today is Sat (6), jump 7 days, else days until Saturday
+  const daysUntilSaturday = (6 - day + 7) % 7 || 7;
+  const start = new Date(now);
+  start.setDate(now.getDate() + daysUntilSaturday);
+  start.setHours(6, 0, 0, 0);
+
+  const end = new Date(start);
+  end.setDate(start.getDate() + 1);
+  end.setHours(18, 0, 0, 0);
+
+  return {
+    startAt: start.toISOString(),
+    endAt: end.toISOString(),
+  };
+}
+
 export function CreatePrivateTripScreen() {
   const router = useRouter();
 
@@ -28,8 +48,10 @@ export function CreatePrivateTripScreen() {
   const [selectedTrail, setSelectedTrail] = useState<PrivateTrailSource | null>(null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [startAt, setStartAt] = useState("2026-11-20T06:00:00.000Z");
-  const [endAt, setEndAt] = useState("2026-11-21T18:00:00.000Z");
+
+  const initialDates = getDefaultTripDates();
+  const [startAt, setStartAt] = useState(initialDates.startAt);
+  const [endAt, setEndAt] = useState(initialDates.endAt);
   const [capacity, setCapacity] = useState(5);
   const [selectedPickupPointId, setSelectedPickupPointId] = useState<string>("");
 
