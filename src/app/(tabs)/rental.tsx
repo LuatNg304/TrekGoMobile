@@ -1,11 +1,15 @@
 import { Ionicons } from "@expo/vector-icons";
 import { type Href, useRouter } from "expo-router";
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   Image,
+  RefreshControl,
+
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -16,430 +20,229 @@ import { TopHeader } from "@/components/TopHeader";
 import { Colors, Radius, Shadows } from "@/constants/theme";
 import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/features/auth/AuthContext";
-import { LeaderDashboardScreen } from "@/features/leaders/screens";
-import { EquipmentCategory, RentalStatus } from "@/types";
+import { rentalApi } from "@/features/rentals/api";
+import { useRentalSelection } from "@/features/rentals/RentalSelectionContext";
+import {
+  calculateProductDeposit,
+  RentalCategory,
+  RentalOrderSummary,
+  RentalProduct,
+  rentalProductSpecs,
+} from "@/features/rentals/types";
+import { EquipmentItem } from "@/types";
 
 type RentalView = "CATALOG" | "ORDERS";
 
-const categories: EquipmentCategory[] = [
-  "Tất cả",
-  "Tent",
-  "Backpack",
-  "Trekking Pole",
-  "Sleeping Bag",
-  "Accessories",
-];
+const formatMoney = (value: number) => `${value.toLocaleString("vi-VN")}đ`;
 
-const categoryLabels: Record<EquipmentCategory, string> = {
-  "Tất cả": "Tất cả",
-  Tent: "Lều",
-  Backpack: "Balo",
-  "Trekking Pole": "Gậy",
-  "Sleeping Bag": "Túi ngủ",
-  Accessories: "Phụ kiện",
-};
-
-const statusContent: Record<
-  RentalStatus,
-  {
-    label: string;
-    description: string;
-    color: string;
-    backgroundColor: string;
-    icon: keyof typeof Ionicons.glyphMap;
-  }
-> = {
-  PAYMENT_CONFIRMED: {
-    label: "Đã thanh toán",
-    description: "Đơn đang chờ kho tiếp nhận",
-    color: "#1D4ED8",
-    backgroundColor: "#DBEAFE",
-    icon: "card-outline",
-  },
-  PREPARING: {
-    label: "Đang chuẩn bị",
-    description: "Kho đang soạn thiết bị",
-    color: "#7A5700",
-    backgroundColor: "#FFF1BF",
-    icon: "construct-outline",
-  },
-  READY_FOR_DELIVERY: {
-    label: "Sẵn sàng giao",
-    description: "Thiết bị đã được chuẩn bị xong",
-    color: "#166534",
-    backgroundColor: "#DCFCE7",
-    icon: "checkmark-circle-outline",
-  },
-  DELIVERED_AT_PICKUP: {
-    label: "Đã giao tại điểm đón",
-    description: "Staff đã bàn giao thiết bị",
-    color: "#0F766E",
-    backgroundColor: "#CCFBF1",
-    icon: "hand-left-outline",
-  },
-  IN_USE: {
-    label: "Đang sử dụng",
-    description: "Thiết bị đang gắn với chuyến đi",
-    color: "#1B4332",
-    backgroundColor: "#DFF4E7",
-    icon: "trail-sign-outline",
-  },
-  RETURN_PENDING: {
-    label: "Chờ hoàn trả",
-    description: "Trả thiết bị sau chuyến đi",
-    color: "#9A3412",
-    backgroundColor: "#FFEDD5",
-    icon: "return-down-back-outline",
-  },
-  RETURNED: {
-    label: "Đã trả thiết bị",
-    description: "Kho đang kiểm tra tình trạng",
-    color: "#6B21A8",
-    backgroundColor: "#F3E8FF",
-    icon: "clipboard-outline",
-  },
-  DEPOSIT_REFUNDED: {
-    label: "Đã hoàn cọc",
-    description: "Đơn thuê đã hoàn tất",
-    color: "#166534",
-    backgroundColor: "#DCFCE7",
-    icon: "wallet-outline",
-  },
-};
+function toCartItem(product: RentalProduct): EquipmentItem {
+  return {
+    id: product.id,
+    name: product.name,
+    category: "Accessories",
+    dailyRate: product.dailyPrice,
+    deposit: calculateProductDeposit(product),
+    stock: 99,
+    imageUrl: product.imageUrl ?? "",
+    specs: rentalProductSpecs(product),
+    description: product.description ?? "",
+    rating: 0,
+  };
+}
 
 export default function RentalScreen() {
   const router = useRouter();
-
-  const { equipment, cart, addToCart, activeTrip, rentalOrders, user } = useApp();
-  const { user: authUser } = useAuth();
-  const isLeader = authUser?.role === "LEADER" || user.role === "LEADER";
-
-  if (isLeader) {
-    return <LeaderDashboardScreen />;
-  }
-
+  const { accessToken } = useAuth();
+  const { cart, setCartQuantity } = useApp();
+  const { selectedTrip } = useRentalSelection();
   const [view, setView] = useState<RentalView>("CATALOG");
-
-  const [selectedCategory, setSelectedCategory] =
-    useState<EquipmentCategory>("Tất cả");
-
+  const [categories, setCategories] = useState<RentalCategory[]>([]);
+  const [products, setProducts] = useState<RentalProduct[]>([]);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>();
+  const [searchDraft, setSearchDraft] = useState("");
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string>();
   const [cartModalVisible, setCartModalVisible] = useState(false);
+  const [orders, setOrders] = useState<RentalOrderSummary[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [ordersRefreshing, setOrdersRefreshing] = useState(false);
+  const [ordersError, setOrdersError] = useState<string>();
 
-  const filteredEquipment = equipment.filter((item) => {
-    if (selectedCategory === "Tất cả") {
-      return true;
-    }
-
-    return item.category === selectedCategory;
-  });
-
-  const cartTotalItems = cart.reduce(
-    (sum, current) => sum + current.quantity,
-    0,
+  const cartTotalItems = useMemo(
+    () => cart.reduce((sum, current) => sum + current.quantity, 0),
+    [cart],
   );
 
-  function openOrder(orderId: string) {
-    router.push({
-      pathname: "/rental-orders/[id]",
-      params: {
-        id: orderId,
-      },
-    } as unknown as Href);
+  const loadCatalog = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    else setLoading(true);
+    setError(undefined);
+
+    try {
+      const [categoryResult, productResult] = await Promise.all([
+        rentalApi.listCategories(),
+        rentalApi.listProducts({ search, categoryId: selectedCategoryId }),
+      ]);
+      setCategories(categoryResult.items);
+      setProducts(productResult.items);
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Không tải được danh mục thiết bị.",
+      );
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [search, selectedCategoryId]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void loadCatalog();
+    }, 0);
+
+    return () => clearTimeout(timer);
+  }, [loadCatalog]);
+
+  function submitSearch() {
+    setSearch(searchDraft.trim());
   }
 
-  function renderCatalog() {
-    return (
-      <>
-        <View style={styles.contextBanner}>
-          <View style={styles.contextHeader}>
-            <Ionicons name="compass" size={16} color={Colors.primaryDark} />
+  const loadOrders = useCallback(
+    async (isRefresh = false) => {
+      if (!accessToken) {
+        setOrders([]);
+        setOrdersError("Phiên đăng nhập không hợp lệ.");
+        return;
+      }
 
-            <Text style={styles.contextTitle}>TRANG BỊ GẮN THEO CHUYẾN ĐI</Text>
-          </View>
+      if (isRefresh) setOrdersRefreshing(true);
+      else setOrdersLoading(true);
+      setOrdersError(undefined);
 
-          <Text style={styles.tripNameText}>{activeTrip.name}</Text>
+      try {
+        const result = await rentalApi.listOrders(accessToken, {
+          page: 1,
+          pageSize: 50,
+        });
+        setOrders(result.items);
+      } catch (requestError) {
+        setOrdersError(
+          requestError instanceof Error
+            ? requestError.message
+            : "Không tải được đơn thuê.",
+        );
+      } finally {
+        setOrdersLoading(false);
+        setOrdersRefreshing(false);
+      }
+    },
+    [accessToken],
+  );
 
-          <Text style={styles.tripDetailsSub}>
-            {activeTrip.startDate} · Giao tại điểm tập trung
-          </Text>
-        </View>
+  useEffect(() => {
+    if (view !== "ORDERS") return;
 
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.categoryScroll}
-        >
-          {categories.map((category) => (
-            <TouchableOpacity
-              key={category}
-              style={[
-                styles.categoryPill,
-                selectedCategory === category && styles.categoryPillActive,
-              ]}
-              onPress={() => setSelectedCategory(category)}
-              activeOpacity={0.8}
-            >
-              <Text
-                style={[
-                  styles.categoryPillText,
-                  selectedCategory === category &&
-                    styles.categoryPillTextActive,
-                ]}
-              >
-                {categoryLabels[category]}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
+    const timer = setTimeout(() => {
+      void loadOrders();
+    }, 0);
 
-        <View style={styles.productsGrid}>
-          {filteredEquipment.map((item) => {
-            const inCart = cart.find((current) => current.item.id === item.id);
-
-            return (
-              <View key={item.id} style={styles.productCard}>
-                <View style={styles.imageBox}>
-                  <Image
-                    source={{
-                      uri: item.imageUrl,
-                    }}
-                    style={styles.productImage}
-                  />
-
-                  <View style={styles.stockBadge}>
-                    <Text style={styles.stockText}>Còn {item.stock}</Text>
-                  </View>
-                </View>
-
-                <View style={styles.productBody}>
-                  <Text style={styles.categoryTag}>
-                    {categoryLabels[item.category]}
-                  </Text>
-
-                  <Text style={styles.productTitle}>{item.name}</Text>
-
-                  <TouchableOpacity
-                    style={styles.detailLink}
-                    onPress={() =>
-                      router.push(`/rental-products/${item.id}` as Href)
-                    }
-                  >
-                    <Text style={styles.detailLinkText}>
-                      Xem chi tiết thiết bị
-                    </Text>
-
-                    <Ionicons
-                      name="chevron-forward"
-                      size={14}
-                      color={Colors.primaryDark}
-                    />
-                  </TouchableOpacity>
-
-                  <View style={styles.specsList}>
-                    {item.specs.map((specification) => (
-                      <Text key={specification} style={styles.specText}>
-                        • {specification}
-                      </Text>
-                    ))}
-                  </View>
-
-                  <View style={styles.pricingRow}>
-                    <View style={styles.flexOne}>
-                      <Text style={styles.dailyPrice}>
-                        {item.dailyRate.toLocaleString("vi-VN")}đ{" "}
-                        <Text style={styles.perDay}>/ngày</Text>
-                      </Text>
-
-                      <Text style={styles.depositPrice}>
-                        Cọc: {item.deposit.toLocaleString("vi-VN")}đ
-                      </Text>
-                    </View>
-
-                    <TouchableOpacity
-                      style={[styles.addBtn, inCart && styles.addBtnInCart]}
-                      onPress={() => addToCart(item, 1)}
-                      activeOpacity={0.85}
-                    >
-                      <Ionicons
-                        name={inCart ? "checkmark" : "add"}
-                        size={18}
-                        color={inCart ? "#0C2000" : Colors.onPrimary}
-                      />
-
-                      <Text
-                        style={[
-                          styles.addBtnText,
-                          inCart && styles.addBtnTextInCart,
-                        ]}
-                      >
-                        {inCart ? `Đã thêm (${inCart.quantity})` : "Thuê"}
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              </View>
-            );
-          })}
-        </View>
-      </>
-    );
-  }
+    return () => clearTimeout(timer);
+  }, [loadOrders, view]);
 
   function renderOrders() {
-    if (rentalOrders.length === 0) {
+    if (ordersLoading) {
       return (
-        <View style={styles.emptyState}>
-          <View style={styles.emptyIcon}>
-            <Ionicons
-              name="receipt-outline"
-              size={36}
-              color={Colors.primaryDark}
-            />
-          </View>
-
-          <Text style={styles.emptyTitle}>Chưa có đơn thuê</Text>
-
-          <Text style={styles.emptyDescription}>
-            Những đơn đã thanh toán sẽ xuất hiện tại đây để bạn theo dõi.
-          </Text>
-
-          <TouchableOpacity
-            style={styles.emptyButton}
-            onPress={() => setView("CATALOG")}
-          >
-            <Text style={styles.emptyButtonText}>Xem thiết bị</Text>
-          </TouchableOpacity>
+        <View style={styles.centerState}>
+          <ActivityIndicator size="large" color={Colors.primaryDark} />
+          <Text style={styles.stateDescription}>Đang tải đơn thuê thật...</Text>
         </View>
       );
     }
 
+    if (ordersError) {
+      return (
+        <StateCard
+          icon="cloud-offline-outline"
+          title="Chưa tải được đơn thuê"
+          description={ordersError}
+          actionLabel="Thử lại"
+          onAction={() => void loadOrders()}
+        />
+      );
+    }
+
+    if (orders.length === 0) {
+      return (
+        <StateCard
+          icon="receipt-outline"
+          title="Chưa có đơn thuê"
+          description="Sau khi chọn chuyến, kiểm tra tồn kho và tạo đơn thành công, đơn thật sẽ xuất hiện tại đây."
+          actionLabel="Chọn thiết bị"
+          onAction={() => setView("CATALOG")}
+        />
+      );
+    }
+
     return (
-      <View style={styles.ordersContent}>
-        <View style={styles.ordersHeader}>
-          <View>
-            <Text style={styles.ordersTitle}>Đơn thuê của tôi</Text>
-
-            <Text style={styles.ordersDescription}>
-              Theo dõi giao, sử dụng và hoàn cọc
-            </Text>
-          </View>
-
-          <View style={styles.ordersCount}>
-            <Text style={styles.ordersCountText}>{rentalOrders.length}</Text>
-          </View>
-        </View>
-
-        {rentalOrders.map((order) => {
-          const status = statusContent[order.status];
-
-          const totalQuantity = order.items.reduce(
-            (sum, current) => sum + current.quantity,
-            0,
-          );
-
+      <View style={styles.ordersList}>
+        {orders.map((order) => {
+          const status = rentalOrderStatus(order.status);
           return (
             <TouchableOpacity
               key={order.id}
               style={styles.orderCard}
-              onPress={() => openOrder(order.id)}
-              activeOpacity={0.8}
+              activeOpacity={0.85}
+              onPress={() => router.push(`/rental-orders/${order.id}` as Href)}
             >
-              <View style={styles.orderTop}>
-                <View>
-                  <Text style={styles.orderLabel}>MÃ ĐƠN THUÊ</Text>
-
-                  <Text style={styles.orderId}>{order.id}</Text>
+              <View style={styles.orderTopRow}>
+                <View style={styles.orderIcon}>
+                  <Ionicons
+                    name="bag-check-outline"
+                    size={20}
+                    color={Colors.primaryDark}
+                  />
                 </View>
-
-                <View
-                  style={[
-                    styles.statusBadge,
-                    {
-                      backgroundColor: status.backgroundColor,
-                    },
-                  ]}
-                >
-                  <Ionicons name={status.icon} size={14} color={status.color} />
-
-                  <Text
-                    style={[
-                      styles.statusText,
-                      {
-                        color: status.color,
-                      },
-                    ]}
-                  >
+                <View style={styles.flexOne}>
+                  <Text style={styles.orderCode}>ĐƠN #{shortId(order.id)}</Text>
+                  <Text style={styles.orderTrip} numberOfLines={1}>
+                    {order.trip?.title || `Trip ${shortId(order.tripId)}`}
+                  </Text>
+                </View>
+                <View style={[styles.statusPill, { backgroundColor: status.bg }]}>
+                  <Text style={[styles.statusText, { color: status.color }]}>
                     {status.label}
                   </Text>
                 </View>
               </View>
 
-              <Text style={styles.orderTripName}>{order.tripName}</Text>
+              <View style={styles.orderDivider} />
 
-              <Text style={styles.orderStatusSub}>{status.description}</Text>
-
-              <View style={styles.orderItemsPreview}>
-                {order.items.slice(0, 3).map(({ item, quantity }) => (
-                  <View key={item.id} style={styles.previewItem}>
-                    <Image
-                      source={{
-                        uri: item.imageUrl,
-                      }}
-                      style={styles.previewImage}
-                    />
-
-                    <View style={styles.flexOne}>
-                      <Text style={styles.previewItemName} numberOfLines={1}>
-                        {item.name}
-                      </Text>
-
-                      <Text style={styles.previewQuantity}>
-                        Số lượng: {quantity}
-                      </Text>
-                    </View>
-                  </View>
-                ))}
-              </View>
-
-              <View style={styles.orderSummary}>
-                <View style={styles.summaryItem}>
-                  <Text style={styles.summaryItemLabel}>Thiết bị</Text>
-
-                  <Text style={styles.summaryItemValue}>
-                    {totalQuantity} món
+              <View style={styles.orderBottomRow}>
+                <View>
+                  <Text style={styles.orderMetaLabel}>Tổng thanh toán</Text>
+                  <Text style={styles.orderAmount}>
+                    {formatCurrency(order.totalAmount, order.currency)}
                   </Text>
                 </View>
-
-                <View style={styles.summaryDivider} />
-
-                <View style={styles.summaryItem}>
-                  <Text style={styles.summaryItemLabel}>Thời gian</Text>
-
-                  <Text style={styles.summaryItemValue}>{order.days} ngày</Text>
-                </View>
-
-                <View style={styles.summaryDivider} />
-
-                <View style={styles.summaryItem}>
-                  <Text style={styles.summaryItemLabel}>Tổng tiền</Text>
-
-                  <Text style={styles.summaryTotalValue}>
-                    {order.totalPayment.toLocaleString("vi-VN")}đ
-                  </Text>
+                <View style={styles.orderOpen}>
+                  <Text style={styles.orderOpenText}>Chi tiết</Text>
+                  <Ionicons
+                    name="chevron-forward"
+                    size={16}
+                    color={Colors.primaryDark}
+                  />
                 </View>
               </View>
 
-              <View style={styles.detailButton}>
-                <Text style={styles.detailButtonText}>
-                  Xem chi tiết và tiến trình
+              {order.exceptionStatus && (
+                <Text style={styles.exceptionText}>
+                  Cần chú ý: {order.exceptionStatus}
                 </Text>
-
-                <Ionicons
-                  name="chevron-forward"
-                  size={18}
-                  color={Colors.primaryDark}
-                />
-              </View>
+              )}
             </TouchableOpacity>
           );
         })}
@@ -447,100 +250,282 @@ export default function RentalScreen() {
     );
   }
 
+  function renderCatalog() {
+    return (
+      <>
+        <View style={styles.contextBanner}>
+          <View style={styles.contextIcon}>
+            <Ionicons name="bag-handle" size={20} color={Colors.primaryDark} />
+          </View>
+
+          <View style={styles.flexOne}>
+            <Text style={styles.contextTitle}>THUÊ ĐỒ THEO CHUYẾN ĐI</Text>
+            <Text style={styles.contextDescription}>
+              Xem thiết bị trước. Chuyến đi chỉ bắt buộc khi kiểm tra tồn kho và
+              tạo báo giá.
+            </Text>
+            {selectedTrip && (
+              <Text style={styles.selectedTripText} numberOfLines={1}>
+                Đã chọn: {selectedTrip.title}
+              </Text>
+            )}
+          </View>
+        </View>
+
+        <View style={styles.searchRow}>
+          <View style={styles.searchBox}>
+            <Ionicons name="search" size={18} color={Colors.onSurfaceMuted} />
+            <TextInput
+              value={searchDraft}
+              onChangeText={setSearchDraft}
+              onSubmitEditing={submitSearch}
+              placeholder="Tìm lều, balo, gậy trekking..."
+              placeholderTextColor={Colors.onSurfaceMuted}
+              returnKeyType="search"
+              style={styles.searchInput}
+            />
+            {searchDraft.length > 0 && (
+              <TouchableOpacity
+                onPress={() => {
+                  setSearchDraft("");
+                  setSearch("");
+                }}
+              >
+                <Ionicons
+                  name="close-circle"
+                  size={18}
+                  color={Colors.onSurfaceMuted}
+                />
+              </TouchableOpacity>
+            )}
+          </View>
+
+          <TouchableOpacity style={styles.searchButton} onPress={submitSearch}>
+            <Ionicons name="arrow-forward" size={19} color={Colors.onPrimary} />
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.categoryScroll}
+        >
+          <CategoryPill
+            label="Tất cả"
+            active={!selectedCategoryId}
+            onPress={() => setSelectedCategoryId(undefined)}
+          />
+          {categories.map((category) => (
+            <CategoryPill
+              key={category.id}
+              label={category.name}
+              active={selectedCategoryId === category.id}
+              onPress={() => setSelectedCategoryId(category.id)}
+            />
+          ))}
+        </ScrollView>
+
+        {loading ? (
+          <View style={styles.centerState}>
+            <ActivityIndicator size="large" color={Colors.primaryDark} />
+            <Text style={styles.stateDescription}>Đang tải thiết bị thật...</Text>
+          </View>
+        ) : error ? (
+          <StateCard
+            icon="cloud-offline-outline"
+            title="Chưa tải được thiết bị"
+            description={error}
+            actionLabel="Thử lại"
+            onAction={() => void loadCatalog()}
+          />
+        ) : products.length === 0 ? (
+          <StateCard
+            icon="search-outline"
+            title="Không tìm thấy thiết bị"
+            description="Thử đổi từ khóa hoặc chọn danh mục khác."
+          />
+        ) : (
+          <View style={styles.productsGrid}>
+            {products.map((product) => {
+              const cartEntry = cart.find(
+                (entry) => entry.item.id === product.id,
+              );
+              const deposit = calculateProductDeposit(product);
+
+              return (
+                <View key={product.id} style={styles.productCard}>
+                  <TouchableOpacity
+                    activeOpacity={0.85}
+                    onPress={() =>
+                      router.push(`/rental-products/${product.id}` as Href)
+                    }
+                  >
+                    <View style={styles.imageBox}>
+                      {product.imageUrl ? (
+                        <Image
+                          source={{ uri: product.imageUrl }}
+                          style={styles.productImage}
+                        />
+                      ) : (
+                        <View style={styles.imagePlaceholder}>
+                          <Ionicons
+                            name="cube-outline"
+                            size={38}
+                            color={Colors.primaryDark}
+                          />
+                          <Text style={styles.imagePlaceholderText}>
+                            Ảnh thiết bị đang cập nhật
+                          </Text>
+                        </View>
+                      )}
+                      <View style={styles.availabilityBadge}>
+                        <Ionicons
+                          name="trail-sign-outline"
+                          size={12}
+                          color={Colors.primaryDark}
+                        />
+                        <Text style={styles.availabilityText}>
+                          Kiểm tra theo chuyến
+                        </Text>
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+
+                  <View style={styles.productBody}>
+                    <Text style={styles.categoryTag}>{product.category.name}</Text>
+                    <Text style={styles.productTitle} numberOfLines={2}>
+                      {product.name}
+                    </Text>
+                    <Text style={styles.skuText}>SKU: {product.sku}</Text>
+                    <Text style={styles.dailyPrice}>
+                      {formatMoney(product.dailyPrice)}{" "}
+                      <Text style={styles.perDay}>/ngày</Text>
+                    </Text>
+                    <Text style={styles.depositPrice}>
+                      Cọc dự kiến: {formatMoney(deposit)}
+                    </Text>
+
+                    {cartEntry ? (
+                      <View style={styles.quantityControl}>
+                        <TouchableOpacity
+                          style={styles.quantityButton}
+                          accessibilityLabel="Giảm số lượng"
+                          onPress={() =>
+                            setCartQuantity(
+                              toCartItem(product),
+                              cartEntry.quantity - 1,
+                            )
+                          }
+                        >
+                          <Ionicons
+                            name="remove"
+                            size={17}
+                            color={Colors.onPrimary}
+                          />
+                        </TouchableOpacity>
+                        <Text style={styles.quantityValue}>
+                          {cartEntry.quantity}
+                        </Text>
+                        <TouchableOpacity
+                          style={styles.quantityButton}
+                          accessibilityLabel="Tăng số lượng"
+                          disabled={cartEntry.quantity >= 20}
+                          onPress={() =>
+                            setCartQuantity(
+                              toCartItem(product),
+                              Math.min(20, cartEntry.quantity + 1),
+                            )
+                          }
+                        >
+                          <Ionicons
+                            name="add"
+                            size={17}
+                            color={Colors.onPrimary}
+                          />
+                        </TouchableOpacity>
+                      </View>
+                    ) : (
+                      <TouchableOpacity
+                        style={styles.addButton}
+                        onPress={() => setCartQuantity(toCartItem(product), 1)}
+                      >
+                        <Ionicons
+                          name="add"
+                          size={17}
+                          color={Colors.onPrimary}
+                        />
+                        <Text style={styles.addButtonText}>Chọn thuê</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        )}
+      </>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <TopHeader subtitle="Rental" />
 
-      <View style={styles.viewSwitcherContainer}>
-        <View style={styles.viewSwitcher}>
-          <TouchableOpacity
-            style={[
-              styles.viewButton,
-              view === "CATALOG" && styles.viewButtonActive,
-            ]}
+      <View style={styles.switcherWrap}>
+        <View style={styles.switcher}>
+          <ViewButton
+            active={view === "CATALOG"}
+            icon="grid-outline"
+            label="Danh mục"
             onPress={() => setView("CATALOG")}
-          >
-            <Ionicons
-              name="grid-outline"
-              size={17}
-              color={
-                view === "CATALOG" ? Colors.onPrimary : Colors.onSurfaceVariant
-              }
-            />
-
-            <Text
-              style={[
-                styles.viewButtonText,
-                view === "CATALOG" && styles.viewButtonTextActive,
-              ]}
-            >
-              Danh mục
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.viewButton,
-              view === "ORDERS" && styles.viewButtonActive,
-            ]}
+          />
+          <ViewButton
+            active={view === "ORDERS"}
+            icon="receipt-outline"
+            label="Đơn thuê"
             onPress={() => setView("ORDERS")}
-          >
-            <Ionicons
-              name="receipt-outline"
-              size={17}
-              color={
-                view === "ORDERS" ? Colors.onPrimary : Colors.onSurfaceVariant
-              }
-            />
-
-            <Text
-              style={[
-                styles.viewButtonText,
-                view === "ORDERS" && styles.viewButtonTextActive,
-              ]}
-            >
-              Đơn thuê
-            </Text>
-
-            {rentalOrders.length > 0 && (
-              <View style={styles.orderCountBadge}>
-                <Text style={styles.orderCountBadgeText}>
-                  {rentalOrders.length}
-                </Text>
-              </View>
-            )}
-          </TouchableOpacity>
+          />
         </View>
       </View>
 
       <ScrollView
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          view === "CATALOG" ? (
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => void loadCatalog(true)}
+              tintColor={Colors.primaryDark}
+            />
+          ) : (
+            <RefreshControl
+              refreshing={ordersRefreshing}
+              onRefresh={() => void loadOrders(true)}
+              tintColor={Colors.primaryDark}
+            />
+          )
+        }
         contentContainerStyle={styles.scrollContent}
       >
         {view === "CATALOG" ? renderCatalog() : renderOrders()}
       </ScrollView>
 
       {view === "CATALOG" && cartTotalItems > 0 && (
-        <View style={styles.floatingCartBar}>
-          <View style={styles.floatingCartLeft}>
-            <View style={styles.cartCountPill}>
-              <Text style={styles.cartCountText}>{cartTotalItems}</Text>
-            </View>
-
-            <View>
-              <Text style={styles.cartBarTitle}>{cartTotalItems} thiết bị</Text>
-
-              <Text style={styles.cartBarSub}>Hoàn cọc sau khi trả đồ</Text>
-            </View>
+        <View style={styles.floatingCart}>
+          <View style={styles.cartCount}>
+            <Text style={styles.cartCountText}>{cartTotalItems}</Text>
           </View>
-
+          <View style={styles.flexOne}>
+            <Text style={styles.cartTitle}>{cartTotalItems} thiết bị đã chọn</Text>
+            <Text style={styles.cartSubtitle}>
+              Chọn chuyến trước khi kiểm tra tồn kho
+            </Text>
+          </View>
           <TouchableOpacity
-            style={styles.cartViewBtn}
+            style={styles.cartButton}
             onPress={() => setCartModalVisible(true)}
-            activeOpacity={0.85}
           >
-            <Text style={styles.cartViewBtnText}>Xem giỏ</Text>
-
+            <Text style={styles.cartButtonText}>Xem giỏ</Text>
             <Ionicons name="arrow-forward" size={16} color={Colors.onPrimary} />
           </TouchableOpacity>
         </View>
@@ -554,25 +539,133 @@ export default function RentalScreen() {
   );
 }
 
+function shortId(value: string) {
+  return value.length > 8 ? value.slice(-8).toUpperCase() : value.toUpperCase();
+}
+
+function formatCurrency(value: number, currency = "VND") {
+  return `${value.toLocaleString("vi-VN")} ${currency === "VND" ? "đ" : currency}`;
+}
+
+function rentalOrderStatus(status: string) {
+  const statuses: Record<
+    string,
+    { label: string; color: string; bg: string }
+  > = {
+    PENDING_PAYMENT: { label: "Chờ thanh toán", color: "#8A5A00", bg: "#FFF1C2" },
+    PAID: { label: "Đã thanh toán", color: "#226600", bg: "#E0F5D3" },
+    PREPARING: { label: "Đang chuẩn bị", color: "#245F73", bg: "#DDF3F8" },
+    READY_FOR_HANDOVER: { label: "Sẵn sàng nhận", color: "#226600", bg: "#DDF7CB" },
+    ACTIVE: { label: "Đang sử dụng", color: "#174B00", bg: "#CFF3B8" },
+    RETURN_PENDING: { label: "Chờ thu hồi", color: "#714C00", bg: "#FFF0BF" },
+    RETURN_PROCESSING: { label: "Đang xử lý trả", color: "#714C00", bg: "#FFE5A6" },
+    COMPLETED: { label: "Hoàn tất", color: "#35523A", bg: "#E5EEE3" },
+    CANCELLED: { label: "Đã hủy", color: "#9E1A1A", bg: "#FFE0DE" },
+    EXPIRED: { label: "Hết hạn", color: "#6C6460", bg: "#EEEAE7" },
+  };
+
+  return (
+    statuses[status] ?? {
+      label: status.replaceAll("_", " "),
+      color: Colors.onSurfaceVariant,
+      bg: Colors.surfaceContainer,
+    }
+  );
+}
+
+function CategoryPill({
+  label,
+  active,
+  onPress,
+}: {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <TouchableOpacity
+      style={[styles.categoryPill, active && styles.categoryPillActive]}
+      onPress={onPress}
+    >
+      <Text
+        style={[
+          styles.categoryPillText,
+          active && styles.categoryPillTextActive,
+        ]}
+      >
+        {label}
+      </Text>
+    </TouchableOpacity>
+  );
+}
+
+function ViewButton({
+  active,
+  icon,
+  label,
+  onPress,
+}: {
+  active: boolean;
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  onPress: () => void;
+}) {
+  return (
+    <TouchableOpacity
+      style={[styles.viewButton, active && styles.viewButtonActive]}
+      onPress={onPress}
+    >
+      <Ionicons
+        name={icon}
+        size={17}
+        color={active ? Colors.onPrimary : Colors.onSurfaceVariant}
+      />
+      <Text
+        style={[styles.viewButtonText, active && styles.viewButtonTextActive]}
+      >
+        {label}
+      </Text>
+    </TouchableOpacity>
+  );
+}
+
+function StateCard({
+  icon,
+  title,
+  description,
+  actionLabel,
+  onAction,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  title: string;
+  description: string;
+  actionLabel?: string;
+  onAction?: () => void;
+}) {
+  return (
+    <View style={styles.stateCard}>
+      <View style={styles.stateIcon}>
+        <Ionicons name={icon} size={34} color={Colors.primaryDark} />
+      </View>
+      <Text style={styles.stateTitle}>{title}</Text>
+      <Text style={styles.stateDescription}>{description}</Text>
+      {actionLabel && onAction && (
+        <TouchableOpacity style={styles.stateButton} onPress={onAction}>
+          <Text style={styles.stateButtonText}>{actionLabel}</Text>
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: Colors.surface,
-  },
-  flexOne: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingBottom: 100,
-  },
-  viewSwitcherContainer: {
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 4,
-  },
-  viewSwitcher: {
-    padding: 3,
+  safeArea: { flex: 1, backgroundColor: Colors.surface },
+  flexOne: { flex: 1 },
+  scrollContent: { paddingBottom: 120 },
+  switcherWrap: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 4 },
+  switcher: {
     flexDirection: "row",
+    padding: 3,
     borderRadius: Radius.full,
     backgroundColor: Colors.surfaceContainer,
   },
@@ -585,458 +678,327 @@ const styles = StyleSheet.create({
     gap: 6,
     borderRadius: Radius.full,
   },
-  viewButtonActive: {
-    backgroundColor: Colors.primaryContainer,
-    ...Shadows.card,
-  },
+  viewButtonActive: { backgroundColor: Colors.primaryContainer },
   viewButtonText: {
     color: Colors.onSurfaceVariant,
     fontSize: 13,
     fontWeight: "700",
   },
-  viewButtonTextActive: {
-    color: Colors.onPrimary,
-    fontWeight: "900",
-  },
-  orderCountBadge: {
-    minWidth: 18,
-    height: 18,
-    paddingHorizontal: 5,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 9,
-    backgroundColor: "#FFFFFF",
-  },
-  orderCountBadgeText: {
-    color: Colors.primaryDark,
-    fontSize: 9,
-    fontWeight: "900",
-  },
+  viewButtonTextActive: { color: Colors.onPrimary, fontWeight: "900" },
   contextBanner: {
     marginHorizontal: 16,
-    marginTop: 10,
-    marginBottom: 14,
+    marginTop: 12,
     padding: 14,
-    borderLeftWidth: 4,
-    borderLeftColor: Colors.primaryDark,
-    borderRadius: Radius.lg,
-    backgroundColor: Colors.surfaceContainerLowest,
-    ...Shadows.card,
-  },
-  contextHeader: {
-    marginBottom: 4,
     flexDirection: "row",
+    gap: 12,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    borderColor: Colors.primaryNeutral,
+    backgroundColor: Colors.primaryPale,
+  },
+  contextIcon: {
+    width: 42,
+    height: 42,
     alignItems: "center",
-    gap: 6,
+    justifyContent: "center",
+    borderRadius: Radius.full,
+    backgroundColor: Colors.surfaceContainerLowest,
   },
   contextTitle: {
     color: Colors.primaryDark,
-    fontSize: 9,
-    fontWeight: "800",
+    fontSize: 10,
+    fontWeight: "900",
     letterSpacing: 0.5,
   },
-  tripNameText: {
-    color: Colors.onSurface,
-    fontSize: 16,
-    fontWeight: "900",
-  },
-  tripDetailsSub: {
-    marginTop: 2,
-    color: Colors.onSurfaceVariant,
-    fontSize: 11,
-  },
-  categoryScroll: {
-    paddingHorizontal: 16,
-    paddingBottom: 16,
-    gap: 8,
-  },
-  categoryPill: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.surfaceContainerLowest,
-    ...Shadows.card,
-  },
-  categoryPillActive: {
-    backgroundColor: Colors.ink,
-  },
-  categoryPillText: {
+  contextDescription: {
+    marginTop: 4,
     color: Colors.onSurfaceVariant,
     fontSize: 12,
-    fontWeight: "700",
+    lineHeight: 17,
   },
-  categoryPillTextActive: {
-    color: Colors.inverseOnSurface,
-  },
-  productsGrid: {
-    paddingHorizontal: 16,
-    gap: 14,
-  },
-  productCard: {
-    overflow: "hidden",
-    borderRadius: Radius.xl,
-    backgroundColor: Colors.surfaceContainerLowest,
-    ...Shadows.card,
-  },
-  imageBox: {
-    position: "relative",
-    width: "100%",
-    height: 150,
-  },
-  productImage: {
-    width: "100%",
-    height: "100%",
-  },
-  stockBadge: {
-    position: "absolute",
-    top: 10,
-    right: 10,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: Radius.full,
-    backgroundColor: "rgba(30, 35, 28, 0.85)",
-  },
-  stockText: {
-    color: "#FFFFFF",
-    fontSize: 10,
-    fontWeight: "700",
-  },
-  productBody: {
-    padding: 14,
-  },
-  categoryTag: {
-    color: Colors.secondary,
-    fontSize: 9,
-    fontWeight: "800",
-    letterSpacing: 0.5,
-    textTransform: "uppercase",
-  },
-  productTitle: {
-    marginTop: 2,
-    marginBottom: 6,
+  selectedTripText: {
+    marginTop: 6,
     color: Colors.onSurface,
-    fontSize: 16,
-    fontWeight: "900",
-  },
-  detailLink: {
-    alignSelf: "flex-start",
-    marginBottom: 9,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 3,
-  },
-  detailLinkText: {
-    color: Colors.primaryDark,
-    fontSize: 11,
-    fontWeight: "800",
-  },
-  specsList: {
-    marginBottom: 12,
-    gap: 2,
-  },
-  specText: {
-    color: Colors.onSurfaceVariant,
-    fontSize: 11,
-    lineHeight: 16,
-  },
-  pricingRow: {
-    paddingTop: 10,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    borderTopWidth: 1,
-    borderTopColor: Colors.surfaceContainerLow,
-  },
-  dailyPrice: {
-    color: Colors.primaryDark,
-    fontSize: 16,
-    fontWeight: "900",
-  },
-  perDay: {
-    color: Colors.onSurfaceVariant,
-    fontSize: 11,
-    fontWeight: "400",
-  },
-  depositPrice: {
-    marginTop: 1,
-    color: Colors.onSurfaceVariant,
-    fontSize: 10,
-  },
-  addBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.primaryContainer,
-    ...Shadows.card,
-  },
-  addBtnInCart: {
-    backgroundColor: Colors.secondaryContainer,
-  },
-  addBtnText: {
-    color: Colors.onPrimary,
     fontSize: 12,
     fontWeight: "800",
   },
-  addBtnTextInCart: {
-    color: "#0C2000",
-  },
-  ordersContent: {
+  searchRow: {
+    marginTop: 14,
     paddingHorizontal: 16,
-    paddingTop: 12,
-    gap: 12,
-  },
-  ordersHeader: {
-    marginBottom: 2,
     flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  ordersTitle: {
-    color: Colors.onSurface,
-    fontSize: 20,
-    fontWeight: "900",
-  },
-  ordersDescription: {
-    marginTop: 3,
-    color: Colors.onSurfaceVariant,
-    fontSize: 11,
-  },
-  ordersCount: {
-    minWidth: 34,
-    height: 34,
-    paddingHorizontal: 8,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 17,
-    backgroundColor: Colors.primaryPale,
-  },
-  ordersCountText: {
-    color: Colors.primaryDark,
-    fontSize: 13,
-    fontWeight: "900",
-  },
-  orderCard: {
-    padding: 15,
-    borderRadius: Radius.xl,
-    backgroundColor: Colors.surfaceContainerLowest,
-    ...Shadows.card,
-  },
-  orderTop: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
     gap: 8,
   },
-  orderLabel: {
-    color: Colors.onSurfaceVariant,
-    fontSize: 8,
-    fontWeight: "800",
-    letterSpacing: 0.7,
-  },
-  orderId: {
-    marginTop: 2,
-    color: Colors.onSurface,
-    fontSize: 12,
-    fontWeight: "900",
-  },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    borderRadius: Radius.full,
-  },
-  statusText: {
-    fontSize: 9,
-    fontWeight: "900",
-  },
-  orderTripName: {
-    marginTop: 13,
-    color: Colors.onSurface,
-    fontSize: 16,
-    fontWeight: "900",
-  },
-  orderStatusSub: {
-    marginTop: 3,
-    color: Colors.onSurfaceVariant,
-    fontSize: 11,
-  },
-  orderItemsPreview: {
-    marginTop: 13,
-    gap: 8,
-  },
-  previewItem: {
-    padding: 8,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 9,
-    borderRadius: Radius.md,
-    backgroundColor: Colors.surfaceContainerLow,
-  },
-  previewImage: {
-    width: 42,
-    height: 42,
-    borderRadius: 10,
-  },
-  previewItemName: {
-    color: Colors.onSurface,
-    fontSize: 11,
-    fontWeight: "700",
-  },
-  previewQuantity: {
-    marginTop: 2,
-    color: Colors.onSurfaceVariant,
-    fontSize: 9,
-  },
-  orderSummary: {
-    marginTop: 12,
-    paddingVertical: 10,
-    flexDirection: "row",
-    borderRadius: Radius.md,
-    backgroundColor: Colors.surfaceContainerLow,
-  },
-  summaryItem: {
+  searchBox: {
     flex: 1,
-    alignItems: "center",
-  },
-  summaryItemLabel: {
-    color: Colors.onSurfaceVariant,
-    fontSize: 9,
-  },
-  summaryItemValue: {
-    marginTop: 3,
-    color: Colors.onSurface,
-    fontSize: 11,
-    fontWeight: "800",
-  },
-  summaryTotalValue: {
-    marginTop: 3,
-    color: Colors.primaryDark,
-    fontSize: 11,
-    fontWeight: "900",
-  },
-  summaryDivider: {
-    width: 1,
-    backgroundColor: Colors.surfaceContainerHighest,
-  },
-  detailButton: {
-    minHeight: 44,
-    marginTop: 12,
+    minHeight: 46,
+    paddingHorizontal: 13,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    gap: 4,
-    borderWidth: 1,
-    borderColor: Colors.primaryDark,
+    gap: 8,
     borderRadius: Radius.full,
-  },
-  detailButtonText: {
-    color: Colors.primaryDark,
-    fontSize: 12,
-    fontWeight: "800",
-  },
-  emptyState: {
-    marginHorizontal: 16,
-    marginTop: 18,
-    paddingHorizontal: 24,
-    paddingVertical: 44,
-    alignItems: "center",
-    borderRadius: Radius.xl,
     backgroundColor: Colors.surfaceContainerLowest,
     ...Shadows.card,
   },
-  emptyIcon: {
-    width: 70,
-    height: 70,
-    marginBottom: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 35,
-    backgroundColor: Colors.primaryPale,
-  },
-  emptyTitle: {
-    color: Colors.onSurface,
-    fontSize: 18,
-    fontWeight: "900",
-  },
-  emptyDescription: {
-    marginTop: 7,
-    color: Colors.onSurfaceVariant,
-    fontSize: 12,
-    lineHeight: 18,
-    textAlign: "center",
-  },
-  emptyButton: {
-    minHeight: 44,
-    marginTop: 18,
-    paddingHorizontal: 22,
+  searchInput: { flex: 1, color: Colors.onSurface, fontSize: 13 },
+  searchButton: {
+    width: 46,
+    height: 46,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: Radius.full,
     backgroundColor: Colors.primaryDark,
   },
-  emptyButtonText: {
-    color: "#FFFFFF",
-    fontSize: 13,
-    fontWeight: "800",
-  },
-  floatingCartBar: {
-    position: "absolute",
-    right: 16,
-    bottom: 12,
-    left: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+  categoryScroll: { paddingHorizontal: 16, paddingVertical: 14, gap: 8 },
+  categoryPill: {
+    paddingHorizontal: 15,
+    paddingVertical: 9,
     borderRadius: Radius.full,
-    backgroundColor: Colors.inverseSurface,
-    ...Shadows.hover,
+    backgroundColor: Colors.surfaceContainer,
   },
-  floatingCartLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
+  categoryPillActive: { backgroundColor: Colors.inkDeep },
+  categoryPillText: {
+    color: Colors.onSurfaceVariant,
+    fontSize: 12,
+    fontWeight: "700",
   },
-  cartCountPill: {
-    width: 28,
-    height: 28,
+  categoryPillTextActive: { color: Colors.onPrimaryDark },
+  centerState: { paddingVertical: 70, alignItems: "center", gap: 12 },
+  ordersList: { paddingHorizontal: 16, paddingTop: 14, gap: 12 },
+  orderCard: {
+    padding: 14,
+    borderRadius: Radius.lg,
+    backgroundColor: Colors.surfaceContainerLowest,
+    ...Shadows.card,
+  },
+  orderTopRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  orderIcon: {
+    width: 42,
+    height: 42,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: Radius.full,
-    backgroundColor: Colors.primaryContainer,
+    backgroundColor: Colors.primaryPale,
   },
-  cartCountText: {
-    color: Colors.onPrimary,
-    fontSize: 13,
+  orderCode: {
+    color: Colors.primaryDark,
+    fontSize: 9,
     fontWeight: "900",
+    letterSpacing: 0.5,
   },
-  cartBarTitle: {
-    color: Colors.inverseOnSurface,
-    fontSize: 12,
+  orderTrip: {
+    marginTop: 3,
+    color: Colors.onSurface,
+    fontSize: 13,
     fontWeight: "800",
   },
-  cartBarSub: {
-    color: Colors.mute,
-    fontSize: 9,
+  statusPill: {
+    maxWidth: 118,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+    borderRadius: Radius.full,
   },
-  cartViewBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+  statusText: { fontSize: 9, fontWeight: "900", textAlign: "center" },
+  orderDivider: {
+    height: 1,
+    marginVertical: 12,
+    backgroundColor: Colors.surfaceContainer,
+  },
+  orderBottomRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  orderMetaLabel: { color: Colors.onSurfaceMuted, fontSize: 9 },
+  orderAmount: {
+    marginTop: 3,
+    color: Colors.onSurface,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  orderOpen: { flexDirection: "row", alignItems: "center", gap: 3 },
+  orderOpenText: { color: Colors.primaryDark, fontSize: 11, fontWeight: "900" },
+  exceptionText: {
+    marginTop: 10,
+    color: "#A32020",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  productsGrid: {
+    paddingHorizontal: 16,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+  },
+  productCard: {
+    width: "48%",
+    overflow: "hidden",
+    borderRadius: Radius.lg,
+    backgroundColor: Colors.surfaceContainerLowest,
+    ...Shadows.card,
+  },
+  imageBox: { height: 145, backgroundColor: Colors.surfaceContainerHigh },
+  productImage: { width: "100%", height: "100%" },
+  imagePlaceholder: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    padding: 12,
+    backgroundColor: Colors.primaryPale,
+  },
+  imagePlaceholderText: {
+    textAlign: "center",
+    color: Colors.onSurfaceVariant,
+    fontSize: 10,
+  },
+  availabilityBadge: {
+    position: "absolute",
+    left: 8,
+    bottom: 8,
+    paddingHorizontal: 7,
+    paddingVertical: 5,
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
     borderRadius: Radius.full,
-    backgroundColor: Colors.primaryContainer,
+    backgroundColor: "rgba(255,255,255,0.93)",
   },
-  cartViewBtnText: {
-    color: Colors.onPrimary,
-    fontSize: 12,
+  availabilityText: {
+    color: Colors.primaryDark,
+    fontSize: 8,
     fontWeight: "800",
   },
+  productBody: { padding: 12 },
+  categoryTag: {
+    color: Colors.primaryDark,
+    fontSize: 9,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  productTitle: {
+    minHeight: 38,
+    marginTop: 5,
+    color: Colors.onSurface,
+    fontSize: 14,
+    fontWeight: "900",
+    lineHeight: 18,
+  },
+  skuText: { marginTop: 3, color: Colors.onSurfaceMuted, fontSize: 9 },
+  dailyPrice: {
+    marginTop: 9,
+    color: Colors.primaryDark,
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  perDay: { color: Colors.onSurfaceVariant, fontSize: 10, fontWeight: "500" },
+  depositPrice: {
+    marginTop: 3,
+    color: Colors.onSurfaceVariant,
+    fontSize: 9,
+  },
+  addButton: {
+    marginTop: 10,
+    minHeight: 38,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.primaryDark,
+  },
+  addButtonText: { color: Colors.onPrimaryDark, fontSize: 11, fontWeight: "900" },
+  quantityControl: {
+    marginTop: 12,
+    minHeight: 42,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderRadius: Radius.full,
+    backgroundColor: Colors.secondary,
+  },
+  quantityButton: {
+    width: 44,
+    minHeight: 42,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  quantityValue: {
+    minWidth: 28,
+    color: Colors.onPrimaryDark,
+    textAlign: "center",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  stateCard: {
+    margin: 16,
+    padding: 28,
+    alignItems: "center",
+    borderRadius: Radius.xl,
+    backgroundColor: Colors.surfaceContainerLowest,
+    ...Shadows.card,
+  },
+  stateIcon: {
+    width: 66,
+    height: 66,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: Radius.full,
+    backgroundColor: Colors.primaryPale,
+  },
+  stateTitle: {
+    marginTop: 14,
+    textAlign: "center",
+    color: Colors.onSurface,
+    fontSize: 18,
+    fontWeight: "900",
+  },
+  stateDescription: {
+    marginTop: 7,
+    textAlign: "center",
+    color: Colors.onSurfaceVariant,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  stateButton: {
+    marginTop: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 11,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.primaryDark,
+  },
+  stateButtonText: { color: Colors.onPrimaryDark, fontWeight: "900" },
+  floatingCart: {
+    position: "absolute",
+    left: 12,
+    right: 12,
+    bottom: 8,
+    padding: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderRadius: Radius.xl,
+    backgroundColor: Colors.inkDeep,
+    ...Shadows.tactical,
+  },
+  cartCount: {
+    width: 34,
+    height: 34,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: Radius.full,
+    backgroundColor: Colors.primary,
+  },
+  cartCountText: { color: Colors.onPrimary, fontWeight: "900" },
+  cartTitle: { color: Colors.onPrimaryDark, fontSize: 12, fontWeight: "900" },
+  cartSubtitle: { marginTop: 2, color: Colors.primaryNeutral, fontSize: 9 },
+  cartButton: {
+    paddingHorizontal: 13,
+    paddingVertical: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.primary,
+  },
+  cartButtonText: { color: Colors.onPrimary, fontSize: 11, fontWeight: "900" },
 });

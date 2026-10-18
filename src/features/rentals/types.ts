@@ -1,0 +1,372 @@
+export type RentalDepositPolicy = {
+  type: string;
+  amount?: number;
+  referenceValue?: number;
+  percentage?: number;
+};
+
+export type RentalCategory = {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  status: string;
+};
+
+export type RentalProduct = {
+  id: string;
+  sku: string;
+  name: string;
+  category: {
+    id: string;
+    name: string;
+    status: string;
+  };
+  description: string | null;
+  dailyPrice: number;
+  depositPolicy: RentalDepositPolicy;
+  currency: string;
+  replacementValue: number;
+  status: string;
+  version: number;
+  imageMediaIds: string[];
+  imageUrl?: string;
+  spec: unknown;
+  recommendationTags: string[];
+};
+
+export type Pagination = {
+  page: number;
+  pageSize: number;
+  totalItems: number;
+  totalPages: number;
+};
+
+export type PaginatedResult<T> = {
+  items: T[];
+  pagination: Pagination;
+};
+
+export type RentalTripType = "PUBLIC" | "PRIVATE";
+
+export type RentalTripOption = {
+  id: string;
+  title: string;
+  type: RentalTripType;
+  startAt: string;
+  endAt: string;
+  sourceStatus: string;
+  eligible: boolean;
+  eligibilityReason?: string;
+  rentalCutoffAt?: string;
+  membershipRef?: string;
+  contextVersion?: number;
+};
+
+export type RentalAvailability = {
+  tripId: string;
+  productId: string;
+  availableCount: number;
+  rentalWindow: unknown;
+  checkedAt: string;
+};
+
+export type RentalQuoteItem = {
+  productId: string;
+  name: string;
+  quantity: number;
+  availableCount: number;
+  dailyPrice: number;
+  feeAmount: number;
+  depositPerUnit: number;
+  depositAmount: number;
+};
+
+export type RentalQuote = {
+  id: string;
+  bookingId?: string;
+  membershipRef: string;
+  membershipSnapshot: unknown;
+  pickupPointId: string;
+  returnPointId: string;
+  returnOptionSnapshot: unknown;
+  recipient: {
+    memberId: string;
+    displayName: string;
+  };
+  chargedDays: number;
+  items: RentalQuoteItem[];
+  amounts: {
+    feeAmount: number;
+    depositAmount: number;
+    totalAmount: number;
+    currency: string;
+  };
+  pickup: {
+    id: string;
+    name: string;
+    scheduledAt: string;
+  };
+  dropoff: {
+    id: string;
+    name: string;
+    scheduledAt: string;
+  };
+  expiresAt: string;
+  contextVersion: number;
+  policyVersion: string;
+};
+
+export type RentalOrderCreated = {
+  order: {
+    id: string;
+    quoteId: string;
+    bookingId?: string;
+    tripId: string;
+    status: string;
+    exceptionStatus?: string;
+    financialStatus?: string;
+    rentalFee: number;
+    totalDeposit: number;
+    totalAmount: number;
+    currency: string;
+    paymentExpiresAt?: string;
+    dueAt?: string;
+    version: number;
+    createdAt: string;
+  };
+  quantityReservations: {
+    id: string;
+    orderLineId: string;
+    productId: string;
+    quantity: number;
+    occupiedFrom: string;
+    occupiedUntil: string;
+    status: string;
+    holdExpiresAt?: string;
+  }[];
+};
+
+export type RentalOrderStatus =
+  | "PENDING_PAYMENT"
+  | "PAID"
+  | "PREPARING"
+  | "READY_FOR_HANDOVER"
+  | "ACTIVE"
+  | "RETURN_PENDING"
+  | "RETURN_PROCESSING"
+  | "COMPLETED"
+  | "CANCELLED"
+  | "EXPIRED"
+  | string;
+
+export type RentalOrderSummary = {
+  id: string;
+  bookingId?: string;
+  tripId: string;
+  status: RentalOrderStatus;
+  exceptionStatus?: string | null;
+  financialStatus?: string | null;
+  rentalFee: number;
+  totalDeposit: number;
+  totalAmount: number;
+  currency: string;
+  paymentExpiresAt?: string | null;
+  dueAt?: string | null;
+  createdAt: string;
+  version: number;
+  trip?: {
+    id?: string;
+    title?: string;
+    startAt?: string;
+    endAt?: string;
+  } | null;
+};
+
+export type RentalOrderLine = {
+  id: string;
+  productId: string;
+  name?: string;
+  sku?: string;
+  quantity: number;
+  dailyPrice?: number;
+  feeAmount?: number;
+  depositAmount?: number;
+  product?: {
+    id?: string;
+    name?: string;
+    sku?: string;
+  } | null;
+};
+
+export type RentalAssignedUnit = {
+  id?: string;
+  assignmentId?: string;
+  unitId: string;
+  assetCode?: string;
+  status?: string;
+  condition?: string;
+  productName?: string;
+};
+
+export type DeliveryTaskSummary = {
+  id: string;
+  type: "OUTBOUND" | "RETURN";
+  status: string;
+  scheduledAt?: string | null;
+  point: { id: string; name: string; address?: string | null };
+  package: { id: string; code: string; status: string };
+  orderSummary: {
+    orderId: string;
+    bookingId?: string | null;
+    tripId: string;
+    orderStatus: string;
+    recipient?: { displayName?: string; fullName?: string; name?: string };
+  };
+  version: number;
+  allowedActions: string[];
+};
+
+export type DeliveryTaskUnit = {
+  unitId: string;
+  assetCode: string;
+  product?: { id?: string; name?: string };
+  condition?: string;
+  physicalStatus?: string;
+  assignmentStatus?: string;
+};
+
+export type DeliveryTaskDetail = {
+  task: {
+    id: string;
+    type: "OUTBOUND" | "RETURN";
+    status: string;
+    scheduledAt?: string | null;
+    point: { id: string; name: string; address?: string | null };
+    version: number;
+    allowedActions: string[];
+  };
+  package: { id: string; code: string; status: string; version: number } | null;
+  units: DeliveryTaskUnit[];
+  recipient: { displayName?: string; fullName?: string; name?: string };
+  verificationStatus: Record<string, unknown>;
+};
+
+export type RentalReturnScanResult = {
+  returnId: string;
+  returnSessionId: string;
+  receivedUnits: { unitId: string; assetCode: string; receivedAt: string; duplicate: boolean }[];
+  missingUnits: { unitId: string; assetCode: string }[];
+  duplicates: string[];
+  version: number;
+  taskVersion: number;
+};
+
+export type RentalReturnObservationResult = {
+  returnSessionId?: string | null;
+  observations: { unitId: string; observationOnly: true }[];
+  requiresInventoryInspection: boolean;
+  refundEligible: false;
+  discrepancies: { unitId: string; reason: string }[];
+};
+
+export type RentalReturnTransferResult = {
+  pendingTransferId: string;
+  unitIds: string[];
+  status: string;
+  transferStartedAt?: string | null;
+  transferWatchAt?: string | null;
+  monitoringStatus?: string;
+};
+
+export type RentalOrderTimelineItem = {
+  id?: string;
+  status?: string;
+  title?: string;
+  description?: string;
+  occurredAt?: string;
+  createdAt?: string;
+};
+
+export type RentalOrderDetail = {
+  order: RentalOrderSummary;
+  items: RentalOrderLine[];
+  assignedUnits?: RentalAssignedUnit[];
+  payment?: RentalPaymentStatus | null;
+  deposit?: RentalDepositStatus | null;
+  timeline?: RentalOrderTimelineItem[];
+};
+
+export type RentalPaymentStatus = {
+  status: string;
+  paymentRef?: string;
+  nextAction?: unknown;
+  amount?: number;
+  refundedAmount?: number;
+  expiresAt?: string;
+};
+
+export type RentalPickupCode = {
+  pickupCode: string;
+  expiresAt: string;
+  orderId: string;
+  recipient?: { memberId?: string; displayName?: string };
+  pickupPoint?: { id?: string; name?: string; address?: string };
+};
+
+export type RentalHandoverPreview = {
+  package?: { id?: string; code?: string; packageCode?: string } | null;
+  conditionSnapshots?: {
+    unitId?: string;
+    assetCode?: string;
+    condition?: string;
+    notes?: string;
+  }[];
+  status?: string;
+};
+
+export type RentalDepositItem = {
+  unitId: string;
+  assetCode?: string;
+  amount: number;
+  status: string;
+  refundRef?: string | null;
+  deduction?: number | null;
+  reason?: string | null;
+};
+
+export type RentalDepositStatus = {
+  collectedAmount: number;
+  heldAmount: number;
+  refundedAmount: number;
+  deductionAmount: number;
+  items: RentalDepositItem[];
+};
+
+export function calculateProductDeposit(product: RentalProduct) {
+  if (typeof product.depositPolicy.amount === "number") {
+    return product.depositPolicy.amount;
+  }
+
+  if (typeof product.depositPolicy.percentage === "number") {
+    return Math.round(
+      product.replacementValue * (product.depositPolicy.percentage / 100),
+    );
+  }
+
+  return 0;
+}
+
+export function rentalProductSpecs(product: RentalProduct) {
+  if (!product.spec || typeof product.spec !== "object") return [];
+
+  if (Array.isArray(product.spec)) {
+    return product.spec.map(String);
+  }
+
+  return Object.entries(product.spec as Record<string, unknown>)
+    .filter(
+      ([, value]) => value !== null && value !== undefined && value !== "",
+    )
+    .map(([key, value]) => `${key}: ${String(value)}`);
+}

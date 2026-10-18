@@ -29,8 +29,12 @@ export default function LoginScreen() {
     setIsSubmitting(true);
 
     try {
-      await signIn(email, password);
-      router.replace("/(tabs)" as Href);
+      const loggedUser = await signIn(email, password);
+      if (loggedUser.role === "STAFF_DELIVERY" || loggedUser.role === "LEADER") {
+        router.replace("/field-operations" as Href);
+      } else {
+        router.replace("/(tabs)" as Href);
+      }
     } catch (requestError) {
       setError(
         requestError instanceof Error

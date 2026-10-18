@@ -25,9 +25,7 @@ import {
   Trip,
   UserNotification,
   UserProfile,
-  FieldWorkflowStatus,
   LeaderMemberAttendance,
-  LeaderGpsStatus,
   DeliveryItemStatus,
   DeliveryItemState,
   ReturnItemState,
@@ -78,9 +76,7 @@ export interface RentalSettlement {
 }
 
 export type {
-  FieldWorkflowStatus,
   LeaderMemberAttendance,
-  LeaderGpsStatus,
   DeliveryItemStatus,
   DeliveryItemState,
   ReturnItemState,
@@ -185,6 +181,7 @@ interface AppContextType {
     quantity: number;
   }[];
   addToCart: (item: EquipmentItem, quantity: number) => void;
+    setCartQuantity: (item: EquipmentItem, quantity: number) => void;
   removeFromCart: (itemId: string) => void;
   checkoutRental: (tripId: string, days: number) => void;
   confirmRentalPickup: (orderId: string) => void;
@@ -591,7 +588,7 @@ const initialCommunityProfiles: CommunityProfile[] = [
     avatar: mockUserProfile.avatar,
     coverImage:
       "https://images.unsplash.com/photo-1464278533981-50106e6176b1?auto=format&fit=crop&w=1200&q=80",
-    role: mockUserProfile.role,
+    role: mockUserProfile.role === "LEADER" ? "LEADER" : "TREKKER",
     verified: mockUserProfile.role === "LEADER",
     badge:
       mockUserProfile.role === "LEADER" ? "Verified Leader" : "Trail Explorer",
@@ -1970,7 +1967,7 @@ export const AppProvider: React.FC<{
         id: user.id,
         name: user.name,
         avatar: user.avatar,
-        role: user.role,
+        role: user.role === "LEADER" ? "LEADER" : "TREKKER",
         verified: user.role === "LEADER",
         badge: user.role === "LEADER" ? "Verified Leader" : "Trekker",
       },
@@ -2042,7 +2039,7 @@ export const AppProvider: React.FC<{
                 id: user.id,
                 name: user.name,
                 avatar: user.avatar,
-                role: user.role,
+                role: user.role === "LEADER" ? "LEADER" : "TREKKER",
                 verified: user.role === "LEADER",
                 badge: user.role === "LEADER" ? "Verified Leader" : "Trekker",
               },
@@ -2127,6 +2124,28 @@ export const AppProvider: React.FC<{
     });
   };
 
+  const setCartQuantity = (item: EquipmentItem, quantity: number) => {
+    const normalizedQuantity = Math.max(0, Math.floor(quantity));
+
+    setCart((current) => {
+      let next;
+
+      if (normalizedQuantity === 0) {
+        next = current.filter((entry) => entry.item.id !== item.id);
+      } else if (current.some((entry) => entry.item.id === item.id)) {
+        next = current.map((entry) =>
+          entry.item.id === item.id
+            ? { item, quantity: normalizedQuantity }
+            : entry,
+        );
+      } else {
+        next = [...current, { item, quantity: normalizedQuantity }];
+      }
+
+      accountStorage.saveRentalCart(next);
+      return next;
+    });
+  };
   const removeFromCart = (itemId: string) => {
     setCart((current) => {
       const next = current.filter((entry) => entry.item.id !== itemId);
@@ -2440,6 +2459,8 @@ export const AppProvider: React.FC<{
         rentalSettlements,
         cart,
         addToCart,
+
+        setCartQuantity,
         removeFromCart,
         checkoutRental,
         confirmRentalPickup,

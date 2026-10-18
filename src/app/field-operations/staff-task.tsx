@@ -1,7 +1,7 @@
 import { FieldModal } from '@/components/FieldModal';
 import { Colors, Radius, Shadows } from '@/constants/theme';
 import { DeliveryItemStatus, useApp } from '@/context/AppContext';
-import { deliveryTasks, emptyDeliveryTask } from '@/data/fieldOpsMock';
+import { deliveryTasks } from '@/data/fieldOpsMock';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -16,7 +16,7 @@ export default function StaffTaskScreen() {
   const router = useRouter();
   const { fieldWorkflow, receiveDeliveryPackage, markArrivedAtPickup, setDeliveryVerified, setDeliveryItem, setDeliveryPhoto, setDeliverySigned, completeDelivery } = useApp();
   const { taskId } = useLocalSearchParams<{ taskId?: string }>();
-  const task = deliveryTasks.find(item => item.id === taskId) ?? deliveryTasks[0] ?? emptyDeliveryTask;
+  const task = deliveryTasks.find(item => item.id === taskId) ?? deliveryTasks[0];
   const [otp, setOtp] = useState('');
   const [packageCode, setPackageCode] = useState('');
   const [photoMenu, setPhotoMenu] = useState(false);

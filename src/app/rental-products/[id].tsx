@@ -1,8 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import { useMemo, useState } from "react";
+import { type Href, useLocalSearchParams, useRouter } from "expo-router";
+import { useEffect, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   Image,
+
   ScrollView,
   StyleSheet,
   Text,
@@ -13,355 +15,306 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { Colors, Radius, Shadows } from "@/constants/theme";
 import { useApp } from "@/context/AppContext";
+import { rentalApi } from "@/features/rentals/api";
+import { useRentalSelection } from "@/features/rentals/RentalSelectionContext";
+import {
+  calculateProductDeposit,
+  RentalProduct,
+  rentalProductSpecs,
+} from "@/features/rentals/types";
+import { EquipmentItem } from "@/types";
+
+const MAX_REQUEST_QUANTITY = 20;
+
+function toCartItem(product: RentalProduct): EquipmentItem {
+  return {
+    id: product.id,
+    name: product.name,
+    category: "Accessories",
+    dailyRate: product.dailyPrice,
+    deposit: calculateProductDeposit(product),
+    stock: 99,
+    imageUrl: product.imageUrl ?? "",
+    specs: rentalProductSpecs(product),
+    description: product.description ?? "",
+    rating: 0,
+  };
+}
 
 export default function RentalProductDetailScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { cart, setCartQuantity } = useApp();
+  const { selectedTrip } = useRentalSelection();
+  const [product, setProduct] = useState<RentalProduct>();
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string>();
 
-  const { equipment, cart, addToCart, activeTrip } = useApp();
-
-  const product = useMemo(
-    () => equipment.find((item) => item.id === id),
-    [equipment, id],
+  const productId = Array.isArray(id) ? id[0] : id;
+  const cartEntry = cart.find((entry) => entry.item.id === productId);
+  const cartQuantity = cartEntry?.quantity ?? 0;
+  const quantity = cartQuantity;
+  const specs = useMemo(
+    () => (product ? rentalProductSpecs(product) : []),
+    [product],
   );
 
-  const [quantity, setQuantity] = useState(1);
-  const [added, setAdded] = useState(false);
+  useEffect(() => {
+    let active = true;
 
-  const cartEntry = cart.find((entry) => entry.item.id === product?.id);
+    async function loadProduct() {
+      if (!productId) {
+        setError("Thiếu mã sản phẩm.");
+        setLoading(false);
+        return;
+      }
 
-  if (!product) {
+      setLoading(true);
+      setError(undefined);
+      try {
+        const result = await rentalApi.getProduct(productId);
+        if (active) setProduct(result);
+      } catch (requestError) {
+        if (active) {
+          setError(
+            requestError instanceof Error
+              ? requestError.message
+              : "Không tải được chi tiết thiết bị.",
+          );
+        }
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+
+    void loadProduct();
+    return () => {
+      active = false;
+    };
+  }, [productId]);
+
+  if (loading) {
     return (
       <SafeAreaView style={styles.safeArea}>
+        <Header onBack={() => router.back()} cartCount={cart.length} />
+        <View style={styles.centerState}>
+          <ActivityIndicator size="large" color={Colors.primaryDark} />
+          <Text style={styles.stateText}>Đang tải thông tin thiết bị...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!product || error) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <Header onBack={() => router.back()} cartCount={cart.length} />
         <View style={styles.emptyState}>
           <View style={styles.emptyIcon}>
             <Ionicons
               name="cube-outline"
               size={42}
-              color={Colors.onSurfaceMuted}
+              color={Colors.primaryDark}
             />
           </View>
-
-          <Text style={styles.emptyTitle}>Không tìm thấy thiết bị</Text>
-
-          <Text style={styles.emptyDescription}>
-            Sản phẩm có thể đã được cập nhật hoặc tạm ngừng cho thuê.
-          </Text>
-
-          <TouchableOpacity
-            style={styles.emptyButton}
-            onPress={() => router.back()}
-          >
-            <Ionicons name="arrow-back" size={18} color={Colors.onPrimary} />
-
-            <Text style={styles.emptyButtonText}>Quay lại danh mục</Text>
+          <Text style={styles.emptyTitle}>Không tải được thiết bị</Text>
+          <Text style={styles.stateText}>{error}</Text>
+          <TouchableOpacity style={styles.primaryButton} onPress={() => router.back()}>
+            <Text style={styles.primaryButtonText}>Quay lại danh mục</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
   }
 
-  const rentalDays = activeTrip.durationDays || 1;
-  const rentalFee = product.dailyRate * quantity * rentalDays;
-  const depositFee = product.deposit * quantity;
-  const estimatedTotal = rentalFee + depositFee;
-
-  function decreaseQuantity() {
-    setAdded(false);
-    setQuantity((current) => Math.max(1, current - 1));
-  }
-
-  function increaseQuantity() {
-    if (!product) {
-      return;
-    }
-
-    setAdded(false);
-    setQuantity((current) => Math.min(product.stock, current + 1));
-  }
-
-  function handleAddToCart() {
-    if (!product) {
-      return;
-    }
-
-    addToCart(product, quantity);
-    setAdded(true);
-  }
+  const deposit = calculateProductDeposit(product);
+  const dailySubtotal = product.dailyPrice * quantity;
+  const depositSubtotal = deposit * quantity;
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.headerButton}
-          onPress={() => router.back()}
-        >
-          <Ionicons name="arrow-back" size={20} color={Colors.onSurface} />
-        </TouchableOpacity>
-
-        <View style={styles.headerText}>
-          <Text style={styles.headerEyebrow}>TREKGO RENTAL</Text>
-
-          <Text style={styles.headerTitle}>Chi tiết thiết bị</Text>
-        </View>
-
-        <View style={styles.cartButton}>
-          <Ionicons name="bag-outline" size={20} color={Colors.onSurface} />
-
-          {cart.length > 0 && (
-            <View style={styles.cartBadge}>
-              <Text style={styles.cartBadgeText}>
-                {cart.reduce((sum, entry) => sum + entry.quantity, 0)}
-              </Text>
-            </View>
-          )}
-        </View>
-      </View>
+      <Header
+        onBack={() => router.back()}
+        cartCount={cart.reduce((sum, entry) => sum + entry.quantity, 0)}
+        onCart={() => router.push("/(tabs)/rental" as Href)}
+      />
 
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.content}
       >
         <View style={styles.heroCard}>
-          <Image source={{ uri: product.imageUrl }} style={styles.heroImage} />
-
-          <View style={styles.heroOverlay} />
-
-          <View style={styles.stockBadge}>
-            <View style={styles.stockDot} />
-
-            <Text style={styles.stockBadgeText}>
-              Còn {product.stock} thiết bị
-            </Text>
-          </View>
-
-          <View style={styles.ratingBadge}>
-            <Ionicons name="star" size={13} color={Colors.warning} />
-
-            <Text style={styles.ratingBadgeText}>
-              {product.rating.toFixed(1)}
-            </Text>
-          </View>
-
+          {product.imageUrl ? (
+            <Image source={{ uri: product.imageUrl }} style={styles.heroImage} />
+          ) : (
+            <View style={styles.heroPlaceholder}>
+              <Ionicons name="cube-outline" size={70} color={Colors.primaryDark} />
+              <Text style={styles.heroPlaceholderText}>
+                Ảnh thiết bị đang được cập nhật
+              </Text>
+            </View>
+          )}
           <View style={styles.heroBottom}>
-            <Text style={styles.category}>{product.category}</Text>
-
+            <Text style={styles.category}>{product.category.name}</Text>
             <Text style={styles.productName}>{product.name}</Text>
+            <Text style={styles.sku}>SKU: {product.sku}</Text>
           </View>
         </View>
 
-        <View style={styles.tripContext}>
-          <View style={styles.tripContextIcon}>
-            <Ionicons name="compass" size={20} color={Colors.primaryDark} />
+        <View style={styles.tripCard}>
+          <View style={styles.tripIcon}>
+            <Ionicons name="trail-sign" size={21} color={Colors.primaryDark} />
           </View>
-
-          <View style={styles.tripContextBody}>
-            <Text style={styles.tripContextLabel}>THUÊ GẮN VỚI CHUYẾN ĐI</Text>
-
-            <Text style={styles.tripContextName}>{activeTrip.name}</Text>
-
-            <Text style={styles.tripContextMeta}>
-              {activeTrip.startDate} · {rentalDays} ngày
+          <View style={styles.flexOne}>
+            <Text style={styles.tripLabel}>CHUYẾN ĐI DÙNG ĐỂ KIỂM TRA KHO</Text>
+            <Text style={styles.tripTitle} numberOfLines={1}>
+              {selectedTrip?.title ?? "Chưa chọn chuyến đi"}
+            </Text>
+            <Text style={styles.tripDescription}>
+              {selectedTrip
+                ? "Chuyến đã qua kiểm tra điều kiện thuê."
+                : "Bạn vẫn có thể chọn sản phẩm và số lượng trước."}
             </Text>
           </View>
-
-          <Ionicons
-            name="shield-checkmark"
-            size={20}
-            color={Colors.primaryDark}
-          />
+          <TouchableOpacity
+            style={styles.tripAction}
+            onPress={() => router.push("/rental-trip-select" as Href)}
+          >
+            <Text style={styles.tripActionText}>
+              {selectedTrip ? "Đổi" : "Chọn"}
+            </Text>
+          </TouchableOpacity>
         </View>
 
         <View style={styles.priceCard}>
           <View>
             <Text style={styles.priceLabel}>GIÁ THUÊ</Text>
-
             <Text style={styles.dailyPrice}>
-              {product.dailyRate.toLocaleString("vi-VN")} đ
+              {product.dailyPrice.toLocaleString("vi-VN")}đ
               <Text style={styles.perDay}> / ngày</Text>
             </Text>
           </View>
-
           <View style={styles.depositBox}>
-            <Text style={styles.depositLabel}>Tiền cọc</Text>
-
+            <Text style={styles.depositLabel}>Cọc dự kiến / món</Text>
             <Text style={styles.depositValue}>
-              {product.deposit.toLocaleString("vi-VN")} đ
+              {deposit.toLocaleString("vi-VN")}đ
             </Text>
           </View>
         </View>
 
         <View style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>Giới thiệu thiết bị</Text>
-
-          <Text style={styles.description}>{product.description}</Text>
+          <Text style={styles.description}>
+            {product.description || "Sản phẩm chưa có mô tả."}
+          </Text>
         </View>
 
-        <View style={styles.sectionCard}>
-          <View style={styles.sectionHeadingRow}>
-            <Text style={styles.sectionTitle}>Thông số nổi bật</Text>
-
-            <View style={styles.verifiedPill}>
-              <Ionicons
-                name="checkmark-circle"
-                size={13}
-                color={Colors.primaryDark}
-              />
-
-              <Text style={styles.verifiedText}>Đã kiểm định</Text>
-            </View>
-          </View>
-
-          <View style={styles.specList}>
-            {product.specs.map((spec) => (
-              <View key={spec} style={styles.specRow}>
-                <View style={styles.specIcon}>
+        {specs.length > 0 && (
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>Thông số thiết bị</Text>
+            <View style={styles.specList}>
+              {specs.map((spec) => (
+                <View key={spec} style={styles.specRow}>
                   <Ionicons
-                    name="checkmark"
-                    size={14}
+                    name="checkmark-circle"
+                    size={17}
                     color={Colors.primaryDark}
                   />
+                  <Text style={styles.specText}>{spec}</Text>
                 </View>
-
-                <Text style={styles.specText}>{spec}</Text>
-              </View>
-            ))}
+              ))}
+            </View>
           </View>
-        </View>
+        )}
 
         <View style={styles.sectionCard}>
-          <View style={styles.sectionHeadingRow}>
+          <View style={styles.quantityHeader}>
             <View>
-              <Text style={styles.sectionTitle}>Số lượng thuê</Text>
-
+              <Text style={styles.sectionTitle}>Số lượng cần thuê</Text>
               <Text style={styles.quantityHint}>
-                Tối đa {product.stock} thiết bị
+                Tồn kho thật sẽ kiểm tra sau khi chọn chuyến
               </Text>
             </View>
-
             <View style={styles.quantityControl}>
               <TouchableOpacity
                 style={styles.quantityButton}
-                onPress={decreaseQuantity}
-                disabled={quantity === 1}
+                disabled={quantity === 0}
+                onPress={() =>
+                  setCartQuantity(toCartItem(product), Math.max(0, quantity - 1))
+                }
               >
-                <Ionicons
-                  name="remove"
-                  size={18}
-                  color={
-                    quantity === 1 ? Colors.onSurfaceMuted : Colors.onSurface
-                  }
-                />
+                <Ionicons name="remove" size={18} color={Colors.onSurface} />
               </TouchableOpacity>
-
               <Text style={styles.quantityValue}>{quantity}</Text>
-
               <TouchableOpacity
                 style={styles.quantityButton}
-                onPress={increaseQuantity}
-                disabled={quantity === product.stock}
+                disabled={quantity === MAX_REQUEST_QUANTITY}
+                onPress={() =>
+                  setCartQuantity(
+                    toCartItem(product),
+                    Math.min(MAX_REQUEST_QUANTITY, quantity + 1),
+                  )
+                }
               >
-                <Ionicons
-                  name="add"
-                  size={18}
-                  color={
-                    quantity === product.stock
-                      ? Colors.onSurfaceMuted
-                      : Colors.onSurface
-                  }
-                />
+                <Ionicons name="add" size={18} color={Colors.onSurface} />
               </TouchableOpacity>
             </View>
           </View>
         </View>
 
         <View style={styles.summaryCard}>
-          <Text style={styles.summaryTitle}>Tạm tính cho chuyến đi</Text>
-
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Tiền thuê</Text>
-
-            <Text style={styles.summaryValue}>
-              {product.dailyRate.toLocaleString("vi-VN")} đ{" × "}
-              {quantity}
-              {" × "}
-              {rentalDays} ngày
-            </Text>
-          </View>
-
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Thành tiền thuê</Text>
-
-            <Text style={styles.summaryValue}>
-              {rentalFee.toLocaleString("vi-VN")} đ
-            </Text>
-          </View>
-
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Cọc hoàn lại</Text>
-
-            <Text style={styles.summaryValue}>
-              {depositFee.toLocaleString("vi-VN")} đ
-            </Text>
-          </View>
-
-          <View style={styles.divider} />
-
-          <View style={styles.summaryRow}>
-            <Text style={styles.totalLabel}>Tổng tạm tính</Text>
-
-            <Text style={styles.totalValue}>
-              {estimatedTotal.toLocaleString("vi-VN")} đ
-            </Text>
-          </View>
-
-          <View style={styles.refundNotice}>
+          <Text style={styles.summaryTitle}>Giá tham khảo</Text>
+          <SummaryRow
+            label="Phí thuê mỗi ngày"
+            value={`${dailySubtotal.toLocaleString("vi-VN")}đ`}
+          />
+          <SummaryRow
+            label="Tổng tiền cọc dự kiến"
+            value={`${depositSubtotal.toLocaleString("vi-VN")}đ`}
+          />
+          <View style={styles.notice}>
             <Ionicons
               name="information-circle"
-              size={18}
+              size={19}
               color={Colors.primaryDark}
             />
-
-            <Text style={styles.refundText}>
-              Tiền cọc được hoàn lại sau khi Staff Inventory kiểm tra và xác
-              nhận thiết bị đã được bàn giao đúng tình trạng.
+            <Text style={styles.noticeText}>
+              Charged days, availability, phí thuê và tiền cọc cuối cùng do
+              server tính trong Quote sau khi chọn chuyến.
             </Text>
           </View>
         </View>
 
         {cartEntry && (
-          <View style={styles.currentCartNotice}>
+          <View style={styles.cartNotice}>
             <Ionicons name="bag-check" size={18} color={Colors.primaryDark} />
-
-            <Text style={styles.currentCartText}>
-              Sản phẩm này đang có {cartEntry.quantity} món trong giỏ thuê.
+            <Text style={styles.cartNoticeText}>
+              Giỏ hiện có {cartEntry.quantity} sản phẩm này.
             </Text>
           </View>
         )}
       </ScrollView>
 
       <View style={styles.bottomBar}>
-        <View style={styles.bottomPrice}>
-          <Text style={styles.bottomPriceLabel}>Tổng dự kiến</Text>
-
-          <Text style={styles.bottomPriceValue}>
-            {estimatedTotal.toLocaleString("vi-VN")} đ
-          </Text>
+        <View style={styles.bottomSummary}>
+          <Text style={styles.bottomLabel}>Đang chọn</Text>
+          <Text style={styles.bottomValue}>{quantity} món</Text>
         </View>
-
         <TouchableOpacity
-          style={[styles.addButton, added && styles.addButtonSuccess]}
-          onPress={handleAddToCart}
-          activeOpacity={0.85}
+          style={[styles.addButton, quantity > 0 && styles.addButtonSuccess]}
+          onPress={() =>
+            quantity === 0
+              ? setCartQuantity(toCartItem(product), 1)
+              : router.back()
+          }
         >
           <Ionicons
-            name={added ? "checkmark-circle" : "bag-add"}
+            name={quantity > 0 ? "checkmark-circle" : "bag-add"}
             size={20}
             color={Colors.onPrimary}
           />
-
           <Text style={styles.addButtonText}>
-            {added ? "Đã thêm vào giỏ" : "Thêm vào giỏ thuê"}
+            {quantity > 0 ? "Đã cập nhật giỏ thuê" : "Thêm 1 vào giỏ thuê"}
           </Text>
         </TouchableOpacity>
       </View>
@@ -369,11 +322,48 @@ export default function RentalProductDetailScreen() {
   );
 }
 
+function Header({
+  onBack,
+  cartCount,
+  onCart,
+}: {
+  onBack: () => void;
+  cartCount: number;
+  onCart?: () => void;
+}) {
+  return (
+    <View style={styles.header}>
+      <TouchableOpacity style={styles.headerButton} onPress={onBack}>
+        <Ionicons name="arrow-back" size={20} color={Colors.onSurface} />
+      </TouchableOpacity>
+      <View style={styles.headerText}>
+        <Text style={styles.headerEyebrow}>TREKGO RENTAL</Text>
+        <Text style={styles.headerTitle}>Chi tiết thiết bị</Text>
+      </View>
+      <TouchableOpacity style={styles.headerButton} onPress={onCart}>
+        <Ionicons name="bag-outline" size={20} color={Colors.onSurface} />
+        {cartCount > 0 && (
+          <View style={styles.cartBadge}>
+            <Text style={styles.cartBadgeText}>{cartCount}</Text>
+          </View>
+        )}
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+function SummaryRow({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.summaryRow}>
+      <Text style={styles.summaryLabel}>{label}</Text>
+      <Text style={styles.summaryValue}>{value}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: Colors.surface,
-  },
+  safeArea: { flex: 1, backgroundColor: Colors.surface },
+  flexOne: { flex: 1 },
   header: {
     minHeight: 64,
     paddingHorizontal: 16,
@@ -387,33 +377,23 @@ const styles = StyleSheet.create({
   headerButton: {
     width: 40,
     height: 40,
-    borderRadius: Radius.full,
     alignItems: "center",
     justifyContent: "center",
+    borderRadius: Radius.full,
     backgroundColor: Colors.surfaceContainerLow,
   },
-  headerText: {
-    flex: 1,
-  },
+  headerText: { flex: 1 },
   headerEyebrow: {
+    color: Colors.primaryDark,
     fontSize: 9,
     fontWeight: "900",
-    color: Colors.primaryDark,
     letterSpacing: 0.8,
   },
   headerTitle: {
     marginTop: 1,
+    color: Colors.onSurface,
     fontSize: 17,
     fontWeight: "900",
-    color: Colors.onSurface,
-  },
-  cartButton: {
-    width: 40,
-    height: 40,
-    borderRadius: Radius.full,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: Colors.surfaceContainerLow,
   },
   cartBadge: {
     position: "absolute",
@@ -422,21 +402,48 @@ const styles = StyleSheet.create({
     minWidth: 18,
     height: 18,
     paddingHorizontal: 4,
-    borderRadius: Radius.full,
     alignItems: "center",
     justifyContent: "center",
+    borderRadius: Radius.full,
     backgroundColor: Colors.error,
   },
-  cartBadgeText: {
-    fontSize: 9,
+  cartBadgeText: { color: "#fff", fontSize: 9, fontWeight: "900" },
+  centerState: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12 },
+  emptyState: {
+    flex: 1,
+    padding: 28,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  emptyIcon: {
+    width: 72,
+    height: 72,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: Radius.full,
+    backgroundColor: Colors.primaryPale,
+  },
+  emptyTitle: {
+    marginTop: 14,
+    color: Colors.onSurface,
+    fontSize: 20,
     fontWeight: "900",
-    color: "#ffffff",
   },
-  content: {
-    padding: 16,
-    paddingBottom: 130,
-    gap: 14,
+  stateText: {
+    marginTop: 8,
+    textAlign: "center",
+    color: Colors.onSurfaceVariant,
+    fontSize: 12,
   },
+  primaryButton: {
+    marginTop: 18,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.primaryDark,
+  },
+  primaryButtonText: { color: Colors.onPrimaryDark, fontWeight: "900" },
+  content: { padding: 16, paddingBottom: 130, gap: 14 },
   heroCard: {
     height: 310,
     overflow: "hidden",
@@ -444,155 +451,111 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surfaceContainerHigh,
     ...Shadows.hover,
   },
-  heroImage: {
-    width: "100%",
-    height: "100%",
-  },
-  heroOverlay: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: "rgba(8, 28, 21, 0.34)",
-  },
-  stockBadge: {
-    position: "absolute",
-    top: 14,
-    left: 14,
-    flexDirection: "row",
+  heroImage: { width: "100%", height: "100%" },
+  heroPlaceholder: {
+    flex: 1,
     alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: Radius.full,
-    backgroundColor: "rgba(255, 255, 255, 0.92)",
+    justifyContent: "center",
+    gap: 10,
+    backgroundColor: Colors.primaryPale,
   },
-  stockDot: {
-    width: 7,
-    height: 7,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.primaryDark,
-  },
-  stockBadgeText: {
-    fontSize: 10,
-    fontWeight: "800",
-    color: Colors.onSurface,
-  },
-  ratingBadge: {
-    position: "absolute",
-    top: 14,
-    right: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 9,
-    paddingVertical: 6,
-    borderRadius: Radius.full,
-    backgroundColor: "rgba(14, 15, 12, 0.82)",
-  },
-  ratingBadgeText: {
-    fontSize: 11,
-    fontWeight: "900",
-    color: "#ffffff",
-  },
+  heroPlaceholderText: { color: Colors.onSurfaceVariant, fontSize: 12 },
   heroBottom: {
     position: "absolute",
     left: 16,
     right: 16,
     bottom: 16,
+    padding: 14,
+    borderRadius: Radius.lg,
+    backgroundColor: "rgba(14,15,12,0.80)",
   },
   category: {
     alignSelf: "flex-start",
-    marginBottom: 6,
     paddingHorizontal: 9,
     paddingVertical: 4,
-    borderRadius: Radius.full,
     overflow: "hidden",
-    backgroundColor: Colors.primaryContainer,
+    borderRadius: Radius.full,
+    color: Colors.onPrimary,
+    backgroundColor: Colors.primary,
     fontSize: 9,
     fontWeight: "900",
-    color: Colors.onPrimaryContainer,
     textTransform: "uppercase",
   },
   productName: {
+    marginTop: 7,
+    color: "#fff",
     fontSize: 23,
     fontWeight: "900",
     lineHeight: 28,
-    color: "#ffffff",
   },
-  tripContext: {
+  sku: { marginTop: 3, color: Colors.primaryNeutral, fontSize: 10 },
+  tripCard: {
+    padding: 14,
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    padding: 14,
-    borderRadius: Radius.lg,
-    backgroundColor: Colors.primaryPale,
     borderWidth: 1,
     borderColor: Colors.primaryNeutral,
+    borderRadius: Radius.lg,
+    backgroundColor: Colors.primaryPale,
   },
-  tripContextIcon: {
+  tripIcon: {
     width: 40,
     height: 40,
-    borderRadius: Radius.full,
     alignItems: "center",
     justifyContent: "center",
+    borderRadius: Radius.full,
     backgroundColor: Colors.surfaceContainerLowest,
   },
-  tripContextBody: {
-    flex: 1,
-  },
-  tripContextLabel: {
-    fontSize: 9,
-    fontWeight: "900",
+  tripLabel: {
     color: Colors.primaryDark,
-    letterSpacing: 0.5,
+    fontSize: 8,
+    fontWeight: "900",
+    letterSpacing: 0.4,
   },
-  tripContextName: {
-    marginTop: 2,
+  tripTitle: {
+    marginTop: 3,
+    color: Colors.onSurface,
     fontSize: 13,
     fontWeight: "900",
-    color: Colors.onSurface,
   },
-  tripContextMeta: {
-    marginTop: 2,
-    fontSize: 10,
-    color: Colors.onSurfaceVariant,
+  tripDescription: { marginTop: 2, color: Colors.onSurfaceVariant, fontSize: 9 },
+  tripAction: {
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.inkDeep,
   },
+  tripActionText: { color: Colors.onPrimaryDark, fontSize: 10, fontWeight: "900" },
   priceCard: {
+    padding: 16,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    padding: 16,
     borderRadius: Radius.lg,
     backgroundColor: Colors.surfaceContainerLowest,
     ...Shadows.card,
   },
   priceLabel: {
+    color: Colors.onSurfaceVariant,
     fontSize: 9,
     fontWeight: "900",
-    color: Colors.onSurfaceVariant,
     letterSpacing: 0.5,
   },
   dailyPrice: {
     marginTop: 3,
+    color: Colors.primaryDark,
     fontSize: 22,
     fontWeight: "900",
-    color: Colors.primaryDark,
   },
-  perDay: {
-    fontSize: 12,
-    fontWeight: "500",
-    color: Colors.onSurfaceVariant,
-  },
-  depositBox: {
-    alignItems: "flex-end",
-  },
-  depositLabel: {
-    fontSize: 10,
-    color: Colors.onSurfaceVariant,
-  },
+  perDay: { color: Colors.onSurfaceVariant, fontSize: 12, fontWeight: "500" },
+  depositBox: { alignItems: "flex-end" },
+  depositLabel: { color: Colors.onSurfaceVariant, fontSize: 10 },
   depositValue: {
     marginTop: 3,
+    color: Colors.onSurface,
     fontSize: 13,
     fontWeight: "800",
-    color: Colors.onSurface,
   },
   sectionCard: {
     padding: 16,
@@ -600,245 +563,105 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surfaceContainerLowest,
     ...Shadows.card,
   },
-  sectionHeadingRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: 12,
-  },
-  sectionTitle: {
-    fontSize: 15,
-    fontWeight: "900",
-    color: Colors.onSurface,
-  },
+  sectionTitle: { color: Colors.onSurface, fontSize: 15, fontWeight: "900" },
   description: {
     marginTop: 8,
+    color: Colors.onSurfaceVariant,
     fontSize: 13,
     lineHeight: 20,
-    color: Colors.onSurfaceVariant,
   },
-  verifiedPill: {
+  specList: { marginTop: 10, gap: 9 },
+  specRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
+  specText: { flex: 1, color: Colors.onSurfaceVariant, fontSize: 12, lineHeight: 18 },
+  quantityHeader: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.secondaryContainer,
+    justifyContent: "space-between",
+    gap: 12,
   },
-  verifiedText: {
-    fontSize: 9,
-    fontWeight: "800",
-    color: Colors.onSecondaryContainer,
-  },
-  specList: {
-    marginTop: 12,
-    gap: 9,
-  },
-  specRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 9,
-  },
-  specIcon: {
-    width: 24,
-    height: 24,
-    borderRadius: Radius.full,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: Colors.primaryPale,
-  },
-  specText: {
-    flex: 1,
-    fontSize: 12,
-    color: Colors.onSurface,
-  },
-  quantityHint: {
-    marginTop: 3,
-    fontSize: 10,
-    color: Colors.onSurfaceVariant,
-  },
+  quantityHint: { marginTop: 4, color: Colors.onSurfaceMuted, fontSize: 9 },
   quantityControl: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 14,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.surfaceContainer,
   },
   quantityButton: {
-    width: 38,
-    height: 38,
-    borderRadius: Radius.full,
+    width: 36,
+    height: 36,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: Colors.surfaceContainerLow,
   },
   quantityValue: {
-    minWidth: 22,
+    minWidth: 28,
     textAlign: "center",
-    fontSize: 17,
-    fontWeight: "900",
     color: Colors.onSurface,
+    fontWeight: "900",
   },
   summaryCard: {
     padding: 16,
     borderRadius: Radius.lg,
-    backgroundColor: Colors.inverseSurface,
-    ...Shadows.hover,
+    backgroundColor: Colors.inkDeep,
   },
   summaryTitle: {
-    marginBottom: 12,
+    marginBottom: 10,
+    color: Colors.primary,
     fontSize: 15,
     fontWeight: "900",
-    color: Colors.inverseOnSurface,
   },
   summaryRow: {
-    marginBottom: 7,
+    paddingVertical: 6,
     flexDirection: "row",
     justifyContent: "space-between",
-    gap: 12,
+    gap: 10,
   },
-  summaryLabel: {
-    fontSize: 11,
-    color: Colors.mute,
-  },
-  summaryValue: {
-    flexShrink: 1,
-    textAlign: "right",
-    fontSize: 11,
-    fontWeight: "700",
-    color: Colors.inverseOnSurface,
-  },
-  divider: {
-    height: 1,
-    marginVertical: 8,
-    backgroundColor: "#4a4b46",
-  },
-  totalLabel: {
-    fontSize: 14,
-    fontWeight: "900",
-    color: Colors.inverseOnSurface,
-  },
-  totalValue: {
-    fontSize: 18,
-    fontWeight: "900",
-    color: Colors.primary,
-  },
-  refundNotice: {
+  summaryLabel: { color: Colors.primaryNeutral, fontSize: 11 },
+  summaryValue: { color: Colors.onPrimaryDark, fontSize: 12, fontWeight: "800" },
+  notice: {
     marginTop: 10,
+    padding: 11,
     flexDirection: "row",
-    alignItems: "flex-start",
     gap: 8,
-    padding: 10,
     borderRadius: Radius.md,
-    backgroundColor: "rgba(159, 232, 112, 0.12)",
+    backgroundColor: "rgba(255,255,255,0.10)",
   },
-  refundText: {
-    flex: 1,
-    fontSize: 10,
-    lineHeight: 15,
-    color: Colors.inverseOnSurface,
-  },
-  currentCartNotice: {
+  noticeText: { flex: 1, color: Colors.primaryNeutral, fontSize: 10, lineHeight: 15 },
+  cartNotice: {
+    padding: 13,
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    padding: 12,
-    borderRadius: Radius.md,
-    backgroundColor: Colors.secondaryContainer,
+    borderRadius: Radius.lg,
+    backgroundColor: Colors.primaryPale,
   },
-  currentCartText: {
-    flex: 1,
-    fontSize: 11,
-    fontWeight: "700",
-    color: Colors.onSecondaryContainer,
-  },
+  cartNoticeText: { color: Colors.primaryDark, fontSize: 11, fontWeight: "700" },
   bottomBar: {
     position: "absolute",
     left: 0,
     right: 0,
     bottom: 0,
+    padding: 12,
+    paddingHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 18,
     borderTopWidth: 1,
     borderTopColor: Colors.surfaceContainer,
     backgroundColor: Colors.surfaceContainerLowest,
   },
-  bottomPrice: {
-    flex: 1,
-  },
-  bottomPriceLabel: {
-    fontSize: 10,
-    color: Colors.onSurfaceVariant,
-  },
-  bottomPriceValue: {
-    marginTop: 2,
-    fontSize: 16,
-    fontWeight: "900",
-    color: Colors.primaryDark,
-  },
+  bottomSummary: { minWidth: 66 },
+  bottomLabel: { color: Colors.onSurfaceMuted, fontSize: 9 },
+  bottomValue: { color: Colors.onSurface, fontSize: 15, fontWeight: "900" },
   addButton: {
-    minHeight: 48,
-    paddingHorizontal: 17,
-    borderRadius: Radius.full,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 7,
-    backgroundColor: Colors.primaryContainer,
-    ...Shadows.card,
-  },
-  addButtonSuccess: {
-    backgroundColor: Colors.primaryActive,
-  },
-  addButtonText: {
-    fontSize: 12,
-    fontWeight: "900",
-    color: Colors.onPrimary,
-  },
-  emptyState: {
     flex: 1,
-    padding: 24,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  emptyIcon: {
-    width: 84,
-    height: 84,
-    marginBottom: 16,
-    borderRadius: Radius.full,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: Colors.surfaceContainerLow,
-  },
-  emptyTitle: {
-    fontSize: 20,
-    fontWeight: "900",
-    color: Colors.onSurface,
-  },
-  emptyDescription: {
-    marginTop: 8,
-    marginBottom: 20,
-    textAlign: "center",
-    fontSize: 12,
-    lineHeight: 18,
-    color: Colors.onSurfaceVariant,
-  },
-  emptyButton: {
-    minHeight: 46,
-    paddingHorizontal: 18,
-    borderRadius: Radius.full,
+    minHeight: 50,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 7,
-    backgroundColor: Colors.primaryContainer,
+    gap: 8,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.primaryDark,
   },
-  emptyButtonText: {
-    fontSize: 13,
-    fontWeight: "900",
-    color: Colors.onPrimary,
-  },
+  addButtonSuccess: { backgroundColor: Colors.secondary },
+  addButtonText: { color: Colors.onPrimaryDark, fontSize: 13, fontWeight: "900" },
 });

@@ -8,6 +8,7 @@ import React, {
 } from "react";
 
 import { authApi, AuthApiError } from "@/features/auth/api";
+import { subscribeToAuthState } from "@/lib/api-client";
 import {
   clearStoredAuth,
   readStoredAuth,
@@ -27,7 +28,7 @@ interface AuthContextValue {
   accessToken: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  signIn: (email: string, password: string) => Promise<void>;
+  signIn: (email: string, password: string) => Promise<AuthUser>;
   register: (input: RegisterInput) => Promise<RegisterResponse>;
   verifyOtp: (email: string, otp: string) => Promise<void>;
   resendOtp: (email: string) => Promise<MessageResponse>;
@@ -48,7 +49,13 @@ function toStoredState(session: AuthSession): StoredAuthState {
 }
 
 function isTrekGoMobileRole(role?: string) {
-  return !role || role === "USER" || role === "LEADER";
+  return (
+    !role ||
+    role === "USER" ||
+    role === "LEADER" ||
+    role === "STAFF_DELIVERY" ||
+    role === "STAFF"
+  );
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -58,7 +65,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const persistSession = useCallback(async (nextSession: AuthSession) => {
     if (!isTrekGoMobileRole(nextSession.user.role)) {
       throw new AuthApiError(
-        "Tài khoản nhân sự không sử dụng ứng dụng Trekker Mobile.",
+        "Tài khoản này không có quyền truy cập ứng dụng TrekGo Mobile.",
         403,
       );
     }
@@ -66,6 +73,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const stored = toStoredState(nextSession);
     await writeStoredAuth(stored);
     setSession(stored);
+  }, []);
+
+  useEffect(() => {
+    return subscribeToAuthState(setSession);
   }, []);
 
   useEffect(() => {
@@ -92,25 +103,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       try {
         const user = await authApi.me(stored.accessToken);
-        const validated = { ...stored, user };
+        const latestStored = (await readStoredAuth()) ?? stored;
+        const validated = { ...latestStored, user };
         await writeStoredAuth(validated);
         if (active) setSession(validated);
       } catch (error) {
-        if (error instanceof AuthApiError && error.status === 401) {
-          try {
-            const refreshed = await authApi.refresh(stored.refreshToken);
-            const user = await authApi.me(refreshed.accessToken);
-            const renewed: StoredAuthState = { ...refreshed, user };
-            await writeStoredAuth(renewed);
-            if (active) setSession(renewed);
-          } catch (refreshError) {
-            if (refreshError instanceof AuthApiError && refreshError.status === 0) {
-              // Keep the last valid local session while the API is temporarily offline.
-            } else {
-              await clearStoredAuth();
-              if (active) setSession(null);
-            }
-          }
+        if (
+          error instanceof AuthApiError &&
+          error.status !== 0 &&
+          error.status < 500
+        ) {
+          await clearStoredAuth();
+          if (active) setSession(null);
         }
       } finally {
         if (active) setIsLoading(false);
@@ -125,9 +129,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signIn = useCallback(
-    async (email: string, password: string) => {
+    async (email: string, password: string): Promise<AuthUser> => {
       const nextSession = await authApi.login(email.trim().toLowerCase(), password);
       await persistSession(nextSession);
+      return nextSession.user;
     },
     [persistSession],
   );
