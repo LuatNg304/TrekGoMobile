@@ -226,11 +226,11 @@ export async function apiRequest<T>(
   };
 
   try {
-    const stored = accessToken ? await readStoredAuth() : null;
-    const currentAccessToken = stored?.accessToken ?? accessToken;
+    const stored = await readStoredAuth();
+    const currentAccessToken = accessToken ?? stored?.accessToken;
     let response = await sendRequest(currentAccessToken);
 
-    if (response.status === 401 && accessToken) {
+    if (response.status === 401 && currentAccessToken) {
       const renewed = await refreshSessionOnce();
       response = await sendRequest(renewed.accessToken);
     }
