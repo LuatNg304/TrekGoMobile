@@ -93,9 +93,9 @@ export function TripRoomHeader({
 
       <View style={styles.progressSection}>
         <View style={styles.progressLabelRow}>
-          <Text style={styles.progressLabel}>Sĩ số phòng chờ</Text>
+          <Text style={styles.progressLabel}>Quy mô nhóm</Text>
           <Text style={styles.progressCount}>
-            {trip.activeMemberCount}/{trip.capacity} người {isFull ? "(Đầy)" : ""}
+            {trip.activeMemberCount} / {trip.capacity} người {isFull ? "(Đầy)" : ""}
           </Text>
         </View>
 

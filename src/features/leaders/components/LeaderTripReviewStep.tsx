@@ -11,8 +11,15 @@ import {
 } from "@/features/leaders/utils/tripDateUtils";
 import type { LeaderTripFormData } from "./LeaderTripFormStep";
 import { Ionicons } from "@expo/vector-icons";
-import React, { useMemo } from "react";
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import React, { useMemo, useState } from "react";
+import {
+  ActivityIndicator,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
 
 interface LeaderTripReviewStepProps {
   form: LeaderTripFormData;
@@ -21,10 +28,13 @@ interface LeaderTripReviewStepProps {
   selectedCheckpoints: TripOptionCheckpoint[];
   conflictWarning?: string | null;
   submitError?: string | null;
+  readinessIssues?: string[];
   isSubmitting: boolean;
   apiLoading: boolean;
   onPublish: () => void;
   onBackToForm: () => void;
+  onSavePriceExplanation?: (newExplanation: string) => Promise<void> | void;
+  isSavingExplanation?: boolean;
 }
 
 export function LeaderTripReviewStep({
@@ -34,12 +44,36 @@ export function LeaderTripReviewStep({
   selectedCheckpoints,
   conflictWarning,
   submitError,
+  readinessIssues = [],
   isSubmitting,
   apiLoading,
   onPublish,
   onBackToForm,
+  onSavePriceExplanation,
+  isSavingExplanation = false,
 }: LeaderTripReviewStepProps) {
   const isLoading = isSubmitting || apiLoading;
+
+  const [isEditingExplanation, setIsEditingExplanation] = useState(false);
+  const [editedExplanation, setEditedExplanation] = useState(
+    form.priceExplanation || "",
+  );
+  const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
+
+  const handleSaveExplanation = async () => {
+    if (!onSavePriceExplanation) {
+      setIsEditingExplanation(false);
+      return;
+    }
+    try {
+      await onSavePriceExplanation(editedExplanation);
+      setIsEditingExplanation(false);
+      setSaveSuccessMsg("Đã cập nhật cơ cấu giá vé thành công.");
+      setTimeout(() => setSaveSuccessMsg(null), 3000);
+    } catch {
+      // error handled by parent
+    }
+  };
 
   const durationInfo = useMemo(() => {
     const start = parseVnDate(form.startDate);
@@ -158,6 +192,112 @@ export function LeaderTripReviewStep({
           />
         </View>
       </View>
+
+      {/* 2. CARD: GIẢI THÍCH CƠ CẤU GIÁ VÉ (priceExplanation) */}
+      <View style={styles.reviewCard}>
+        <View style={styles.cardHeaderBetween}>
+          <View style={styles.cardHeaderLeft}>
+            <Ionicons name="receipt-outline" size={20} color="#125238" />
+            <Text style={styles.cardTitle}>GIẢI THÍCH CƠ CẤU GIÁ VÉ (PRICE EXPLANATION)</Text>
+          </View>
+          {!isEditingExplanation && onSavePriceExplanation && (
+            <TouchableOpacity
+              onPress={() => {
+                setEditedExplanation(form.priceExplanation || "");
+                setIsEditingExplanation(true);
+              }}
+              style={styles.quickEditBtn}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="pencil" size={13} color="#125238" />
+              <Text style={styles.quickEditBtnText}>Sửa nhanh</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {Boolean(saveSuccessMsg) && (
+          <View style={styles.successBox}>
+            <Ionicons name="checkmark-circle" size={16} color="#125238" />
+            <Text style={styles.successText}>{saveSuccessMsg}</Text>
+          </View>
+        )}
+
+        {isEditingExplanation ? (
+          <View style={styles.editExplanationBox}>
+            <Text style={styles.explanationEditHint}>
+              Cập nhật cơ cấu tính giá. Khi bấm Lưu, hệ thống sẽ gọi PATCH và tự động kiểm tra lại điều kiện sẵn sàng xuất bản (Readiness Check):
+            </Text>
+            <TextInput
+              value={editedExplanation}
+              onChangeText={setEditedExplanation}
+              placeholder="Nhập chi tiết cơ sở tính giá (lán trại, ăn uống, bảo hiểm, porter...)"
+              placeholderTextColor="#707972"
+              multiline
+              numberOfLines={4}
+              maxLength={5000}
+              style={styles.explanationInput}
+            />
+            <Text style={styles.explanationCounter}>{editedExplanation.length}/5000 ký tự</Text>
+
+            <View style={styles.editActionRow}>
+              <TouchableOpacity
+                style={styles.cancelEditBtn}
+                onPress={() => setIsEditingExplanation(false)}
+                disabled={isSavingExplanation}
+              >
+                <Text style={styles.cancelEditBtnText}>Hủy</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.saveEditBtn, isSavingExplanation && styles.disabledBtn]}
+                onPress={() => void handleSaveExplanation()}
+                disabled={isSavingExplanation || !editedExplanation.trim()}
+              >
+                {isSavingExplanation ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <>
+                    <Ionicons name="save-outline" size={15} color="#fff" />
+                    <Text style={styles.saveEditBtnText}>Lưu & Cập nhật</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : (
+          <View style={styles.explanationContentBox}>
+            {form.priceExplanation && form.priceExplanation.trim() ? (
+              <Text style={styles.explanationText}>{form.priceExplanation.trim()}</Text>
+            ) : (
+              <View style={styles.missingExplanationBox}>
+                <Ionicons name="alert-circle" size={18} color="#ba1a1a" />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.missingExplanationTitle}>
+                    Chưa có giải thích cơ cấu giá vé!
+                  </Text>
+                  <Text style={styles.missingExplanationText}>
+                    Backend yêu cầu bắt buộc trường này để Publish. Vui lòng bấm &ldquo;Sửa nhanh&rdquo; bên trên để bổ sung ngay.
+                  </Text>
+                </View>
+              </View>
+            )}
+          </View>
+        )}
+      </View>
+
+      {/* Readiness Issues Warning */}
+      {readinessIssues.length > 0 && (
+        <View style={styles.errorBox}>
+          <Ionicons name="alert-circle" size={20} color="#ba1a1a" />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.errorTitle}>Điều kiện xuất bản chưa đạt (Readiness)</Text>
+            {readinessIssues.map((issue, idx) => (
+              <Text key={idx} style={styles.errorText}>
+                • {issue}
+              </Text>
+            ))}
+          </View>
+        </View>
+      )}
 
       {/* Conflict Warning */}
       {Boolean(conflictWarning) && (
@@ -529,5 +669,135 @@ const styles = StyleSheet.create({
     color: "#125238",
     fontSize: 12,
     fontWeight: "800",
+  },
+  cardHeaderBetween: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderBottomWidth: 1,
+    borderBottomColor: "#eff4ff",
+    paddingBottom: 10,
+    marginBottom: 12,
+  },
+  cardHeaderLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flex: 1,
+  },
+  quickEditBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#e6eeff",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  quickEditBtnText: {
+    color: "#125238",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  successBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#e8f5e9",
+    padding: 10,
+    borderRadius: Radius.sm,
+    marginBottom: 10,
+  },
+  successText: {
+    color: "#125238",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  editExplanationBox: {
+    gap: 8,
+  },
+  explanationEditHint: {
+    color: "#707972",
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  explanationInput: {
+    backgroundColor: "#eff4ff",
+    borderRadius: Radius.sm,
+    padding: 12,
+    color: "#121c2a",
+    fontSize: 13,
+    minHeight: 90,
+    textAlignVertical: "top",
+    borderWidth: 1,
+    borderColor: "#dee9fc",
+  },
+  explanationCounter: {
+    color: "#707972",
+    fontSize: 10,
+    textAlign: "right",
+  },
+  editActionRow: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 10,
+    marginTop: 4,
+  },
+  cancelEditBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 6,
+    backgroundColor: "#eff4ff",
+  },
+  cancelEditBtnText: {
+    color: "#404943",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  saveEditBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 6,
+    backgroundColor: "#125238",
+  },
+  saveEditBtnText: {
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  explanationContentBox: {
+    backgroundColor: "#f8fafc",
+    padding: 12,
+    borderRadius: Radius.sm,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+  },
+  explanationText: {
+    color: "#1e293b",
+    fontSize: 13,
+    lineHeight: 20,
+    fontWeight: "500",
+  },
+  missingExplanationBox: {
+    flexDirection: "row",
+    gap: 10,
+    alignItems: "center",
+    backgroundColor: "#ffdad6",
+    padding: 12,
+    borderRadius: Radius.sm,
+  },
+  missingExplanationTitle: {
+    color: "#ba1a1a",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  missingExplanationText: {
+    color: "#93000a",
+    fontSize: 11,
+    marginTop: 2,
+    lineHeight: 15,
   },
 });

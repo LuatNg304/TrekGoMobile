@@ -289,9 +289,13 @@ export function PrivateTripRoomScreen({
 
         {/* Member List */}
         <TripRoomMemberList
-          members={members}
+          tripId={tripId}
+          tripStatus={roomData.trip.status}
+          maxPax={roomData.trip.capacity}
+          activeMemberCount={roomData.trip.activeMemberCount}
           canRemoveMembers={roomData.permissions.canRemoveMembers}
           onRemoveMember={handleRemoveMember}
+          onMemberRemoved={reloadAll}
         />
 
         {/* Action Buttons */}

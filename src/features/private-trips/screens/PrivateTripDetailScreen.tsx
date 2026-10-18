@@ -18,8 +18,10 @@ import { InviteShareModal } from "../components/InviteShareModal";
 import { PrivateTripHero } from "../components/PrivateTripHero";
 import { PrivateTripPickupCard } from "../components/PrivateTripPickupCard";
 import { PrivateTripRouteTimeline } from "../components/PrivateTripRouteTimeline";
+import { TripRoomMemberList } from "../components/TripRoomMemberList";
 import { useCancelPrivateTrip } from "../hooks/useCancelPrivateTrip";
 import { usePrivateTripDetail } from "../hooks/usePrivateTripDetail";
+import { usePrivateTripMembers } from "../hooks/usePrivateTripMembers";
 import { useTripInvitation } from "../hooks/useTripInvitation";
 
 export interface PrivateTripDetailScreenProps {
@@ -38,6 +40,7 @@ export function PrivateTripDetailScreen({
 
   // Use custom hooks for real API integration
   const { trip, setTrip, loading, error, refetch } = usePrivateTripDetail(tripId);
+  const { activeCount, refetch: refetchMembers } = usePrivateTripMembers(tripId);
   const { cancelTrip, loading: cancelling } = useCancelPrivateTrip();
   const {
     inviteData,
@@ -228,7 +231,7 @@ export function PrivateTripDetailScreen({
         showsVerticalScrollIndicator={false}
       >
         {/* Hero Section */}
-        <PrivateTripHero trip={trip} activeMemberCount={1} />
+        <PrivateTripHero trip={trip} activeMemberCount={activeCount || 1} />
 
         {/* Pickup Point Card */}
         <PrivateTripPickupCard pickupPoint={trip.pickupPoint} />
@@ -240,6 +243,19 @@ export function PrivateTripDetailScreen({
             trailName={trip.tripTrailPlansViaTripId?.[0]?.snapshotName}
           />
         ) : null}
+
+        {/* Participant Members List */}
+        <TripRoomMemberList
+          tripId={tripId}
+          tripStatus={trip.status}
+          maxPax={trip.maxPax}
+          activeMemberCount={activeCount}
+          canRemoveMembers={isHost}
+          onMemberRemoved={() => {
+            void refetch();
+            void refetchMembers();
+          }}
+        />
 
         {/* Primary Action Buttons */}
         {!isCancelled ? (

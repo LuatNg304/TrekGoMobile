@@ -1,7 +1,8 @@
 import { Colors, Radius, Shadows } from "@/constants/theme";
 import type { LeaderPublicTrip } from "@/features/leaders/hooks";
 import { Ionicons } from "@expo/vector-icons";
-import { StyleSheet, Text, View } from "react-native";
+import { useRouter } from "expo-router";
+import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
 interface LeaderTripListProps {
   trips: LeaderPublicTrip[];
@@ -22,6 +23,7 @@ function formatTripDates(startAt?: string, endAt?: string) {
 }
 
 export function LeaderTripList({ trips }: LeaderTripListProps) {
+  const router = useRouter();
   if (trips.length === 0) return null;
 
   return (
@@ -34,18 +36,41 @@ export function LeaderTripList({ trips }: LeaderTripListProps) {
       {trips.map((trip) => {
         const tripCode = `#TG-${trip.id.slice(0, 4).toUpperCase()}-VN`;
         const isOpen = trip.status === "OPEN";
+        const isDraft = trip.status === "DRAFT";
         return (
-          <View key={trip.id} style={styles.card}>
+          <TouchableOpacity
+            key={trip.id}
+            style={styles.card}
+            activeOpacity={0.8}
+            onPress={() => {
+              if (isDraft) {
+                router.push({
+                  pathname: "/field-operations/leader-create-trip",
+                  params: { id: trip.id },
+                } as any);
+              } else {
+                router.push(`/trips/${trip.id}` as any);
+              }
+            }}
+          >
             <View style={styles.cardTop}>
               <Text style={styles.tripId}>{tripCode}</Text>
-              <Text
-                style={[
-                  styles.tripStatus,
-                  { color: isOpen ? Colors.primaryDark : "#9b6700" },
-                ]}
-              >
-                {trip.status}
-              </Text>
+              <View style={styles.statusRow}>
+                <Text
+                  style={[
+                    styles.tripStatus,
+                    { color: isOpen ? Colors.primaryDark : "#9b6700" },
+                  ]}
+                >
+                  {trip.status}
+                </Text>
+                {isDraft && (
+                  <View style={styles.editBadge}>
+                    <Ionicons name="pencil" size={11} color="#125238" />
+                    <Text style={styles.editBadgeText}>Sửa / Tiếp tục</Text>
+                  </View>
+                )}
+              </View>
             </View>
 
             <Text style={styles.tripTitle}>{trip.title}</Text>
@@ -59,7 +84,7 @@ export function LeaderTripList({ trips }: LeaderTripListProps) {
               <Ionicons name="people-outline" size={13} /> Sức chứa: {trip.capacity} chỗ ·{" "}
               {Number(trip.pricePerPax).toLocaleString("vi-VN")} đ/suất
             </Text>
-          </View>
+          </TouchableOpacity>
         );
       })}
     </View>
@@ -106,6 +131,25 @@ const styles = StyleSheet.create({
   },
   tripStatus: {
     fontSize: 11,
+    fontWeight: "800",
+  },
+  statusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  editBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    backgroundColor: "#b1f0cd",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  editBadgeText: {
+    color: "#002113",
+    fontSize: 10,
     fontWeight: "800",
   },
   tripTitle: {

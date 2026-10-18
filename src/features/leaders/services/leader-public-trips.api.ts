@@ -91,6 +91,8 @@ export interface LeaderPublicTrip {
   publishedAt?: string;
   destination?: { id: string; name: string };
   pickupPoint?: { id: string; name: string };
+  priceExplanation?: string | null;
+  tripType?: "PUBLIC";
 }
 
 export interface CreatePublicTripInput {
@@ -102,6 +104,20 @@ export interface CreatePublicTripInput {
   pickupPointId: string;
   capacity: number;
   price: string;
+  priceExplanation?: string | null;
+}
+
+export interface UpdatePublicTripInput {
+  expectedVersion: number;
+  priceExplanation?: string | null;
+  title?: string;
+  description?: string | null;
+  startAt?: string;
+  endAt?: string;
+  pickupPointId?: string;
+  capacity?: number;
+  price?: string;
+  destinationId?: string;
 }
 
 export interface SetCheckpointsInput {
@@ -197,6 +213,33 @@ export async function createPublicTrip(
     accessToken,
     body: JSON.stringify(input),
   });
+}
+
+/** PATCH /api/v1/leader/public-trips/:id — Update DRAFT trip */
+export async function updatePublicTrip(
+  tripId: string,
+  input: UpdatePublicTripInput,
+  accessToken: string,
+): Promise<LeaderPublicTrip> {
+  return apiRequest<LeaderPublicTrip>(
+    `/api/v1/leader/public-trips/${tripId}`,
+    {
+      method: "PATCH",
+      accessToken,
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+/** GET /api/v1/leader/public-trips/:id — Get trip detail for leader */
+export async function getLeaderPublicTripById(
+  tripId: string,
+  accessToken: string,
+): Promise<LeaderPublicTrip> {
+  return apiRequest<LeaderPublicTrip>(
+    `/api/v1/leader/public-trips/${tripId}`,
+    { accessToken },
+  );
 }
 
 /** PUT /api/v1/leader/public-trips/:id/checkpoints */

@@ -15,10 +15,24 @@ import {
   type TripOptionPickupPoint,
 } from "@/features/leaders/hooks";
 import { validateTripDates } from "@/features/leaders/utils/tripDateUtils";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ScrollView, StyleSheet } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+
+function formatIsoToVnDate(isoStr?: string | null): string {
+  if (!isoStr) return "";
+  try {
+    const d = new Date(isoStr);
+    if (isNaN(d.getTime())) return "";
+    const dd = String(d.getDate()).padStart(2, "0");
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const yyyy = d.getFullYear();
+    return `${dd}/${mm}/${yyyy}`;
+  } catch {
+    return "";
+  }
+}
 
 function parseDateToIso(str: string, timeStr = "06:00:00"): string {
   const trimmed = str.trim();
@@ -39,6 +53,9 @@ function parseDateToIso(str: string, timeStr = "06:00:00"): string {
 
 export function LeaderCreateTripScreen() {
   const router = useRouter();
+  const searchParams = useLocalSearchParams<{ id?: string; tripId?: string }>();
+  const initialTripId = searchParams.id || searchParams.tripId;
+
   const { user: authUser, accessToken } = useAuth();
   const { user } = useApp();
 
@@ -49,6 +66,8 @@ export function LeaderCreateTripScreen() {
     loadCheckpoints,
     checkConflict,
     createTrip,
+    updateTrip,
+    getTripById,
     assignCheckpoints,
     loadTrailSuggestions,
     assignTrails,
@@ -65,6 +84,11 @@ export function LeaderCreateTripScreen() {
   const [isLoadingMeta, setIsLoadingMeta] = useState(false);
   const [conflictWarning, setConflictWarning] = useState<string | null>(null);
 
+  const [draftTripId, setDraftTripId] = useState<string | null>(initialTripId || null);
+  const [draftTripVersion, setDraftTripVersion] = useState<number>(1);
+  const [readinessIssues, setReadinessIssues] = useState<string[]>([]);
+  const [isSavingExplanation, setIsSavingExplanation] = useState(false);
+
   const [form, setForm] = useState<LeaderTripFormData>({
     name: "",
     description: "",
@@ -74,6 +98,7 @@ export function LeaderCreateTripScreen() {
     endDate: "",
     slots: "12",
     price: "2500000",
+    priceExplanation: "",
     checkpointIds: [],
   });
   const [errors, setErrors] = useState<Partial<Record<keyof LeaderTripFormData, string>>>({});
@@ -84,6 +109,33 @@ export function LeaderCreateTripScreen() {
     title: string;
     code: string;
   } | null>(null);
+
+  // Load existing trip if initialTripId is passed (Editing Public Trip)
+  useEffect(() => {
+    if (!initialTripId || !accessToken) return;
+    setIsLoadingMeta(true);
+    getTripById(initialTripId)
+      .then((existing) => {
+        setDraftTripId(existing.id);
+        setDraftTripVersion(existing.version);
+        setForm((prev) => ({
+          ...prev,
+          name: existing.title || prev.name,
+          description: existing.description || "",
+          destinationId: existing.destination?.id || (existing as any).destinationId || prev.destinationId,
+          pickupPointId: existing.pickupPoint?.id || (existing as any).pickupPointId || prev.pickupPointId,
+          startDate: formatIsoToVnDate(existing.startAt) || prev.startDate,
+          endDate: formatIsoToVnDate(existing.endAt) || prev.endDate,
+          slots: String(existing.capacity || prev.slots),
+          price: existing.pricePerPax || (existing as any).price || prev.price,
+          priceExplanation: existing.priceExplanation || "",
+        }));
+      })
+      .catch((err) => {
+        console.warn("Lỗi tải thông tin chuyến để chỉnh sửa:", err?.message);
+      })
+      .finally(() => setIsLoadingMeta(false));
+  }, [initialTripId, accessToken, getTripById]);
 
   const fetchDestinations = useCallback(() => {
     if (!canCreatePublicTrip || !accessToken) return;
@@ -157,6 +209,25 @@ export function LeaderCreateTripScreen() {
     setErrors((current) => ({ ...current, checkpointIds: undefined }));
   };
 
+  const formatIssues = (rawIssues?: any[]): string[] => {
+    if (!Array.isArray(rawIssues)) return [];
+    return rawIssues
+      .map((iss: any) => {
+        if (!iss) return "";
+        if (typeof iss === "string") return iss;
+        return (
+          iss.message ||
+          iss.reason ||
+          iss.detail ||
+          iss.description ||
+          (iss.field ? `${iss.field}: ${iss.code || "chưa hợp lệ"}` : "") ||
+          iss.code ||
+          JSON.stringify(iss)
+        );
+      })
+      .filter(Boolean);
+  };
+
   const validate = () => {
     const nextErrors: Partial<Record<keyof LeaderTripFormData, string>> = {};
     if (!form.name.trim()) nextErrors.name = "Vui lòng nhập tên chuyến đi.";
@@ -178,6 +249,14 @@ export function LeaderCreateTripScreen() {
       nextErrors.slots = "Quy định an toàn VFRS: Tối đa 30 slot / đoàn.";
     }
 
+    if (!form.priceExplanation.trim()) {
+      nextErrors.priceExplanation =
+        "Vui lòng nhập giải thích cơ cấu giá vé (bắt buộc trước khi publish).";
+    } else if (form.priceExplanation.trim().length > 5000) {
+      nextErrors.priceExplanation =
+        "Giải thích cơ cấu giá vé không được vượt quá 5000 ký tự.";
+    }
+
     if (form.checkpointIds.length === 0 && checkpoints.length > 0) {
       nextErrors.checkpointIds = "Chọn ít nhất 1 checkpoint của tuyến.";
     }
@@ -189,142 +268,173 @@ export function LeaderCreateTripScreen() {
   const handleProceedToReview = async () => {
     if (!validate()) return;
     setConflictWarning(null);
+    setSubmitError(null);
+    setIsSubmitting(true);
 
-    // Verify schedule conflict via API
     try {
       const startIso = parseDateToIso(form.startDate, "06:00:00");
       const endIso = parseDateToIso(form.endDate, "18:00:00");
+
+      // Verify schedule conflict via API
       if (accessToken) {
-        const conflict = await checkConflict(startIso, endIso);
-        if (conflict?.hasConflict && conflict.conflicts?.length > 0) {
-          setConflictWarning(`Trùng lịch với chuyến: ${conflict.conflicts[0].title}`);
+        try {
+          const conflict = await checkConflict(startIso, endIso);
+          if (conflict?.hasConflict && conflict.conflicts?.length > 0) {
+            setConflictWarning(`Trùng lịch với chuyến: ${conflict.conflicts[0].title}`);
+          }
+        } catch {
+          // Non-blocking
         }
       }
-    } catch {
-      // Non-blocking
-    }
 
-    setStep("review");
+      let activeDraftId = draftTripId;
+      let activeVersion = draftTripVersion;
+
+      // 1. Create or Update DRAFT public trip via API with priceExplanation
+      if (!activeDraftId) {
+        const draft = await createTrip({
+          destinationId: form.destinationId,
+          title: form.name.trim(),
+          description:
+            form.description.trim() ||
+            `Chuyến đi công khai do Mountain Leader ${authUser?.name || "TrekGo"} phụ trách.`,
+          startAt: startIso,
+          endAt: endIso,
+          pickupPointId: form.pickupPointId || (pickupPoints[0]?.id ?? ""),
+          capacity: Number(form.slots),
+          price: form.price.trim() || "2500000",
+          priceExplanation: form.priceExplanation.trim(),
+        });
+        activeDraftId = draft.id;
+        activeVersion = draft.version;
+        setDraftTripId(draft.id);
+        setDraftTripVersion(draft.version);
+      } else {
+        const updated = await updateTrip(activeDraftId, {
+          expectedVersion: activeVersion,
+          title: form.name.trim(),
+          description: form.description.trim(),
+          startAt: startIso,
+          endAt: endIso,
+          pickupPointId: form.pickupPointId || (pickupPoints[0]?.id ?? ""),
+          capacity: Number(form.slots),
+          price: form.price.trim() || "2500000",
+          priceExplanation: form.priceExplanation.trim(),
+          destinationId: form.destinationId,
+        });
+        activeVersion = updated.version;
+        setDraftTripVersion(updated.version);
+      }
+
+      // 2. Attach selected checkpoints
+      if (form.checkpointIds.length > 0 && activeDraftId) {
+        try {
+          const withCps = await assignCheckpoints(activeDraftId, {
+            expectedVersion: activeVersion,
+            checkpointIds: form.checkpointIds,
+          });
+          activeVersion = withCps.version;
+          setDraftTripVersion(withCps.version);
+        } catch (cpErr: any) {
+          console.warn("Lỗi gán checkpoints:", cpErr?.message);
+        }
+      }
+
+      // 3. Attach trail suggestions
+      if (activeDraftId) {
+        try {
+          const rawSuggestions = await loadTrailSuggestions(activeDraftId);
+          const suggestions = Array.isArray(rawSuggestions)
+            ? rawSuggestions
+            : ((rawSuggestions as any)?.items ?? []);
+
+          if (suggestions.length > 0) {
+            const trailIdsToAssign = suggestions.map((s: any) => s.id);
+            const withTrails = await assignTrails(activeDraftId, {
+              expectedVersion: activeVersion,
+              trailIds: trailIdsToAssign,
+            });
+            activeVersion = withTrails.version;
+            setDraftTripVersion(withTrails.version);
+          }
+        } catch (trailErr: any) {
+          console.warn("Lỗi tải/gán trail suggestions:", trailErr?.message);
+        }
+      }
+
+      // 4. Kiểm tra điều kiện sẵn sàng xuất bản (Readiness Check)
+      if (activeDraftId) {
+        try {
+          const readiness = await checkReadiness(activeDraftId);
+          if (typeof readiness.version === "number") {
+            setDraftTripVersion(readiness.version);
+          }
+          const formatted = formatIssues(readiness.issues);
+          setReadinessIssues(formatted);
+        } catch (readinessErr: any) {
+          console.warn("Lỗi kiểm tra readiness:", readinessErr?.message);
+        }
+      }
+
+      setStep("review");
+    } catch (err: any) {
+      setSubmitError(err?.message || "Không thể chuẩn bị chuyến đi để xem lại.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleSavePriceExplanation = async (newExplanation: string) => {
+    if (!draftTripId) return;
+    setIsSavingExplanation(true);
+    setSubmitError(null);
+    try {
+      const updated = await updateTrip(draftTripId, {
+        expectedVersion: draftTripVersion,
+        priceExplanation: newExplanation.trim(),
+      });
+      setDraftTripVersion(updated.version);
+      setForm((prev) => ({ ...prev, priceExplanation: newExplanation }));
+
+      // Re-run readiness check to verify if priceExplanation error is resolved
+      const readiness = await checkReadiness(draftTripId);
+      if (typeof readiness.version === "number") {
+        setDraftTripVersion(readiness.version);
+      }
+      const formatted = formatIssues(readiness.issues);
+      setReadinessIssues(formatted);
+    } catch (err: any) {
+      setSubmitError(err?.message || "Không thể cập nhật cơ cấu giá vé.");
+      throw err;
+    } finally {
+      setIsSavingExplanation(false);
+    }
   };
 
   const handlePublish = async () => {
-    if (!validate()) return;
+    if (!draftTripId) {
+      setSubmitError("Chưa tạo được bản nháp chuyến đi. Vui lòng quay lại thử lại.");
+      return;
+    }
     setIsSubmitting(true);
     setSubmitError(null);
 
     try {
-      const startIso = parseDateToIso(form.startDate, "06:00:00");
-      const endIso = parseDateToIso(form.endDate, "18:00:00");
+      // Re-check readiness right before publishing
+      const readiness = await checkReadiness(draftTripId);
+      let currentVer = typeof readiness.version === "number" ? readiness.version : draftTripVersion;
 
-      // 1. Create DRAFT public trip via API
-      const draft = await createTrip({
-        destinationId: form.destinationId,
-        title: form.name.trim(),
-        description:
-          form.description.trim() ||
-          `Chuyến đi công khai do Mountain Leader ${authUser?.name || "TrekGo"} phụ trách.`,
-        startAt: startIso,
-        endAt: endIso,
-        pickupPointId: form.pickupPointId || (pickupPoints[0]?.id ?? ""),
-        capacity: Number(form.slots),
-        price: form.price.trim() || "2500000",
-      });
-
-      let currentVersion = draft.version;
-
-      // 2. Attach selected checkpoints
-      if (form.checkpointIds.length > 0) {
-        const withCps = await assignCheckpoints(draft.id, {
-          expectedVersion: currentVersion,
-          checkpointIds: form.checkpointIds,
-        });
-        currentVersion = withCps.version;
+      if (!readiness.canPublish) {
+        const formatted = formatIssues(readiness.issues);
+        setReadinessIssues(formatted);
+        if (formatted.length > 0) {
+          throw new Error(`Chưa đủ điều kiện xuất bản: ${formatted.join(". ")}`);
+        }
+        throw new Error("Chuyến đi chưa sẵn sàng xuất bản. Vui lòng kiểm tra lại thông tin cơ cấu giá hoặc lộ trình.");
       }
 
-      // 3. Attach trail suggestions & align checkpoint order with route sequence
-      try {
-        const rawSuggestions = await loadTrailSuggestions(draft.id);
-        const suggestions = Array.isArray(rawSuggestions)
-          ? rawSuggestions
-          : ((rawSuggestions as any)?.items ?? []);
-
-        if (suggestions.length > 0) {
-          // Lấy danh sách ID các checkpoint được trail đi qua theo đúng thứ tự
-          const trailOrderedCpIds: string[] = [];
-          for (const s of suggestions) {
-            if (Array.isArray(s.coveredCheckpointIds)) {
-              for (const cid of s.coveredCheckpointIds) {
-                if (!trailOrderedCpIds.includes(cid)) {
-                  trailOrderedCpIds.push(cid);
-                }
-              }
-            }
-          }
-
-          // Nếu có thứ tự checkpoint xác định từ trail, đồng bộ lại thứ tự checkpoints cho khớp với route
-          if (
-            trailOrderedCpIds.length > 0 &&
-            JSON.stringify(trailOrderedCpIds) !== JSON.stringify(form.checkpointIds)
-          ) {
-            const reorderedCps = await assignCheckpoints(draft.id, {
-              expectedVersion: currentVersion,
-              checkpointIds: trailOrderedCpIds,
-            });
-            currentVersion = reorderedCps.version;
-          }
-
-          // Gán toàn bộ trail gợi ý của tuyến
-          const trailIdsToAssign = suggestions.map((s: any) => s.id);
-          const withTrails = await assignTrails(draft.id, {
-            expectedVersion: currentVersion,
-            trailIds: trailIdsToAssign,
-          });
-          currentVersion = withTrails.version;
-        }
-      } catch (trailErr: any) {
-        console.warn("Lỗi tải/gán trail suggestions:", trailErr?.message);
-      }
-
-      // 4. Kiểm tra điều kiện sẵn sàng xuất bản (Readiness Check)
-      try {
-        const readiness = await checkReadiness(draft.id);
-        if (typeof readiness.version === "number") {
-          currentVersion = readiness.version;
-        }
-        if (!readiness.canPublish) {
-          const rawIssues = readiness.issues || [];
-          const formatted = rawIssues
-            .map((iss: any) => {
-              if (!iss) return "";
-              if (typeof iss === "string") return iss;
-              return (
-                iss.message ||
-                iss.reason ||
-                iss.detail ||
-                iss.description ||
-                (iss.field ? `${iss.field}: ${iss.code || "không hợp lệ"}` : "") ||
-                iss.code ||
-                JSON.stringify(iss)
-              );
-            })
-            .filter(Boolean);
-
-          if (formatted.length > 0) {
-            throw new Error(`Chưa đủ điều kiện xuất bản: ${formatted.join(". ")}`);
-          }
-          throw new Error("Chuyến đi chưa sẵn sàng xuất bản. Vui lòng kiểm tra lại thông tin cung đường hoặc trạm kiểm soát.");
-        }
-      } catch (readinessErr: any) {
-        if (
-          readinessErr?.message?.includes("Chưa đủ điều kiện xuất bản") ||
-          readinessErr?.message?.includes("Chuyến đi chưa sẵn sàng")
-        ) {
-          throw readinessErr;
-        }
-      }
-
-      // 5. Publish trip
-      const finalTrip = await publish(draft.id, currentVersion);
+      // Publish trip (DRAFT -> OPEN)
+      const finalTrip = await publish(draftTripId, currentVer);
 
       setPublishedTrip({
         id: finalTrip.id,
@@ -332,7 +442,7 @@ export function LeaderCreateTripScreen() {
         code: finalTrip.id.slice(-6).toUpperCase(),
       });
     } catch (err: any) {
-      setSubmitError(err?.message || "Không thể tạo và xuất bản chuyến đi. Vui lòng thử lại.");
+      setSubmitError(err?.message || "Không thể xuất bản chuyến đi. Vui lòng thử lại.");
     } finally {
       setIsSubmitting(false);
     }
@@ -372,10 +482,13 @@ export function LeaderCreateTripScreen() {
             selectedCheckpoints={selectedCheckpoints}
             conflictWarning={conflictWarning}
             submitError={submitError}
+            readinessIssues={readinessIssues}
             isSubmitting={isSubmitting}
             apiLoading={apiLoading}
             onPublish={() => void handlePublish()}
             onBackToForm={() => setStep("form")}
+            onSavePriceExplanation={handleSavePriceExplanation}
+            isSavingExplanation={isSavingExplanation}
           />
         </ScrollView>
       </SafeAreaView>

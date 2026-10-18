@@ -787,11 +787,9 @@ export default function HomeScreen() {
             style={styles.shortcutItem}
             onPress={() =>
               router.push({
-                pathname: "/trips/[id]",
-                params: {
-                  id: "trip-langbiang-public",
-                },
-              } as unknown as Href)
+                pathname: "/(tabs)/trips",
+                params: { tab: "PUBLIC_TRIPS" },
+              } as any)
             }
             activeOpacity={0.8}
           >
@@ -808,7 +806,12 @@ export default function HomeScreen() {
 
           <TouchableOpacity
             style={styles.shortcutItem}
-            onPress={() => setCreatePrivateVisible(true)}
+            onPress={() =>
+              router.push({
+                pathname: "/(tabs)/trips",
+                params: { tab: "MY_TRIPS", filter: "PRIVATE" },
+              } as any)
+            }
             activeOpacity={0.8}
           >
             <View
