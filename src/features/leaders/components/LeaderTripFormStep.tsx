@@ -32,6 +32,7 @@ export interface LeaderTripFormData {
   endDate: string;
   slots: string;
   price: string;
+  priceExplanation: string;
   checkpointIds: string[];
 }
 
@@ -537,6 +538,36 @@ export function LeaderTripFormStep({
             {Number(form.price || 0).toLocaleString("vi-VN")} đ / người
           </Text>
         </View>
+
+        {/* Price Explanation — Bắt buộc trước khi publish */}
+        <View style={styles.inputGroup}>
+          <View style={styles.explanationHeaderRow}>
+            <Text style={styles.inputLabel}>Giải thích cơ cấu giá vé (priceExplanation) *</Text>
+            <Text style={styles.charCountText}>
+              {(form.priceExplanation || "").length}/5000
+            </Text>
+          </View>
+          <TextInput
+            value={form.priceExplanation}
+            onChangeText={(val) => onUpdateField("priceExplanation", val)}
+            placeholder="Ví dụ: Chi phí ăn uống 3 bữa/ngày, phí lán trại nghỉ đêm, đội porter hỗ trợ mang đồ 5kg/khách, bảo hiểm du lịch mạo hiểm VFRS và thù lao Mountain Leader..."
+            placeholderTextColor="#707972"
+            multiline
+            numberOfLines={4}
+            maxLength={5000}
+            style={[
+              styles.inputBox,
+              styles.inputMultiline,
+              errors.priceExplanation && styles.inputError,
+            ]}
+          />
+          <Text style={styles.inputHint}>
+            Cơ sở tính giá nội bộ phục vụ kiểm duyệt trước khi xuất bản. Bắt buộc để mở khóa xuất bản chuyến đi.
+          </Text>
+          {errors.priceExplanation && (
+            <Text style={styles.fieldError}>{errors.priceExplanation}</Text>
+          )}
+        </View>
       </View>
 
       {/* Bottom Action Button */}
@@ -919,6 +950,17 @@ const styles = StyleSheet.create({
   },
   inputGroup: {
     marginBottom: 14,
+  },
+  explanationHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 6,
+  },
+  charCountText: {
+    color: "#707972",
+    fontSize: 10,
+    fontWeight: "600",
   },
   inputLabel: {
     color: "#121c2a",

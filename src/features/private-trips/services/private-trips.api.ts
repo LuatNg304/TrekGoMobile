@@ -12,6 +12,7 @@ import type {
   RemoveMemberResponse,
   TrailAccessResponse,
   TripMember,
+  TripMembersResponse,
   TripRoomData,
   UpdatePrivateTripPayload,
 } from "../types";
@@ -194,21 +195,16 @@ export async function getPrivateTripRoom(tripId: string) {
 /** GET /private-trips/:id/members — Lấy danh sách thành viên trong chuyến đi */
 export async function getPrivateTripMembers(
   tripId: string,
-  params: { page?: number; pageSize?: number; status?: string } = {},
-) {
+  params: { page?: number; pageSize?: number; status?: "ACTIVE" | "ALL" | string } = {},
+): Promise<TripMembersResponse> {
   const query = new URLSearchParams();
-  if (params.page) query.set("page", String(params.page));
-  if (params.pageSize) query.set("pageSize", String(params.pageSize));
+  query.set("page", String(params.page || 1));
+  query.set("pageSize", String(params.pageSize || 50));
   if (params.status) query.set("status", params.status);
 
-  return apiRequest<{
-    items: TripMember[];
-    total: number;
-    page: number;
-    pageSize: number;
-    activeMemberCount: number;
-    capacity: number;
-  }>(`/api/v1/private-trips/${tripId}/members?${query.toString()}`);
+  return apiRequest<TripMembersResponse>(
+    `/api/v1/private-trips/${tripId}/members?${query.toString()}`,
+  );
 }
 
 /** POST /private-trips/:id/leave — Thành viên tự rời nhóm */

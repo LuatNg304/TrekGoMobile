@@ -785,7 +785,7 @@ export default function HomeScreen() {
 
           <TouchableOpacity
             style={styles.shortcutItem}
-            onPress={() => router.push("/public-trips" as Href)}
+              onPress={() => router.push("/(tabs)/trips?tab=PUBLIC_TRIPS" as Href)}
             activeOpacity={0.8}
           >
             <View
@@ -801,7 +801,12 @@ export default function HomeScreen() {
 
           <TouchableOpacity
             style={styles.shortcutItem}
-            onPress={() => setCreatePrivateVisible(true)}
+            onPress={() =>
+              router.push({
+                pathname: "/(tabs)/trips",
+                params: { tab: "MY_TRIPS", filter: "PRIVATE" },
+              } as any)
+            }
             activeOpacity={0.8}
           >
             <View

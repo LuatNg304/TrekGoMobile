@@ -95,9 +95,9 @@ export function PrivateTripHero({
         <View style={styles.gridItem}>
           <Ionicons name="people-outline" size={18} color={Colors.primaryDark} />
           <Text style={styles.gridValue}>
-            {activeMemberCount}/{trip.maxPax}
+            {activeMemberCount} / {trip.maxPax} người
           </Text>
-          <Text style={styles.gridLabel}>Thành viên</Text>
+          <Text style={styles.gridLabel}>Quy mô nhóm</Text>
         </View>
 
         <View style={styles.gridDivider} />

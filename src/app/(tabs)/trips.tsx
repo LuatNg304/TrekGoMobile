@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
-import { type Href, useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useMemo, useState } from "react";
+import { type Href, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   RefreshControl,
@@ -27,7 +27,7 @@ import { TripCard } from "@/features/trips/components";
 import { usePublicTrips } from "@/features/trips/hooks";
 
 type MainTab = "MY_TRIPS" | "PUBLIC_TRIPS";
-type TripFilter = "UPCOMING" | "PENDING" | "HISTORY";
+type TripFilter = "UPCOMING" | "PENDING" | "HISTORY" | "PRIVATE";
 
 const DIFFICULTY_OPTIONS = ["Tất cả", "EASY", "MEDIUM", "HARD", "EXTREME"];
 const DIFFICULTY_LABELS: Record<string, string> = {
@@ -92,12 +92,41 @@ export default function TripsScreen() {
     setRefreshing(false);
   }, [refetchBookings, refreshPublicTrips, refetchPrivateTrips]);
 
+  const params = useLocalSearchParams<{ tab?: string; filter?: string }>();
+
+  // Synchronize URL search params if navigated from Home shortcuts
+  useEffect(() => {
+    if (params.tab === "PUBLIC_TRIPS") {
+      setMainTab("PUBLIC_TRIPS");
+    } else if (params.tab === "MY_TRIPS") {
+      setMainTab("MY_TRIPS");
+    }
+
+    if (params.filter === "PRIVATE") {
+      setActiveFilter("PRIVATE");
+    } else if (params.filter === "UPCOMING") {
+      setActiveFilter("UPCOMING");
+    } else if (params.filter === "PENDING") {
+      setActiveFilter("PENDING");
+    } else if (params.filter === "HISTORY") {
+      setActiveFilter("HISTORY");
+    }
+  }, [params.tab, params.filter]);
+
   // Refetch private trips & bookings automatically on focus (e.g. after joining a trip)
   useFocusEffect(
     useCallback(() => {
       void refetchBookings();
       void refetchPrivateTrips();
-    }, [refetchBookings, refetchPrivateTrips]),
+      if (params.tab === "PUBLIC_TRIPS") {
+        setMainTab("PUBLIC_TRIPS");
+      } else if (params.tab === "MY_TRIPS") {
+        setMainTab("MY_TRIPS");
+      }
+      if (params.filter === "PRIVATE") {
+        setActiveFilter("PRIVATE");
+      }
+    }, [refetchBookings, refetchPrivateTrips, params.tab, params.filter]),
   );
 
   const displayedPublicTrips = useMemo(() => {
@@ -298,19 +327,39 @@ export default function TripsScreen() {
         <TouchableOpacity
           style={[
             styles.subFilterChip,
-            { backgroundColor: Colors.tertiaryFixed, gap: 5 },
+            activeFilter === "PRIVATE" && styles.subFilterChipActive,
+            activeFilter !== "PRIVATE" && { backgroundColor: Colors.tertiaryFixed },
+            { gap: 5 },
           ]}
-          onPress={() => router.push("/private-trips" as any)}
+          onPress={() => setActiveFilter("PRIVATE")}
         >
-          <Ionicons name="lock-closed" size={13} color="#564500" />
-          <Text style={[styles.subFilterText, { color: "#564500", fontWeight: "700" }]}>
+          <Ionicons
+            name="lock-closed"
+            size={13}
+            color={activeFilter === "PRIVATE" ? Colors.onPrimary : "#564500"}
+          />
+          <Text
+            style={[
+              styles.subFilterText,
+              activeFilter === "PRIVATE" && styles.subFilterTextActive,
+              activeFilter !== "PRIVATE" && { color: "#564500", fontWeight: "700" },
+            ]}
+          >
             Chuyến riêng
           </Text>
           {privateTrips.length > 0 && (
             <View
               style={[
                 styles.countBadge,
-                { backgroundColor: "#564500", minWidth: 18, height: 18, paddingHorizontal: 4 },
+                {
+                  backgroundColor:
+                    activeFilter === "PRIVATE"
+                      ? "rgba(255,255,255,0.3)"
+                      : "#564500",
+                  minWidth: 18,
+                  height: 18,
+                  paddingHorizontal: 4,
+                },
               ]}
             >
               <Text style={[styles.countBadgeText, { fontSize: 10 }]}>
@@ -708,6 +757,96 @@ export default function TripsScreen() {
     );
   }
 
+  function renderPrivateTrips() {
+    if (privateTrips.length === 0) {
+      return (
+        <View style={styles.emptyState}>
+          <View style={styles.emptyIcon}>
+            <Ionicons
+              name="lock-closed-outline"
+              size={34}
+              color={Colors.primaryDark}
+            />
+          </View>
+
+          <Text style={styles.emptyTitle}>Chưa có chuyến đi riêng</Text>
+
+          <Text style={styles.emptyDescription}>
+            Tổ chức chuyến đi riêng cùng bạn bè hoặc quét mã QR/nhập mã mời để tham gia nhóm!
+          </Text>
+
+          <View style={{ flexDirection: "row", gap: 10, marginTop: 18 }}>
+            <TouchableOpacity
+              style={styles.emptyButton}
+              onPress={() => router.push("/private-trips/create" as any)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.emptyButtonText}>Tạo chuyến đi riêng</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.emptyButton,
+                { backgroundColor: Colors.surfaceContainerHigh },
+              ]}
+              onPress={() => router.push("/private-trips" as any)}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.emptyButtonText, { color: Colors.onSurface }]}>
+                Quét QR / Nhập mã
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      );
+    }
+
+    return (
+      <View style={{ paddingHorizontal: 16 }}>
+        {/* Quick Action Bar for Private Trips */}
+        <View style={styles.privateActionBar}>
+          <TouchableOpacity
+            style={styles.privateActionBtn}
+            onPress={() => router.push("/private-trips/create" as any)}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="add-circle" size={18} color={Colors.onPrimary} />
+            <Text style={styles.privateActionBtnText}>Tạo chuyến mới</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.privateSecondaryBtn}
+            onPress={() => router.push("/private-trips" as any)}
+            activeOpacity={0.85}
+          >
+            <Ionicons
+              name="qr-code-outline"
+              size={16}
+              color={Colors.primaryDark}
+            />
+            <Text style={styles.privateSecondaryBtnText}>
+              Quét QR / Nhập mã
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {privateTrips.map((pt) => (
+          <View key={pt.id} style={{ marginBottom: 14 }}>
+            <PrivateTripCard
+              trip={pt}
+              onPress={() =>
+                router.push({
+                  pathname: "/private-trips/[id]/room",
+                  params: { id: pt.id },
+                } as any)
+              }
+            />
+          </View>
+        ))}
+      </View>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <TopHeader subtitle="Trips" />
@@ -788,6 +927,7 @@ export default function TripsScreen() {
           <>
             {renderFilters()}
             {activeFilter === "UPCOMING" && renderUpcomingTrips()}
+            {activeFilter === "PRIVATE" && renderPrivateTrips()}
             {activeFilter === "PENDING" && renderPendingTrips()}
             {activeFilter === "HISTORY" && renderHistory()}
           </>
@@ -890,6 +1030,44 @@ const styles = StyleSheet.create({
     color: Colors.onPrimary,
     fontSize: 10,
     fontWeight: "800",
+  },
+  privateActionBar: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 16,
+  },
+  privateActionBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    backgroundColor: Colors.primaryContainer,
+    paddingVertical: 12,
+    borderRadius: Radius.lg,
+    ...Shadows.card,
+  },
+  privateActionBtnText: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: Colors.onPrimary,
+  },
+  privateSecondaryBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    backgroundColor: Colors.surfaceContainerLow,
+    paddingVertical: 12,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    borderColor: Colors.surfaceContainerHigh,
+  },
+  privateSecondaryBtnText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: Colors.onSurface,
   },
   pendingCountBadge: {
     width: 17,

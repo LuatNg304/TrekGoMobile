@@ -54,15 +54,25 @@ export interface PrivateTrip {
 }
 
 export interface TripMember {
-  id: string; // membershipId (dùng cho kick / leave)
-  userId: string; // userId tài khoản
-  role: MemberRole;
-  status: MemberStatus;
+  id: string; // membership ID (dùng khi xóa thành viên)
+  userId: string; // ID tài khoản user
+  displayName: string; // Tên hiển thị của tài khoản
+  role: "HOST" | "MEMBER";
+  status: "ACTIVE" | "LEFT" | "REMOVED" | MemberStatus;
   joinedAt: string;
-  version: number;
-  displayName: string;
-  isHost: boolean;
+  leftAt?: string | null;
+  version: number; // version của membership (bắt buộc khi xóa thành viên)
+  isHost?: boolean;
   avatarUrl?: string | null;
+}
+
+export interface TripMembersResponse {
+  items: TripMember[];
+  page: number;
+  pageSize: number;
+  total: number;
+  activeMemberCount: number;
+  capacity: number;
 }
 
 export interface TripRoomViewer {

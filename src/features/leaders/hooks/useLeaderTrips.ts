@@ -11,7 +11,10 @@ import {
   publishTrip,
   setTripCheckpoints,
   setTripTrails,
+  updatePublicTrip,
+  getLeaderPublicTripById,
   type CreatePublicTripInput,
+  type UpdatePublicTripInput,
   type LeaderPublicTrip,
   type LeaderTrailSuggestion,
   type ReadinessCheckResponse,
@@ -180,6 +183,32 @@ export function useLeaderTripCreation(accessToken?: string | null) {
     [accessToken],
   );
 
+  const updateTrip = useCallback(
+    async (tripId: string, input: UpdatePublicTripInput): Promise<LeaderPublicTrip> => {
+      if (!accessToken) throw new Error("Chưa có phiên đăng nhập.");
+      setLoading(true);
+      setError(null);
+      try {
+        return await updatePublicTrip(tripId, input, accessToken);
+      } catch (err) {
+        const msg = err instanceof ApiError ? err.message : "Cập nhật chuyến đi thất bại.";
+        setError(msg);
+        throw err;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [accessToken],
+  );
+
+  const getTripById = useCallback(
+    async (tripId: string): Promise<LeaderPublicTrip> => {
+      if (!accessToken) throw new Error("Chưa có phiên đăng nhập.");
+      return getLeaderPublicTripById(tripId, accessToken);
+    },
+    [accessToken],
+  );
+
   return {
     loading,
     error,
@@ -188,6 +217,8 @@ export function useLeaderTripCreation(accessToken?: string | null) {
     loadCheckpoints,
     checkConflict,
     createTrip,
+    updateTrip,
+    getTripById,
     assignCheckpoints,
     loadTrailSuggestions,
     assignTrails,
