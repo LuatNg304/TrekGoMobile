@@ -5,11 +5,14 @@ import type { TripMember } from "../types";
 
 export function usePrivateTripMembers(
   tripId?: string,
-  params: { page?: number; pageSize?: number; status?: string } = {
+  initialParams: { page?: number; pageSize?: number; status?: "ACTIVE" | "ALL" | string } = {
     status: "ACTIVE",
   },
   autoFetch = true,
 ) {
+  const [statusFilter, setStatusFilter] = useState<"ACTIVE" | "ALL">(
+    (initialParams.status as "ACTIVE" | "ALL") || "ACTIVE",
+  );
   const [members, setMembers] = useState<TripMember[]>([]);
   const [total, setTotal] = useState(0);
   const [activeCount, setActiveCount] = useState(0);
@@ -18,7 +21,7 @@ export function usePrivateTripMembers(
   const [error, setError] = useState<string | null>(null);
 
   const fetchMembers = useCallback(
-    async (id?: string) => {
+    async (id?: string, overrideStatus?: "ACTIVE" | "ALL") => {
       const targetId = id || tripId;
       if (!targetId) {
         setLoading(false);
@@ -29,8 +32,9 @@ export function usePrivateTripMembers(
       setError(null);
       try {
         const queryParams = {
-          status: "ACTIVE",
-          ...params,
+          page: initialParams.page || 1,
+          pageSize: initialParams.pageSize || 50,
+          status: overrideStatus || statusFilter,
         };
         const res = await getPrivateTripMembers(targetId, queryParams);
         setMembers(res.items ?? []);
@@ -49,7 +53,7 @@ export function usePrivateTripMembers(
         setLoading(false);
       }
     },
-    [tripId, params.page, params.pageSize, params.status],
+    [tripId, initialParams.page, initialParams.pageSize, statusFilter],
   );
 
   useEffect(() => {
@@ -65,6 +69,8 @@ export function usePrivateTripMembers(
     capacity,
     loading,
     error,
+    statusFilter,
+    setStatusFilter,
     refetch: fetchMembers,
   };
 }
