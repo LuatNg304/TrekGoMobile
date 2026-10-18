@@ -15,7 +15,7 @@ export default function LeaderTripScreen() {
   const [isStarting, setIsStarting] = useState(false);
   const attendance = leaderMembers.map(member => ({
     ...member,
-    statusCode: fieldWorkflow.leaderAttendance.find(item => item.memberName === member.name)?.status ?? 'PENDING',
+    statusCode: fieldWorkflow.leaderAttendance.find((item: { memberName: string; status: string }) => item.memberName === member.name)?.status ?? 'PENDING',
   }));
   const checkedIn = attendance.filter(member => member.statusCode === 'CHECKED_IN').length;
   const enoughMembers = attendance.length > 0 && attendance.every(member => member.statusCode !== 'PENDING') && checkedIn > 0;

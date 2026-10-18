@@ -20,9 +20,9 @@ export default function LeaderSummaryScreen() {
   const [isSendingReport, setIsSendingReport] = useState(false);
   const requiredCheckpointIds = fieldWorkflow.requiredCheckpointIds;
   const completedCheckpointIds = fieldWorkflow.completedCheckpointIds;
-  const processedMemberCount = fieldWorkflow.leaderAttendance.filter(member => member.status !== 'PENDING').length;
+  const processedMemberCount = fieldWorkflow.leaderAttendance.filter((member: { memberName: string; status: string }) => member.status !== 'PENDING').length;
   const missingCheckpointIds = useMemo(
-    () => requiredCheckpointIds.filter(id => !completedCheckpointIds.includes(id)),
+    () => requiredCheckpointIds.filter((id: string) => !completedCheckpointIds.includes(id)),
     [requiredCheckpointIds, completedCheckpointIds]
   );
   const canComplete = missingCheckpointIds.length === 0 && !isCompleting;
@@ -51,7 +51,7 @@ export default function LeaderSummaryScreen() {
     <View style={styles.header}><TouchableOpacity onPress={() => router.back()}><Ionicons name="arrow-back" size={23} color={Colors.ink} /></TouchableOpacity><Text style={styles.headerTitle}>Tổng kết & nghiệm thu</Text><View style={{ width: 23 }} /></View>
     <View style={styles.success}><Ionicons name="checkmark-circle" size={42} color={Colors.primary} /><Text style={styles.successTitle}>{fieldWorkflow.leaderReportSent ? 'ĐÃ GỬI BÁO CÁO CHỜ ĐỐI SOÁT' : fieldWorkflow.leaderTripStatus === 'COMPLETED' ? 'CHUYẾN ĐI ĐÃ HOÀN TẤT' : 'CHUYẾN ĐI SẴN SÀNG CHỐT'}</Text><Text style={styles.successText}>{missingCheckpointIds.length === 0 ? 'Tất cả checkpoint bắt buộc đã được ghi nhận.' : 'Chưa thể kết thúc cho đến khi hoàn tất các checkpoint bắt buộc.'}</Text></View>
     <View style={styles.card}>{[['Thành viên đã xử lý', `${processedMemberCount}/${fieldWorkflow.leaderAttendance.length}`], ['Checkpoint đã ghi nhận', `${completedCheckpointIds.length}/${requiredCheckpointIds.length}`], ['Quãng đường thực tế', '16.2 km'], ['Sự cố đang mở', '0']].map(([label, value]) => <View style={styles.row} key={label}><Text style={styles.label}>{label}</Text><Text style={styles.value}>{value}</Text></View>)}</View>
-    {missingCheckpointIds.length > 0 && <View style={styles.warning}><Ionicons name="warning-outline" size={21} color="#9b6700" /><View style={{ flex: 1 }}><Text style={styles.warningTitle}>Còn thiếu checkpoint bắt buộc</Text>{missingCheckpointIds.map(id => <Text style={styles.warningText} key={id}>• {checkpointName(id)}</Text>)}</View></View>}
+    {missingCheckpointIds.length > 0 && <View style={styles.warning}><Ionicons name="warning-outline" size={21} color="#9b6700" /><View style={{ flex: 1 }}><Text style={styles.warningTitle}>Còn thiếu checkpoint bắt buộc</Text>{missingCheckpointIds.map((id: string) => <Text style={styles.warningText} key={id}>• {checkpointName(id)}</Text>)}</View></View>}
     <Text style={styles.section}>BẰNG CHỨNG HIỆN TRƯỜNG</Text><View style={styles.evidence}><Ionicons name="images-outline" size={28} color={Colors.primaryDark} /><View style={{ flex: 1 }}><Text style={styles.evidenceTitle}>12 ảnh · 3 biên bản</Text><Text style={styles.label}>Đã phân loại theo checkpoint</Text></View><Ionicons name="checkmark-circle" size={21} color={Colors.primaryDark} /></View>
     <TouchableOpacity disabled={!canComplete} style={[styles.primary, !canComplete && styles.disabled]} onPress={handleComplete}><Text style={styles.primaryText}>{isCompleting ? 'ĐANG XÁC NHẬN...' : fieldWorkflow.leaderTripStatus === 'COMPLETED' ? 'ĐÃ XÁC NHẬN KẾT THÚC' : 'XÁC NHẬN KẾT THÚC'}</Text><Ionicons name="checkmark" size={17} color="#fff" /></TouchableOpacity>
     {fieldWorkflow.leaderTripStatus === 'COMPLETED' && !fieldWorkflow.leaderReportSent && <TouchableOpacity disabled={isSendingReport} style={[styles.report, isSendingReport && styles.disabled]} onPress={handleSendReport}><Text style={styles.reportText}>{isSendingReport ? 'ĐANG GỬI...' : 'GỬI BÁO CÁO'}</Text><Ionicons name="send" size={17} color={Colors.primaryDark} /></TouchableOpacity>}

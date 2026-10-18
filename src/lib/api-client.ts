@@ -1,4 +1,5 @@
 import { Platform } from "react-native";
+import { readStoredAuth } from "@/features/auth/storage";
 
 import {
   clearStoredAuth,

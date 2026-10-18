@@ -453,4 +453,52 @@ export interface LiveNavTelemetry {
   isWarningDismissed: boolean;
 }
 
+export type FieldWorkflowStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED';
+export type LeaderMemberAttendance = 'PENDING' | 'CHECKED_IN' | 'NO_SHOW';
+export type LeaderGpsStatus = 'OK' | 'LOST';
+export type DeliveryItemStatus = 'PENDING' | 'OK' | 'MISSING' | 'DAMAGED';
+
+export interface DeliveryItemState {
+  status: DeliveryItemStatus;
+  note: string;
+}
+
+export interface ReturnItemState {
+  status: DeliveryItemStatus;
+  note: string;
+}
+
+export interface FieldWorkflowState {
+  leaderTripStatus: 'PREPARING' | 'IN_PROGRESS' | 'COMPLETED';
+  leaderPretripApproved: boolean;
+  leaderAttendance: { memberName: string; status: LeaderMemberAttendance }[];
+  requiredCheckpointIds: string[];
+  completedCheckpointIds: string[];
+  leaderSafetyAlert: {
+    status: 'ACTIVE' | 'RESOLVED';
+    selectedOption: string | null;
+  };
+  gpsStatus: LeaderGpsStatus;
+  isOnline: boolean;
+  pendingSyncCount: number;
+  leaderReportSent: boolean;
+  handoverRequested: boolean;
+  deliveryStatus: FieldWorkflowStatus;
+  packageReceived: boolean;
+  arrivedAtPickup: boolean;
+  deliveryVerified: boolean;
+  deliveryItems: DeliveryItemState[];
+  deliveryPhotoUri: string | null;
+  deliverySigned: boolean;
+  returnStatus: FieldWorkflowStatus;
+  returnArrived: boolean;
+  returnVerified: boolean;
+  returnItems: ReturnItemState[];
+  returnConditionRecorded: boolean;
+  returnSigned: boolean;
+  depositStatus: 'HELD' | 'PENDING_INSPECTION' | 'REFUNDED';
+  lastUpdated: string;
+}
+
 export * from "./recording";
+
