@@ -1,5 +1,14 @@
-import { PublicTripDetailScreen } from "@/features/trips/screens";
-import { useLocalSearchParams } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import { type Href, useLocalSearchParams, useRouter } from "expo-router";
+import { useMemo, useState } from "react";
+import {
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 import { BookingModal } from "@/components/BookingModal";
 import { Colors, Radius, Shadows } from "@/constants/theme";
@@ -382,3 +391,409 @@ function LegacyMockTripDetail({ trip }: { trip?: Trip | null }) {
     </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: Colors.surface,
+  },
+  header: {
+    height: 58,
+    paddingHorizontal: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.surfaceContainerHigh,
+    backgroundColor: Colors.surface,
+  },
+  headerButton: {
+    width: 40,
+    height: 40,
+    borderRadius: Radius.full,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Colors.surfaceContainer,
+  },
+  headerTitle: {
+    fontSize: 16,
+    fontWeight: "900",
+    color: Colors.onSurface,
+  },
+  scrollContent: {
+    padding: 16,
+    paddingBottom: 40,
+  },
+  heroCard: {
+    minHeight: 230,
+    padding: 18,
+    borderRadius: Radius.xl,
+    overflow: "hidden",
+    backgroundColor: Colors.primaryPale,
+    justifyContent: "space-between",
+    ...Shadows.hover,
+  },
+  heroDecorOne: {
+    position: "absolute",
+    width: 220,
+    height: 220,
+    borderRadius: 110,
+    right: -70,
+    top: -70,
+    backgroundColor: Colors.primary,
+    opacity: 0.2,
+  },
+  heroDecorTwo: {
+    position: "absolute",
+    width: 170,
+    height: 170,
+    borderRadius: 85,
+    left: -50,
+    bottom: -95,
+    backgroundColor: Colors.primaryDark,
+    opacity: 0.12,
+  },
+  heroBadges: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  publicBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.secondaryContainer,
+  },
+  publicBadgeText: {
+    fontSize: 10,
+    fontWeight: "900",
+    color: "#0c2000",
+  },
+  slotBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.surfaceContainerLowest,
+  },
+  slotBadgeText: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: Colors.primaryDark,
+  },
+  heroContent: {
+    maxWidth: "90%",
+  },
+  heroEyebrow: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: Colors.primaryDark,
+    marginBottom: 6,
+    textTransform: "uppercase",
+  },
+  heroTitle: {
+    fontSize: 27,
+    lineHeight: 32,
+    fontWeight: "900",
+    color: Colors.inkDeep,
+  },
+  heroMetaRow: {
+    marginTop: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  heroMetaText: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: "600",
+    color: Colors.onSurfaceVariant,
+  },
+  statsGrid: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 14,
+  },
+  statCard: {
+    flex: 1,
+    alignItems: "center",
+    paddingVertical: 13,
+    borderRadius: Radius.lg,
+    backgroundColor: Colors.surfaceContainerLowest,
+    ...Shadows.card,
+  },
+  statValue: {
+    marginTop: 5,
+    fontSize: 14,
+    fontWeight: "900",
+    color: Colors.onSurface,
+  },
+  statLabel: {
+    marginTop: 2,
+    fontSize: 10,
+    color: Colors.onSurfaceVariant,
+  },
+  sectionCard: {
+    marginTop: 14,
+    padding: 16,
+    borderRadius: Radius.xl,
+    backgroundColor: Colors.surfaceContainerLowest,
+    ...Shadows.card,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: "900",
+    color: Colors.onSurface,
+    marginBottom: 13,
+  },
+  sectionHeadingRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  leaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  leaderAvatar: {
+    width: 52,
+    height: 52,
+    borderRadius: Radius.full,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Colors.primaryContainer,
+  },
+  leaderInfo: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  leaderName: {
+    fontSize: 14,
+    fontWeight: "900",
+    color: Colors.onSurface,
+  },
+  leaderRatingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 4,
+  },
+  leaderRating: {
+    marginLeft: 4,
+    fontSize: 12,
+    fontWeight: "800",
+    color: Colors.onSurface,
+  },
+  leaderBadgeText: {
+    flex: 1,
+    fontSize: 10,
+    color: Colors.onSurfaceVariant,
+  },
+  contactButton: {
+    width: 40,
+    height: 40,
+    borderRadius: Radius.full,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Colors.primaryPale,
+  },
+  weatherStatus: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  statusDot: {
+    width: 7,
+    height: 7,
+    borderRadius: Radius.full,
+  },
+  weatherStatusText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: Colors.onSurfaceVariant,
+  },
+  weatherRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  weatherIconBox: {
+    width: 52,
+    height: 52,
+    borderRadius: Radius.lg,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Colors.tertiaryFixed,
+  },
+  weatherMain: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  weatherTemp: {
+    fontSize: 21,
+    fontWeight: "900",
+    color: Colors.onSurface,
+  },
+  weatherCondition: {
+    fontSize: 11,
+    color: Colors.onSurfaceVariant,
+  },
+  weatherDetails: {
+    alignItems: "flex-end",
+    gap: 4,
+  },
+  weatherDetailText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: Colors.onSurfaceVariant,
+  },
+  noticeBox: {
+    marginTop: 13,
+    flexDirection: "row",
+    gap: 8,
+    padding: 11,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.primaryPale,
+  },
+  noticeText: {
+    flex: 1,
+    fontSize: 11,
+    lineHeight: 16,
+    color: Colors.onSurfaceVariant,
+  },
+  timelineItem: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+  },
+  timelineMarker: {
+    width: 28,
+    height: 28,
+    borderRadius: Radius.full,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Colors.primaryContainer,
+  },
+  timelineNumber: {
+    fontSize: 12,
+    fontWeight: "900",
+    color: Colors.onPrimary,
+  },
+  timelineContent: {
+    flex: 1,
+    marginLeft: 11,
+  },
+  timelineTitle: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: Colors.onSurface,
+  },
+  timelineText: {
+    marginTop: 3,
+    fontSize: 11,
+    lineHeight: 16,
+    color: Colors.onSurfaceVariant,
+  },
+  timelineLine: {
+    width: 2,
+    height: 18,
+    marginLeft: 13,
+    marginVertical: 4,
+    backgroundColor: Colors.surfaceContainerHigh,
+  },
+  includedRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+    marginBottom: 10,
+  },
+  checkIcon: {
+    width: 22,
+    height: 22,
+    borderRadius: Radius.full,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Colors.secondaryContainer,
+  },
+  includedText: {
+    flex: 1,
+    fontSize: 12,
+    color: Colors.onSurfaceVariant,
+  },
+  priceSummary: {
+    marginTop: 16,
+    paddingHorizontal: 4,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-end",
+  },
+  priceCaption: {
+    fontSize: 11,
+    color: Colors.onSurfaceVariant,
+  },
+  priceValue: {
+    marginTop: 2,
+    fontSize: 22,
+    fontWeight: "900",
+    color: Colors.primaryDark,
+  },
+  slotWarning: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#8a5a00",
+  },
+  bookingButton: {
+    height: 54,
+    marginTop: 14,
+    borderRadius: Radius.full,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: Colors.primaryContainer,
+    ...Shadows.hover,
+  },
+  bookingButtonText: {
+    fontSize: 15,
+    fontWeight: "900",
+    color: Colors.onPrimary,
+  },
+  policyText: {
+    marginTop: 10,
+    paddingHorizontal: 16,
+    textAlign: "center",
+    fontSize: 10,
+    lineHeight: 15,
+    color: Colors.onSurfaceMuted,
+  },
+  emptyState: {
+    flex: 1,
+    paddingHorizontal: 28,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  emptyTitle: {
+    marginTop: 14,
+    fontSize: 20,
+    fontWeight: "900",
+    color: Colors.onSurface,
+  },
+  emptyDescription: {
+    marginTop: 7,
+    textAlign: "center",
+    fontSize: 12,
+    lineHeight: 18,
+    color: Colors.onSurfaceVariant,
+  },
+  primaryButton: {
+    marginTop: 20,
+    minWidth: 160,
+    height: 48,
+    borderRadius: Radius.full,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Colors.primaryContainer,
+  },
+  primaryButtonText: {
+    fontSize: 14,
+    fontWeight: "900",
+    color: Colors.onPrimary,
+  },
+});
