@@ -17,6 +17,13 @@ import {
   View,
 } from "react-native";
 import { WebView } from "react-native-webview";
+import * as Linking from 'expo-linking';
+import type { ExploreMapState } from "@/services/maps/exploreMapService";
+import { exploreMapService } from "@/services/maps/exploreMapService";
+import { parseTileUrl } from "@/services/maps/exploreMapPlan";
+import { exploreProtocolScript } from "./exploreProtocol";
+import { mapLibreCss, mapLibreJavaScript } from "./vendor/maplibreRuntime";
+import { mapTilerLogo } from './vendor/mapTilerLogo';
 
 export interface MapCoordinate {
   latitude: number;
@@ -39,6 +46,8 @@ export type MapRouteCoordinates =
   | [number, number, number?][][];
 
 export interface MapLibre3DViewProps {
+  /** Opt in only from Explore; all other map callers keep their current sources. */
+  exploreState?: ExploreMapState;
   height?: number;
   center?: [number, number]; // [lng, lat]
   zoom?: number;
@@ -78,6 +87,7 @@ export interface MapLibre3DViewRef {
 const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
   (
     {
+      exploreState,
       height,
       center = [108.529, 11.5831], // Mặc định Lâm Đồng / Tà Năng
       zoom = 13.5,
@@ -107,6 +117,8 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
     const [isLoaded, setIsLoaded] = useState(false);
     const [is3DMode, setIs3DMode] = useState(is3D);
     const [currentBearing, setCurrentBearing] = useState(0);
+    const [terrainAvailable, setTerrainAvailable] = useState(true);
+    const pendingTiles = useRef(new Set<number>());
 
     // Cấu hình ban đầu được giữ cố định để WebView KHÔNG bị reload lại mỗi khi props thay đổi
     const initialConfig = useRef({
@@ -120,7 +132,16 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
       is3D,
       dragRotate,
       showEndpoints,
+      explore: Boolean(exploreState),
+      offline: exploreState?.network === 'OFFLINE',
     }).current;
+
+    useEffect(() => () => { pendingTiles.current.clear(); }, []);
+
+    useEffect(() => {
+      if (!isLoaded || !exploreState) return;
+      runInMap(`window.setExploreConnection && window.setExploreConnection(${exploreState.network === 'OFFLINE' || exploreState.source === 'OFFLINE' || exploreState.source === 'MIXED'}, ${exploreState.revision}, ${exploreState.offlineMaxZoom});`);
+    }, [exploreState, isLoaded]);
 
     useImperativeHandle(ref, () => ({
       flyTo: (lng: number, lat: number, targetZoom = 14) => {
@@ -228,17 +249,45 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
 
     // Safety fallback: Tự động tắt loading overlay sau 3.5s nếu WebView chậm
     useEffect(() => {
+      if (initialConfig.explore) return;
       const fallbackTimer = setTimeout(() => {
         setIsLoaded(true);
       }, 3500);
       return () => clearTimeout(fallbackTimer);
-    }, []);
+    }, [initialConfig.explore]);
 
     const handleMessage = (event: any) => {
       try {
         const data = JSON.parse(event.nativeEvent.data);
-        if (data.type === "MAP_READY") {
+        if (data.type === 'EXPLORE_VIEWPORT' && initialConfig.explore) {
+          if (Array.isArray(data.center) && data.center.length === 2) {
+            void exploreMapService.setViewport(data.center).catch(() => {});
+          }
+        } else if (data.type === 'EXPLORE_TILE' && initialConfig.explore) {
+          if (!Number.isSafeInteger(data.id) || typeof data.url !== 'string') return;
+          const tile = parseTileUrl(data.url);
+          if (!tile) return;
+          pendingTiles.current.add(data.id);
+          void exploreMapService.tile(tile).then(result => {
+            if (!pendingTiles.current.delete(data.id)) return;
+            runInMap(`window.exploreTileResult(${data.id}, ${JSON.stringify(result.base64)}, null);`);
+            if (tile.kind === 'dem') {
+              setTerrainAvailable(true);
+              runInMap('window.setExploreTerrainAvailable(true);');
+            }
+          }).catch((error: Error) => {
+            if (!pendingTiles.current.delete(data.id)) return;
+            runInMap(`window.exploreTileResult(${data.id}, null, ${JSON.stringify(error.message)});`);
+            if (tile.kind === 'dem') {
+              setTerrainAvailable(false);
+              runInMap('window.setExploreTerrainAvailable(false);');
+            }
+          });
+        } else if (data.type === 'EXPLORE_TILE_CANCEL') {
+          pendingTiles.current.delete(data.id);
+        } else if (data.type === "MAP_READY") {
           setIsLoaded(true);
+          if (initialConfig.explore) runInMap('window.reportExploreViewport();');
           onMapReady?.();
         } else if (data.type === "CHECKPOINT_CLICK") {
           onCheckpointPress?.(data.id);
@@ -264,8 +313,9 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>TrekGo Tactical 3D Map</title>
-  <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
-  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  ${initialConfig.explore
+    ? `<style>${mapLibreCss}</style><script>${mapLibreJavaScript.replace(/<\/script/gi, '<\\/script')}</script>`
+    : '<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" /><script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>'}
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body, #map { width: 100%; height: 100%; overflow: hidden; background: #081008; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
@@ -355,16 +405,19 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
     .maplibregl-popup-tip {
       border-top-color: #0c2000 !important;
     }
-    .maplibregl-ctrl-attrib { display: none !important; }
+    ${initialConfig.explore ? '.maplibregl-ctrl-attrib { font-size: 9px; }' : '.maplibregl-ctrl-attrib { display: none !important; }'}
   </style>
 </head>
 <body>
   <div id="map"></div>
+  ${initialConfig.explore ? `<a href="https://www.maptiler.com/" aria-label="MapTiler" style="position:absolute;left:8px;bottom:22px;z-index:5;background:rgba(255,255,255,0.85);padding:3px;border-radius:3px"><img alt="MapTiler logo" style="display:block;width:80px;height:auto" src="data:image/svg+xml,${encodeURIComponent(mapTilerLogo)}" /></a>` : ''}
   <script>
     const INITIAL_CENTER = [${initialConfig.center[0]}, ${initialConfig.center[1]}];
     const INITIAL_ZOOM = ${initialConfig.zoom};
     const INITIAL_PITCH = ${initialConfig.pitch};
     const INITIAL_BEARING = ${initialConfig.bearing};
+    ${initialConfig.explore ? exploreProtocolScript : ''}
+    ${initialConfig.explore ? `exploreWants3D = ${initialConfig.is3D};` : ''}
 
     const map = new maplibregl.Map({
       container: 'map',
@@ -374,10 +427,11 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
           'satellite-tiles': {
             type: 'raster',
             tiles: [
-              'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+              '${initialConfig.explore ? 'trekgo://satellite/{z}/{x}/{y}' : 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'}'
             ],
-            tileSize: 256,
-            attribution: 'Esri Satellite'
+            tileSize: ${initialConfig.explore ? 512 : 256},
+            ${initialConfig.explore ? 'minzoom: 10, maxzoom: 18,' : ''}
+            attribution: ${JSON.stringify(initialConfig.explore ? '<a href="https://www.maptiler.com/copyright/">© MapTiler</a> <a href="https://www.openstreetmap.org/copyright">© OpenStreetMap contributors</a>' : 'Esri Satellite')}
           }
         },
         layers: [
@@ -393,7 +447,7 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
       center: INITIAL_CENTER,
       zoom: INITIAL_ZOOM,
       minZoom: ${initialConfig.minZoom},
-      maxZoom: ${initialConfig.maxZoom},
+      maxZoom: ${initialConfig.explore && initialConfig.offline ? 16 : initialConfig.maxZoom},
       pitch: INITIAL_PITCH,
       minPitch: 0,
       maxPitch: 65,
@@ -431,6 +485,7 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
         window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'USER_INTERACTION' }));
       }
     });
+    ${initialConfig.explore ? "map.on('moveend', window.reportExploreViewport);" : ''}
 
     map.on('zoomstart', function(e) {
       if (e && e.originalEvent && window.ReactNativeWebView) {
@@ -730,7 +785,8 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
     };
 
     window.set3DMode = function(enabled) {
-      if (enabled) {
+      ${initialConfig.explore ? 'exploreWants3D = enabled;' : ''}
+      if (enabled ${initialConfig.explore ? '&& exploreTerrainAvailable' : ''}) {
         map.setTerrain({ source: 'terrain-dem-source', exaggeration: 2.0 });
         map.easeTo({ pitch: 60, duration: 800 });
       } else {
@@ -745,11 +801,11 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
         // 1. Thêm nguồn địa hình 3D (Terrarium DEM)
         map.addSource('terrain-dem-source', {
           type: 'raster-dem',
-          tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
-          encoding: 'terrarium',
-          tileSize: 256,
-          minzoom: 5,
-          maxzoom: 15
+          tiles: ['${initialConfig.explore ? 'trekgo://dem/{z}/{x}/{y}' : 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'}'],
+          encoding: '${initialConfig.explore ? 'mapbox' : 'terrarium'}',
+          tileSize: ${initialConfig.explore ? 512 : 256},
+          minzoom: ${initialConfig.explore ? 10 : 5},
+          maxzoom: ${initialConfig.explore ? 12 : 15}
         });
 
         if (${initialConfig.is3D}) {
@@ -872,6 +928,12 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
     // Memoize object source để WebView KHÔNG bao giờ bị reload lại khi component re-render
     const webViewSource = useMemo(() => ({ html: htmlContent }), [htmlContent]);
 
+    if (initialConfig.explore && Platform.OS === 'web') {
+      return <View style={[styles.container, { height: height ?? 260, justifyContent: 'center', alignItems: 'center' }]}>
+        <Text style={styles.loadingText}>Bản đồ Explore hỗ trợ trên Android và iOS.</Text>
+      </View>;
+    }
+
     return (
       <View
         style={[
@@ -879,12 +941,22 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
           height !== undefined ? { height } : { flex: 1 },
         ]}
       >
+        {initialConfig.explore && !terrainAvailable && (
+          <View style={styles.terrainWarning}><Text style={styles.loadingText}>Dữ liệu 3D chưa đầy đủ · Đang hiển thị 2D</Text></View>
+        )}
         <WebView
           ref={webViewRef}
           originWhitelist={["*"]}
           source={webViewSource}
           style={styles.webView}
           onMessage={handleMessage}
+          onShouldStartLoadWithRequest={initialConfig.explore ? request => {
+            if (request.url === 'about:blank' || request.url.startsWith('data:text/html')) return true;
+            if (/^https:\/\/(www\.)?(maptiler\.com|openstreetmap\.org)\//.test(request.url)) {
+              void Linking.openURL(request.url).catch(() => {});
+            }
+            return false;
+          } : undefined}
           javaScriptEnabled={true}
           domStorageEnabled={true}
           scrollEnabled={false}
@@ -961,7 +1033,7 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
         )}
 
         <View style={styles.hudBottomLeft}>
-          <Text style={styles.watermarkText}>TREKGO 3D · SATELLITE & DEM</Text>
+          <Text style={styles.watermarkText}>{initialConfig.explore ? 'MapTiler · TREKGO 2D/3D' : 'TREKGO 3D · SATELLITE & DEM'}</Text>
         </View>
       </View>
     );
@@ -994,6 +1066,10 @@ const styles = StyleSheet.create({
     color: Colors.primary,
     fontSize: 11,
     fontWeight: "700",
+  },
+  terrainWarning: {
+    position: 'absolute', bottom: 42, left: 8, right: 52, zIndex: 12,
+    padding: 6, backgroundColor: 'rgba(8,16,8,0.9)', borderRadius: 4,
   },
   hudTopRight: {
     position: "absolute",

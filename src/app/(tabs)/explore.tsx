@@ -1,4 +1,6 @@
 import { CreatePrivateTripModal } from "@/components/CreatePrivateTripModal";
+import { ExploreMapStatus } from "@/components/map/ExploreMapStatus";
+import { useExploreMap } from "@/hooks/useExploreMap";
 import {
   MapCheckpoint,
   MapLibre3DView,
@@ -45,6 +47,7 @@ function formatDateTime(dateStr?: string): string {
 }
 
 export default function ExploreScreen() {
+  const exploreMap = useExploreMap();
   const router = useRouter();
   const { trails, unlockTrail, personalTrails, refreshPersonalTrails } =
     useApp();
@@ -387,7 +390,7 @@ export default function ExploreScreen() {
 
               <View style={styles.offlineGpsBadge}>
                 <View style={styles.pulseDot} />
-                <Text style={styles.offlineGpsText}>Offline GPS 3D</Text>
+                <Text style={styles.offlineGpsText}>GPS · BẢN ĐỒ 2D/3D</Text>
               </View>
 
               <View style={styles.ratingBadge}>
@@ -485,7 +488,7 @@ export default function ExploreScreen() {
                 >
                   <Ionicons name="map" size={16} color={Colors.primaryDark} />
                   <Text style={styles.mapHeaderTitle}>
-                    Bản đồ địa hình 3D MapLibre & ArcGIS
+                    Bản đồ 2D/3D · MapTiler
                   </Text>
                 </View>
                 <View style={styles.contourBadge}>
@@ -494,12 +497,15 @@ export default function ExploreScreen() {
               </View>
 
               <MapLibre3DView
+                exploreState={exploreMap}
+                currentPosition={exploreMap.position ? { longitude: exploreMap.position[0], latitude: exploreMap.position[1] } : null}
                 height={260}
                 is3D={true}
                 plannedRoute={systemPlannedRoute}
                 checkpoints={systemCheckpoints}
                 interactive={true}
               />
+              <ExploreMapStatus state={exploreMap} />
             </View>
 
             {/* Description */}
@@ -703,8 +709,9 @@ export default function ExploreScreen() {
                   </View>
 
                   <MapLibre3DView
+                    exploreState={exploreMap}
+                    currentPosition={exploreMap.position ? { longitude: exploreMap.position[0], latitude: exploreMap.position[1] } : null}
                     ref={personalMapRef}
-                    key={activePersonal?.id || "personal-map"}
                     height={260}
                     center={
                       activePersonal?.gpsRoute &&
@@ -723,6 +730,7 @@ export default function ExploreScreen() {
                     showEndpoints={true}
                     interactive={true}
                   />
+                  <ExploreMapStatus state={exploreMap} />
                 </View>
 
                 {/* Nút hành động */}
@@ -911,6 +919,7 @@ export default function ExploreScreen() {
 
       {/* MODAL GHI CUNG ĐƯỜNG TrekGo STYLE */}
       <LiveTrailRecorderModal
+        exploreState={exploreMap}
         visible={isRecordingModalVisible}
         onClose={() => setIsRecordingModalVisible(false)}
         onSaved={(newId, newTrail) => {

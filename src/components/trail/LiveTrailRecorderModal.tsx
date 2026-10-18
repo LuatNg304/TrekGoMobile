@@ -5,6 +5,8 @@ import {
   MapLibre3DViewRef,
 } from "@/components/map/MapLibre3DView";
 import { Colors, Radius, Shadows } from "@/constants/theme";
+import { ExploreMapStatus } from '@/components/map/ExploreMapStatus';
+import type { ExploreMapState } from '@/services/maps/exploreMapService';
 import { useApp } from "@/context/AppContext";
 import {
   generateUUID,
@@ -49,12 +51,14 @@ import {
 } from "react-native";
 
 interface LiveTrailRecorderModalProps {
+  exploreState?: ExploreMapState;
   visible: boolean;
   onClose: () => void;
   onSaved?: (trailId: string, trail?: PersonalTrail) => void;
 }
 
 export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
+  exploreState,
   visible,
   onClose,
   onSaved,
@@ -1047,6 +1051,7 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
         {/* 2. MapLibre View (Mặc định 2D tĩnh trong lúc tracking để triệt tiêu biến dạng Terrain 3D) */}
         <View style={styles.mapContainer}>
           <MapLibre3DView
+            exploreState={exploreState}
             ref={mapRef}
             center={
               currentPosition
@@ -1071,6 +1076,7 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
         </View>
 
         {/* 3. Compact Telemetry Dashboard */}
+        {exploreState && <ExploreMapStatus state={exploreState} />}
         <View style={styles.dashboard}>
           {/* Row 1: Primary Stats (Thời gian di chuyển & Quãng đường) */}
           <View style={styles.primaryStatsRow}>
