@@ -104,8 +104,7 @@ export function LeaderCreateTripScreen() {
 
   // Load destinations from API on mount
   useEffect(() => {
-    const timer = setTimeout(fetchDestinations, 0);
-    return () => clearTimeout(timer);
+    fetchDestinations();
   }, [fetchDestinations]);
 
   // Load pickup points & checkpoints when destination changes
@@ -146,6 +145,16 @@ export function LeaderCreateTripScreen() {
   const updateField = (field: keyof LeaderTripFormData, value: string) => {
     setForm((current) => ({ ...current, [field]: value }));
     setErrors((current) => ({ ...current, [field]: undefined }));
+  };
+
+  const toggleCheckpoint = (id: string) => {
+    setForm((current) => ({
+      ...current,
+      checkpointIds: current.checkpointIds.includes(id)
+        ? current.checkpointIds.filter((cpId) => cpId !== id)
+        : [...current.checkpointIds, id],
+    }));
+    setErrors((current) => ({ ...current, checkpointIds: undefined }));
   };
 
   const validate = () => {

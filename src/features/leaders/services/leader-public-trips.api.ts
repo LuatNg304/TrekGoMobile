@@ -21,12 +21,12 @@ export interface TripOptionCheckpoint {
 
 export interface ScheduleConflictResponse {
   hasConflict: boolean;
-  conflicts: {
+  conflicts: Array<{
     id: string;
     title: string;
     startAt: string;
     endAt: string;
-  }[];
+  }>;
 }
 
 export interface LeaderTrailSuggestion {
@@ -51,21 +51,21 @@ export interface SystemTrailDetail {
   };
   routeGeojson: {
     type: "FeatureCollection";
-    features: {
+    features: Array<{
       type: "Feature";
       geometry: {
         type: "LineString";
         coordinates: number[][];
       };
-    }[];
+    }>;
   };
-  checkpoints: {
+  checkpoints: Array<{
     id: string;
     name: string;
     sequence: number;
     latitude: number;
     longitude: number;
-  }[];
+  }>;
   initialCamera: {
     center: [number, number];
     zoom: number;
@@ -128,7 +128,7 @@ export interface ReadinessIssue {
 
 export interface ReadinessCheckResponse {
   canPublish: boolean;
-  issues: (string | ReadinessIssue)[];
+  issues: Array<string | ReadinessIssue>;
   version: number;
 }
 

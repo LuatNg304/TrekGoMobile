@@ -83,11 +83,7 @@ export function usePublicTripDetail(
   }, [tripId, accessToken]);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      void fetchTripDetail();
-    }, 0);
-
-    return () => clearTimeout(timer);
+    void fetchTripDetail();
   }, [fetchTripDetail]);
 
   return {

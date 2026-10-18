@@ -6,7 +6,7 @@ export function parseVnDate(str: string): Date | null {
   if (!str) return null;
   const trimmed = str.trim();
   const parts = trimmed.includes("/") ? trimmed.split("/") : trimmed.includes("-") ? trimmed.split("-") : [];
-
+  
   if (parts.length === 3) {
     let day: number, month: number, year: number;
     if (parts[0].length === 4) {
@@ -134,12 +134,12 @@ export function validateTripDates(startDateStr: string, endDateStr: string): Dat
   return result;
 }
 
-export function getQuickDatePresets(): {
+export function getQuickDatePresets(): Array<{
   label: string;
   durationLabel: string;
   startDate: string;
   endDate: string;
-}[] {
+}> {
   const now = new Date();
   const base = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
