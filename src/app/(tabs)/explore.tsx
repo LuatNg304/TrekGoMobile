@@ -1,26 +1,26 @@
 import { CreatePrivateTripModal } from "@/components/CreatePrivateTripModal";
 import {
-  MapLibre3DView,
   MapCheckpoint,
+  MapLibre3DView,
   MapLibre3DViewRef,
 } from "@/components/map/MapLibre3DView";
-import { LiveTrailRecorderModal } from "@/components/trail/LiveTrailRecorderModal";
 import { TopHeader } from "@/components/TopHeader";
+import { LiveTrailRecorderModal } from "@/components/trail/LiveTrailRecorderModal";
 import { Colors, Radius, Shadows } from "@/constants/theme";
 import { useApp } from "@/context/AppContext";
-import { Trail, PersonalTrail } from "@/types";
+import { PersonalTrail, Trail } from "@/types";
 import { Ionicons } from "@expo/vector-icons";
 import { Href, useRouter } from "expo-router";
-import React, {
-  useState,
-  useRef,
+import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
+  useState,
 } from "react";
 import {
-  RefreshControl,
   Image,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -1080,6 +1080,45 @@ const styles = StyleSheet.create({
   },
   filterPillTextActive: {
     color: "#ffffff",
+  },
+  publicTripsBanner: {
+    marginHorizontal: 16,
+    marginTop: 4,
+    marginBottom: 14,
+    padding: 14,
+    borderRadius: Radius.xl,
+    backgroundColor: Colors.surfaceContainerLowest,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    ...Shadows.card,
+    borderWidth: 1,
+    borderColor: Colors.secondaryContainer,
+  },
+  publicTripsBannerLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    flex: 1,
+    marginRight: 8,
+  },
+  publicTripsIconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.secondaryContainer,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  publicTripsBannerTitle: {
+    fontSize: 14,
+    fontWeight: "900",
+    color: Colors.onSurface,
+  },
+  publicTripsBannerSub: {
+    fontSize: 11,
+    color: Colors.mute,
+    marginTop: 2,
   },
   mainTrailCard: {
     marginHorizontal: 16,
