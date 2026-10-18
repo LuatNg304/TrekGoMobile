@@ -5,12 +5,15 @@ import { Colors, Radius } from '@/constants/theme';
 import { TrekGoLogo } from './TrekGoLogo';
 import { useApp } from '@/context/AppContext';
 
+import { useRouter } from 'expo-router';
+
 interface TopHeaderProps {
   subtitle?: string;
   onNotificationPress?: () => void;
 }
 
 export const TopHeader: React.FC<TopHeaderProps> = ({ subtitle = 'Home', onNotificationPress }) => {
+  const router = useRouter();
   const { user } = useApp();
 
   return (
@@ -36,6 +39,16 @@ export const TopHeader: React.FC<TopHeaderProps> = ({ subtitle = 'Home', onNotif
             {user.role === 'LEADER' ? 'LEADER' : 'TREKKER'}
           </Text>
         </View>
+
+        {/* QR Scanner button */}
+        <TouchableOpacity 
+          style={styles.iconButton} 
+          onPress={() => router.push('/scan-qr' as any)}
+          activeOpacity={0.7}
+          accessibilityLabel="Quét mã QR"
+        >
+          <Ionicons name="qr-code-outline" size={20} color={Colors.onSurfaceVariant} />
+        </TouchableOpacity>
 
         {/* Notifications button */}
         <TouchableOpacity 

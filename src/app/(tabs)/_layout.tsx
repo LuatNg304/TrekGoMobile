@@ -8,8 +8,14 @@ import {
 } from "react-native";
 
 import { Colors, Radius, Shadows } from "@/constants/theme";
+import { useApp } from "@/context/AppContext";
+import { useAuth } from "@/features/auth/AuthContext";
 
 export default function TabLayout() {
+  const { user } = useApp();
+  const { user: authUser } = useAuth();
+  const isLeader = authUser?.role === "LEADER" || user.role === "LEADER";
+
   return (
     <Tabs
       screenOptions={{
@@ -81,7 +87,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="trips"
         options={{
-          title: "Trips",
+          title: isLeader ? "Chuyến đi" : "Trips",
           tabBarIcon: ({ focused, color }) => (
             <TabIcon
               focused={focused}
@@ -96,13 +102,13 @@ export default function TabLayout() {
       <Tabs.Screen
         name="rental"
         options={{
-          title: "Rental",
+          title: isLeader ? "Điều hành" : "Rental",
           tabBarIcon: ({ focused, color }) => (
             <TabIcon
               focused={focused}
               color={color}
-              activeIcon="basket"
-              inactiveIcon="basket-outline"
+              activeIcon={isLeader ? "shield-checkmark" : "basket"}
+              inactiveIcon={isLeader ? "shield-checkmark-outline" : "basket-outline"}
             />
           ),
         }}

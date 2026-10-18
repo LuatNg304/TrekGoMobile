@@ -15,6 +15,8 @@ import { RentalCartModal } from "@/components/RentalCartModal";
 import { TopHeader } from "@/components/TopHeader";
 import { Colors, Radius, Shadows } from "@/constants/theme";
 import { useApp } from "@/context/AppContext";
+import { useAuth } from "@/features/auth/AuthContext";
+import { LeaderDashboardScreen } from "@/features/leaders/screens";
 import { EquipmentCategory, RentalStatus } from "@/types";
 
 type RentalView = "CATALOG" | "ORDERS";
@@ -108,7 +110,13 @@ const statusContent: Record<
 export default function RentalScreen() {
   const router = useRouter();
 
-  const { equipment, cart, addToCart, activeTrip, rentalOrders } = useApp();
+  const { equipment, cart, addToCart, activeTrip, rentalOrders, user } = useApp();
+  const { user: authUser } = useAuth();
+  const isLeader = authUser?.role === "LEADER" || user.role === "LEADER";
+
+  if (isLeader) {
+    return <LeaderDashboardScreen />;
+  }
 
   const [view, setView] = useState<RentalView>("CATALOG");
 

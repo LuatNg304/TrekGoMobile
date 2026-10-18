@@ -20,7 +20,7 @@ export default function FieldOperationsHome() {
     const router = useRouter();
     const { user, authRole, signOut, fieldWorkflow, enableReturnDemo, resetFieldWorkflow } = useApp();
     const { user: authUser, signOut: authSignOut } = useAuth();
-    const effectiveRole = authRole || (authUser?.role === 'STAFF_DELIVERY' || authUser?.role === 'LEADER' ? authUser.role : null) || (user.role === 'STAFF_DELIVERY' || user.role === 'LEADER' ? user.role : null);
+    const effectiveRole = authRole || (authUser?.role === 'STAFF_DELIVERY' || authUser?.role === 'LEADER' ? authUser.role : null) || (user.role === 'LEADER' ? 'LEADER' : null);
 
     if (!effectiveRole) { router.replace('/'); return null; }
 

@@ -14,7 +14,7 @@ export default function LeaderCheckpointScreen() {
   const [safe, setSafe] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false);
   const [success, setSuccess] = useState(false);
-  const checkpointId = fieldWorkflow.requiredCheckpointIds.find(id => !fieldWorkflow.completedCheckpointIds.includes(id));
+  const checkpointId = fieldWorkflow.requiredCheckpointIds.find((id: string) => !fieldWorkflow.completedCheckpointIds.includes(id));
   const checkpoint = activeTrail.checkpoints.find(item => item.id === checkpointId);
 
   if (fieldWorkflow.leaderTripStatus !== 'IN_PROGRESS') {
