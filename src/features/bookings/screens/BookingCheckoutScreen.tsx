@@ -1,26 +1,26 @@
 import { Colors, Radius, Shadows } from "@/constants/theme";
 import {
-  BOOKING_STATUS_LABELS,
-} from "@/features/bookings/services/booking.api";
-import {
-  useBookingDetail,
-  useBookingMutations,
-  usePaymentOptions,
-} from "@/features/bookings/hooks";
-import type { BookingStatus, PaymentGateway } from "@/features/bookings/types";
-import {
   CancelBookingModal,
   EditParticipantsModal,
   PaymentCompleteResult,
   PaymentWebViewModal,
 } from "@/features/bookings/components";
+import {
+  useBookingDetail,
+  useBookingMutations,
+  usePaymentOptions,
+} from "@/features/bookings/hooks";
+import {
+  BOOKING_STATUS_LABELS,
+  bookingApiService,
+} from "@/features/bookings/services/booking.api";
+import type { PaymentGateway } from "@/features/bookings/types";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useCallback, useState } from "react";
+import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Image,
   Linking,
   Modal,
   ScrollView,
@@ -66,8 +66,19 @@ export function BookingCheckoutScreen({
   const handlePaymentWebViewComplete = useCallback(
     async (result: PaymentCompleteResult) => {
       setPaymentWebViewUrl(null);
+      // Xóa key cũ sau khi đã thanh toán (dù thành công hay thất bại để lần sau tạo mới)
+      bookingApiService.clearBookingPaymentSession(bookingId);
+
       if (result.success) {
-        await refetch();
+        // Retry refetch để đảm bảo backend đã kịp ghi nhận webhook / return và đổi trạng thái sang CONFIRMED
+        let updated = await refetch();
+        if (updated?.status !== "CONFIRMED") {
+          for (let attempt = 0; attempt < 3; attempt++) {
+            await new Promise((r) => setTimeout(r, 1200));
+            updated = await refetch();
+            if (updated?.status === "CONFIRMED") break;
+          }
+        }
         setShowSuccessModal(true);
       } else {
         Alert.alert(
@@ -76,7 +87,7 @@ export function BookingCheckoutScreen({
         );
       }
     },
-    [refetch],
+    [bookingId, refetch],
   );
 
   if (isLoading && !booking) {
@@ -144,12 +155,12 @@ export function BookingCheckoutScreen({
       return;
     }
 
-    try {
+        try {
       const res = await createPayment(
         booking.id,
         "REDIRECT",
         selectedGateway,
-        booking.paymentSummary?.paymentId,
+        // Bỏ booking.paymentSummary?.paymentId đi để luôn dùng 1 key duy nhất theo bookingId + gateway
       );
 
       if (res.checkout?.url) {

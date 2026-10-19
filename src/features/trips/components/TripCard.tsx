@@ -25,7 +25,9 @@ export const TripCard = memo(function TripCard({ trip, onPress }: TripCardProps)
       <View style={styles.cardHeader}>
         <View style={styles.destinationPill}>
           <Ionicons name="location" size={11} color={Colors.primaryDark} />
-          <Text style={styles.destinationText}>{trip.destination.name}</Text>
+          <Text style={styles.destinationText}>
+            {trip.destination?.name || "Điểm đến"}
+          </Text>
         </View>
 
         {isAlmostFull && (
@@ -52,7 +54,7 @@ export const TripCard = memo(function TripCard({ trip, onPress }: TripCardProps)
             · {diffDays}N{Math.max(0, diffDays - 1)}Đ
           </Text>
         </View>
-        {trip.routes[0] && (
+        {trip.routes?.[0] && (
           <View style={styles.metaItem}>
             <Ionicons name="trending-up" size={13} color={Colors.mute} />
             <Text style={styles.metaText}>{trip.routes[0].snapshotDifficulty}</Text>
@@ -64,29 +66,33 @@ export const TripCard = memo(function TripCard({ trip, onPress }: TripCardProps)
       <View style={styles.leaderRow}>
         <View style={styles.leaderAvatarSmall}>
           <Text style={styles.leaderAvatarLetter}>
-            {trip.leader.fullName.charAt(0).toUpperCase()}
+            {(trip.leader?.fullName || "L").charAt(0).toUpperCase()}
           </Text>
         </View>
-        <Text style={styles.leaderName}>{trip.leader.fullName}</Text>
+        <Text style={styles.leaderName}>
+          {trip.leader?.fullName || "TrekGo Leader"}
+        </Text>
         <Ionicons name="shield-checkmark" size={12} color={Colors.primaryDark} />
       </View>
 
       {/* Pickup */}
-      <View style={styles.pickupBanner}>
-        <Ionicons name="bus-outline" size={12} color={Colors.onSurfaceVariant} />
-        <Text style={styles.pickupText} numberOfLines={1}>
-          {trip.pickup.name}
-          {trip.pickup.address ? ` · ${trip.pickup.address}` : ""}
-        </Text>
-      </View>
+      {trip.pickup?.name ? (
+        <View style={styles.pickupBanner}>
+          <Ionicons name="bus-outline" size={12} color={Colors.onSurfaceVariant} />
+          <Text style={styles.pickupText} numberOfLines={1}>
+            {trip.pickup.name}
+            {trip.pickup.address ? ` · ${trip.pickup.address}` : ""}
+          </Text>
+        </View>
+      ) : null}
 
       {/* Footer: price + slots */}
       <View style={styles.cardFooter}>
         <View>
           <Text style={styles.priceLabel}>Giá vé / người</Text>
           <Text style={styles.priceValue}>
-            {parseFloat(trip.pricePerPax).toLocaleString("vi-VN")}
-            <Text style={styles.priceCurrency}> {trip.currency}</Text>
+            {parseFloat(trip.pricePerPax || "0").toLocaleString("vi-VN")}
+            <Text style={styles.priceCurrency}> {trip.currency || "VND"}</Text>
           </Text>
         </View>
 
@@ -117,6 +123,7 @@ const styles = StyleSheet.create({
     borderRadius: Radius.xl,
     padding: 16,
     gap: 8,
+    marginBottom: 14,
     ...Shadows.hover,
   },
   cardHeader: {

@@ -1,10 +1,11 @@
 import { Colors, Radius, Shadows } from "@/constants/theme";
 import { API_BASE_URL } from "@/lib/api-client";
 import { Ionicons } from "@expo/vector-icons";
-import React, { useRef, useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Linking,
   Modal,
   Platform,
   StyleSheet,
@@ -41,99 +42,134 @@ export function PaymentWebViewModal({
   const [progress, setProgress] = useState(0);
   const completedRef = useRef(false);
 
+  // Helper forward return URL to backend to let server verify hash and update status
+  const forwardToBackendAndComplete = useCallback(
+    async (
+      success: boolean,
+      responseCode: string,
+      message: string,
+      navUrl: string,
+    ) => {
+      // Đổi host localhost / 127.0.0.1 thành API_BASE_URL thực tế
+      const isLocalhost =
+        navUrl.includes("localhost:") ||
+        navUrl.includes("127.0.0.1:") ||
+        navUrl.includes("localhost/") ||
+        navUrl.includes("127.0.0.1/");
+
+      const backendEndpoint = isLocalhost
+        ? navUrl.replace(/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/, API_BASE_URL)
+        : navUrl;
+
+      // Nếu URL là endpoint của backend hoặc có query callback thanh toán, gọi backend
+      if (
+        isLocalhost ||
+        backendEndpoint.includes("/payments/") ||
+        backendEndpoint.includes("/vnpay/") ||
+        backendEndpoint.includes("/momo/")
+      ) {
+        try {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 3500);
+          await fetch(backendEndpoint, { signal: controller.signal }).catch(() => {});
+          clearTimeout(timer);
+        } catch {
+          // ignore network error
+        }
+      }
+
+      onPaymentComplete({
+        success,
+        responseCode,
+        message,
+        rawUrl: navUrl,
+      });
+    },
+    [onPaymentComplete],
+  );
+
   // Check if URL indicates a payment result (VNPAY / MoMo / Return Callback)
   function handleUrlChange(navUrl: string): boolean {
+    if (!navUrl) return true;
+
+    // 0. Handle external app schemes (e.g. momo://, vnpay://, bank apps)
+    if (!navUrl.startsWith("http://") && !navUrl.startsWith("https://")) {
+      Linking.canOpenURL(navUrl)
+        .then((supported) => {
+          if (supported) {
+            void Linking.openURL(navUrl);
+          }
+        })
+        .catch(() => {});
+      return false;
+    }
+
     if (completedRef.current) return false;
 
     // 1. VNPAY detection
     if (navUrl.includes("vnp_ResponseCode")) {
+      completedRef.current = true;
       const match = navUrl.match(/vnp_ResponseCode=([^&]+)/);
       const code = match ? match[1] : null;
 
-      // Also forward return URL to backend if it was targeting localhost:5000
-      if (navUrl.includes("localhost:5000") || navUrl.includes("127.0.0.1:5000")) {
-        const backendEndpoint = navUrl.replace(
-          /http:\/\/(localhost|127\.0\.0\.1):5000/,
-          API_BASE_URL,
-        );
-        fetch(backendEndpoint).catch(() => {});
-      }
-
-      completedRef.current = true;
       if (code === "00") {
-        onPaymentComplete({
-          success: true,
-          responseCode: "00",
-          message: "Thanh toán thành công!",
-          rawUrl: navUrl,
-        });
+        void forwardToBackendAndComplete(
+          true,
+          "00",
+          "Thanh toán thành công!",
+          navUrl,
+        );
       } else {
-        onPaymentComplete({
-          success: false,
-          responseCode: code || "FAILED",
-          message:
-            code === "24"
-              ? "Bạn đã hủy giao dịch."
-              : `Giao dịch không thành công (Mã lỗi: ${code}).`,
-          rawUrl: navUrl,
-        });
+        void forwardToBackendAndComplete(
+          false,
+          code || "FAILED",
+          code === "24"
+            ? "Bạn đã hủy giao dịch."
+            : `Giao dịch không thành công (Mã lỗi: ${code}).`,
+          navUrl,
+        );
       }
-      return false; // Stop loading localhost
+      return false; // Stop loading return page inside webview
     }
 
     // 2. MoMo detection
     if (navUrl.includes("resultCode=")) {
+      completedRef.current = true;
       const match = navUrl.match(/resultCode=([^&]+)/);
       const code = match ? match[1] : null;
 
-      if (navUrl.includes("localhost:5000") || navUrl.includes("127.0.0.1:5000")) {
-        const backendEndpoint = navUrl.replace(
-          /http:\/\/(localhost|127\.0\.0\.1):5000/,
-          API_BASE_URL,
-        );
-        fetch(backendEndpoint).catch(() => {});
-      }
-
-      completedRef.current = true;
       if (code === "0") {
-        onPaymentComplete({
-          success: true,
-          responseCode: "0",
-          message: "Thanh toán MoMo thành công!",
-          rawUrl: navUrl,
-        });
+        void forwardToBackendAndComplete(
+          true,
+          "0",
+          "Thanh toán MoMo thành công!",
+          navUrl,
+        );
       } else {
-        onPaymentComplete({
-          success: false,
-          responseCode: code || "FAILED",
-          message: "Giao dịch MoMo không thành công.",
-          rawUrl: navUrl,
-        });
+        void forwardToBackendAndComplete(
+          false,
+          code || "FAILED",
+          "Giao dịch MoMo không thành công.",
+          navUrl,
+        );
       }
       return false;
     }
 
-    // 3. Catch generic localhost return endpoints before ERR_CONNECTION_REFUSED
+    // 3. Catch generic return endpoints before ERR_CONNECTION_REFUSED
     if (
-      navUrl.includes("localhost:5000") ||
-      navUrl.includes("127.0.0.1:5000") ||
+      navUrl.includes("localhost:") ||
+      navUrl.includes("127.0.0.1:") ||
       navUrl.includes("/payment-success") ||
       navUrl.includes("/payments/return")
     ) {
-      // Forward to backend
-      const backendEndpoint = navUrl.replace(
-        /http:\/\/(localhost|127\.0\.0\.1):5000/,
-        API_BASE_URL,
-      );
-      fetch(backendEndpoint).catch(() => {});
-
       completedRef.current = true;
-      onPaymentComplete({
-        success: true,
-        responseCode: "00",
-        message: "Thanh toán thành công!",
-        rawUrl: navUrl,
-      });
+      void forwardToBackendAndComplete(
+        true,
+        "00",
+        "Thanh toán thành công!",
+        navUrl,
+      );
       return false;
     }
 
