@@ -72,8 +72,6 @@ export function useBookingDetail(
   }, [booking?.expiresAt, booking?.status]);
 
   // Auto-polling when PENDING_PAYMENT to detect payment completion
-  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   useEffect(() => {
     if (!enablePolling || !bookingId) return;
 
@@ -81,20 +79,17 @@ export function useBookingDetail(
       const expiresTime = booking.expiresAt
         ? new Date(booking.expiresAt).getTime()
         : Infinity;
-      const isExpired = Date.now() > expiresTime;
 
-      if (!isExpired) {
-        pollTimerRef.current = setTimeout(async () => {
-          await fetchDetail();
-        }, 2000);
-      }
+      const interval = setInterval(async () => {
+        if (Date.now() > expiresTime) {
+          clearInterval(interval);
+          return;
+        }
+        await fetchDetail();
+      }, 3000);
+
+      return () => clearInterval(interval);
     }
-
-    return () => {
-      if (pollTimerRef.current) {
-        clearTimeout(pollTimerRef.current);
-      }
-    };
   }, [booking?.status, booking?.expiresAt, bookingId, enablePolling, fetchDetail]);
 
   return {

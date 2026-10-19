@@ -78,7 +78,7 @@ export default function TripsScreen() {
     trips: publicTripsList,
     loading: loadingPublicTrips,
     refresh: refreshPublicTrips,
-  } = usePublicTrips({ pageSize: 20 });
+  } = usePublicTrips({ pageSize: 50 });
 
   const [refreshing, setRefreshing] = useState(false);
 
@@ -134,9 +134,9 @@ export default function TripsScreen() {
       const matchesSearch =
         !publicSearch.trim() ||
         t.title.toLowerCase().includes(publicSearch.toLowerCase()) ||
-        t.destination.name.toLowerCase().includes(publicSearch.toLowerCase());
+        (t.destination?.name || "").toLowerCase().includes(publicSearch.toLowerCase());
 
-      const tripDiff = t.routes[0]?.snapshotDifficulty;
+      const tripDiff = t.routes?.[0]?.snapshotDifficulty;
       const matchesDifficulty =
         selectedDifficulty === "Tất cả" || tripDiff === selectedDifficulty;
 
