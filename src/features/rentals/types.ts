@@ -247,6 +247,7 @@ export type DeliveryTaskDetail = {
     allowedActions: string[];
   };
   package: { id: string; code: string; status: string; version: number } | null;
+  custodyTransfer: { id: string; status: string; requestedAt: string } | null;
   units: DeliveryTaskUnit[];
   recipient: { displayName?: string; fullName?: string; name?: string };
   verificationStatus: Record<string, unknown>;

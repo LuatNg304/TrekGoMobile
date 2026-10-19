@@ -371,6 +371,111 @@ export const rentalApi = {
     return unwrap(response);
   },
 
+  async receiveDeliveryPackage(
+    taskId: string,
+    input: {
+      custodyTransferId: string;
+      packageCode: string;
+      expectedVersion: number;
+    },
+    idempotencyKey: string,
+    accessToken: string,
+  ) {
+    const response = await apiRequest<
+      Envelope<{
+        task: { id: string; status: string; packageReceivedAt?: string | null; version: number };
+        custody: { id: string; status: string; receivedAt?: string | null };
+      }>
+    >(`/api/v1/delivery/tasks/${taskId}/receive-package`, {
+      method: "POST",
+      accessToken,
+      headers: { "Idempotency-Key": idempotencyKey },
+      body: JSON.stringify(input),
+    });
+
+    return unwrap(response);
+  },
+
+  async verifyDeliveryRecipient(
+    taskId: string,
+    input: { pickupCode: string; expectedVersion: number },
+    idempotencyKey: string,
+    accessToken: string,
+  ) {
+    const response = await apiRequest<
+      Envelope<{
+        verificationRef: string;
+        recipient: Record<string, unknown>;
+        expectedPackage: { id: string; code: string; version: number };
+        expiresAt: string;
+        taskVersion: number;
+      }>
+    >(`/api/v1/delivery/tasks/${taskId}/verify-user`, {
+      method: "POST",
+      accessToken,
+      headers: { "Idempotency-Key": idempotencyKey },
+      body: JSON.stringify(input),
+    });
+
+    return unwrap(response);
+  },
+
+  async commitRentalHandover(
+    orderId: string,
+    input: {
+      packageId: string;
+      verificationRef: string;
+      recipientNotes?: string;
+      reportedIssues?: { unitId?: string; type: string; description: string }[];
+      expectedVersion: number;
+    },
+    idempotencyKey: string,
+    accessToken: string,
+  ) {
+    const response = await apiRequest<Envelope<Record<string, unknown>>>(
+      `/api/v1/rental-orders/${orderId}/handover`,
+      {
+        method: "POST",
+        accessToken,
+        headers: { "Idempotency-Key": idempotencyKey },
+        body: JSON.stringify(input),
+      },
+    );
+
+    return unwrap(response);
+  },
+
+  async markRentalNoShow(
+    orderId: string,
+    input: {
+      reason:
+        | "NO_SHOW"
+        | "USER_NO_SHOW"
+        | "USER_CHANGED_MIND"
+        | "USER_REFUSED_DISCLOSED_CONDITION"
+        | "SYSTEM_WRONG_EQUIPMENT"
+        | "SYSTEM_DAMAGED_EQUIPMENT"
+        | "SYSTEM_MISSING_EQUIPMENT"
+        | "OTHER_SYSTEM_FAULT";
+      notes?: string;
+      evidenceIds?: string[];
+      expectedVersion: number;
+    },
+    idempotencyKey: string,
+    accessToken: string,
+  ) {
+    const response = await apiRequest<Envelope<Record<string, unknown>>>(
+      `/api/v1/rental-orders/${orderId}/no-show`,
+      {
+        method: "POST",
+        accessToken,
+        headers: { "Idempotency-Key": idempotencyKey },
+        body: JSON.stringify(input),
+      },
+    );
+
+    return unwrap(response);
+  },
   async scanRentalReturn(
     orderId: string,
     input: { assetCodes: string[]; operationId: string; expectedVersion: number },
