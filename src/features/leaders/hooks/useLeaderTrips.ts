@@ -31,21 +31,37 @@ import { ApiError } from "@/lib/api-client";
 
 export function useLeaderTrips(accessToken?: string | null) {
   const [trips, setTrips] = useState<LeaderPublicTrip[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const fetchMyTrips = useCallback(
-    async (page = 1, pageSize = 20) => {
+    async (targetPage = 1, targetPageSize = 20, isLoadMore = false) => {
       if (!accessToken) return;
-      setLoading(true);
+      if (isLoadMore) {
+        setLoadingMore(true);
+      } else {
+        setLoading(true);
+      }
       setError(null);
       try {
-        const res = await getLeaderTrips(accessToken, page, pageSize);
-        setTrips(res.items ?? []);
+        const res = await getLeaderTrips(accessToken, targetPage, targetPageSize);
+        if (isLoadMore) {
+          setTrips((prev) => [...prev, ...(res.items ?? [])]);
+        } else {
+          setTrips(res.items ?? []);
+        }
+        setTotal(res.total ?? (res.items?.length || 0));
+        setPage(res.page ?? targetPage);
+        setPageSize(res.pageSize ?? targetPageSize);
       } catch (err) {
         setError(err instanceof ApiError ? err.message : "Không thể tải danh sách chuyến của bạn.");
       } finally {
         setLoading(false);
+        setLoadingMore(false);
       }
     },
     [accessToken],
@@ -107,7 +123,11 @@ export function useLeaderTrips(accessToken?: string | null) {
 
   return {
     trips,
+    total,
+    page,
+    pageSize,
     loading,
+    loadingMore,
     error,
     fetchMyTrips,
     cancelTrip,

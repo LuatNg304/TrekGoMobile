@@ -1,7 +1,8 @@
 import { Colors, Radius, Shadows } from "@/constants/theme";
 import { parsePrivateTripInviteCode } from "@/utils/qrInviteParser";
 import { Ionicons } from "@expo/vector-icons";
-import { CameraView, useCameraPermissions } from "expo-camera";
+import { Camera, CameraView, scanFromURLAsync, useCameraPermissions } from "expo-camera";
+import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import React, { useState } from "react";
 import {
@@ -32,13 +33,14 @@ export function QRScannerModal({
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
   const [torchActive, setTorchActive] = useState(false);
+  const [pickingImage, setPickingImage] = useState(false);
 
-  // Xử lý khi nhận diện barcode/QR
-  const handleBarcodeScanned = ({ data }: { data: string }) => {
-    if (scanned || !data) return;
+  // Xử lý chung khi trích xuất được text từ mã QR (dù từ camera hay từ ảnh tải lên)
+  const processQrData = (rawData: string) => {
+    if (!rawData) return;
     setScanned(true);
 
-    const inviteCode = parsePrivateTripInviteCode(data);
+    const inviteCode = parsePrivateTripInviteCode(rawData);
 
     if (inviteCode) {
       onClose();
@@ -54,10 +56,10 @@ export function QRScannerModal({
     } else {
       Alert.alert(
         "Mã QR không hợp lệ",
-        "Mã QR vừa quét không phải là mã mời Private Trip của TrekGo. Vui lòng quét mã QR được tạo từ ứng dụng TrekGo.",
+        "Mã QR không phải là mã mời Private Trip hợp lệ của TrekGo. Vui lòng quét mã QR hoặc tải ảnh mã mời được tạo từ TrekGo.",
         [
           {
-            text: "Quét lại",
+            text: "Thử lại",
             onPress: () => setScanned(false),
           },
           {
@@ -70,9 +72,69 @@ export function QRScannerModal({
     }
   };
 
+  // Xử lý khi nhận diện barcode/QR qua Camera trực tiếp
+  const handleBarcodeScanned = ({ data }: { data: string }) => {
+    if (scanned || !data || pickingImage) return;
+    processQrData(data);
+  };
+
+  // Xử lý chọn ảnh từ thư viện thiết bị và quét QR từ ảnh
+  const handlePickImage = async () => {
+    try {
+      setPickingImage(true);
+      const res = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: false,
+        quality: 1,
+      });
+
+      if (res.canceled || !res.assets || res.assets.length === 0) {
+        setPickingImage(false);
+        return;
+      }
+
+      const selectedUri = res.assets[0].uri;
+
+      // Quét QR code từ file ảnh đã chọn
+      const scanFn = scanFromURLAsync || Camera.scanFromURLAsync;
+      if (!scanFn) {
+        Alert.alert("Thông báo", "Thiết bị không hỗ trợ tính năng quét QR từ ảnh.");
+        setPickingImage(false);
+        return;
+      }
+
+      const scannedResults = await scanFn(selectedUri, ["qr"]);
+
+      if (!scannedResults || scannedResults.length === 0) {
+        Alert.alert(
+          "Không tìm thấy mã QR",
+          "Không nhận diện được mã QR nào trong ảnh vừa chọn. Vui lòng thử lại với ảnh rõ nét hơn hoặc cắt gần mã QR.",
+          [
+            { text: "Chọn ảnh khác", onPress: handlePickImage },
+            { text: "Đóng", style: "cancel" },
+          ],
+        );
+        setPickingImage(false);
+        return;
+      }
+
+      // Lấy kết quả mã QR đầu tiên tìm thấy
+      const qrData = scannedResults[0].data;
+      processQrData(qrData);
+    } catch (err: any) {
+      Alert.alert(
+        "Lỗi đọc ảnh",
+        err?.message || "Không thể phân tích mã QR từ ảnh đã chọn.",
+      );
+    } finally {
+      setPickingImage(false);
+    }
+  };
+
   const handleModalShow = () => {
     setScanned(false);
     setTorchActive(false);
+    setPickingImage(false);
   };
 
   return (
@@ -164,42 +226,65 @@ export function QRScannerModal({
                   <View style={[styles.corner, styles.bottomLeft]} />
                   <View style={[styles.corner, styles.bottomRight]} />
 
-                  {/* Aiming Reticle Dot in Center */}
-                  <View style={styles.aimDot} />
+                  {/* Aiming Reticle Dot in Center or Picking Image Spinner */}
+                  {pickingImage ? (
+                    <View style={styles.analyzingBox}>
+                      <ActivityIndicator size="large" color="#8cd867" />
+                      <Text style={styles.analyzingText}>Đang đọc mã QR...</Text>
+                    </View>
+                  ) : (
+                    <View style={styles.aimDot} />
+                  )}
                 </View>
 
                 <Text style={styles.instructionText}>
-                  Hướng camera vào mã QR trên màn hình web để tham gia nhóm
+                  {pickingImage
+                    ? "Đang phân tích mã QR từ hình ảnh..."
+                    : "Hướng camera vào mã QR hoặc tải ảnh mã QR từ thư viện"}
                 </Text>
               </View>
 
               {/* Bottom Actions Bar */}
               <View style={styles.bottomBar}>
-                {onManualInputPress ? (
+                <View style={styles.bottomActionsRow}>
+                  {/* Nút Tải ảnh lên để quét */}
                   <TouchableOpacity
-                    style={styles.manualInputBtn}
-                    onPress={() => {
-                      onClose();
-                      onManualInputPress();
-                    }}
+                    style={styles.galleryBtn}
+                    onPress={handlePickImage}
+                    disabled={pickingImage}
                     activeOpacity={0.85}
                   >
-                    <Ionicons name="key-outline" size={18} color="#ffffff" />
-                    <Text style={styles.manualInputBtnText}>
-                      Nhập mã mời bằng tay
-                    </Text>
+                    <Ionicons name="images-outline" size={18} color="#ffffff" />
+                    <Text style={styles.galleryBtnText}>Tải ảnh lên</Text>
                   </TouchableOpacity>
-                ) : (
-                  scanned && (
+
+                  {/* Nút Nhập mã tay nếu có */}
+                  {onManualInputPress ? (
                     <TouchableOpacity
-                      style={styles.rescanBtn}
-                      onPress={() => setScanned(false)}
+                      style={styles.manualInputBtn}
+                      onPress={() => {
+                        onClose();
+                        onManualInputPress();
+                      }}
                       activeOpacity={0.85}
                     >
-                      <Ionicons name="refresh" size={18} color="#0c2000" />
-                      <Text style={styles.rescanBtnText}>Chạm để quét lại</Text>
+                      <Ionicons name="key-outline" size={18} color="#ffffff" />
+                      <Text style={styles.manualInputBtnText}>
+                        Nhập mã tay
+                      </Text>
                     </TouchableOpacity>
-                  )
+                  ) : null}
+                </View>
+
+                {scanned && !pickingImage && (
+                  <TouchableOpacity
+                    style={styles.rescanBtn}
+                    onPress={() => setScanned(false)}
+                    activeOpacity={0.85}
+                  >
+                    <Ionicons name="refresh" size={18} color="#0c2000" />
+                    <Text style={styles.rescanBtnText}>Chạm để quét lại</Text>
+                  </TouchableOpacity>
                 )}
               </View>
             </SafeAreaView>
@@ -382,16 +467,48 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 4,
   },
+  analyzingBox: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  analyzingText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#8cd867",
+  },
   bottomBar: {
     alignItems: "center",
     paddingBottom: 28,
+    gap: 12,
+  },
+  bottomActionsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  galleryBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "rgba(18, 82, 56, 0.85)",
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    borderColor: "#8cd867",
+  },
+  galleryBtnText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#ffffff",
   },
   manualInputBtn: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
     backgroundColor: "rgba(255, 255, 255, 0.2)",
-    paddingHorizontal: 20,
+    paddingHorizontal: 18,
     paddingVertical: 12,
     borderRadius: Radius.full,
     borderWidth: 1,

@@ -61,21 +61,10 @@ export function formatParticipantsPayload(participants: Participant[]) {
     participants: participants.map((p) => {
       const item: Record<string, any> = {
         fullName: p.fullName.trim(),
+        phone: p.phone ? p.phone.trim() : "",
       };
       if (p.id) {
         item.id = p.id;
-      }
-      if (p.phone && p.phone.trim()) {
-        item.phone = p.phone.trim();
-      }
-      if (p.dateOfBirth && p.dateOfBirth.trim()) {
-        item.dateOfBirth = p.dateOfBirth.trim();
-      }
-      if (p.emergencyContactName && p.emergencyContactName.trim()) {
-        item.emergencyContactName = p.emergencyContactName.trim();
-      }
-      if (p.emergencyContactPhone && p.emergencyContactPhone.trim()) {
-        item.emergencyContactPhone = p.emergencyContactPhone.trim();
       }
       return item;
     }),
@@ -118,7 +107,14 @@ export function getBookingErrorMessage(
     const bookingId = details?.bookingId as string | undefined;
 
     let message = fallback;
-    if (code && BOOKING_ERROR_MESSAGES[code]) {
+    if (
+      code === "PAYMENT_ATTEMPT_IN_PROGRESS" ||
+      error.message?.toLowerCase().includes("unresolved") ||
+      error.status === 409
+    ) {
+      message =
+        "Phiên thanh toán trước đó đang chờ xử lý từ cổng thanh toán. Vui lòng thử lại sau giây lát.";
+    } else if (code && BOOKING_ERROR_MESSAGES[code]) {
       message = BOOKING_ERROR_MESSAGES[code];
     } else if (error.message) {
       message = error.message;

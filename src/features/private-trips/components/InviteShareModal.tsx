@@ -1,9 +1,10 @@
 import { Colors, Radius, Shadows } from "@/constants/theme";
 import { Ionicons } from "@expo/vector-icons";
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Clipboard,
   Modal,
   Share,
   StyleSheet,
@@ -11,6 +12,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import QRCode from "react-native-qrcode-svg";
 import { useTripInvitation } from "../hooks/useTripInvitation";
 
 export interface InviteShareModalProps {
@@ -51,6 +53,18 @@ export function InviteShareModal({
   const inviteCode = propInviteCode || inviteData?.inviteCode;
   const inviteUrl = propInviteUrl || inviteData?.inviteUrl;
   const loading = propLoading || hookLoading;
+
+  const [copied, setCopied] = useState(false);
+
+  // Payload for QR: prioritize full inviteUrl or inviteCode
+  const qrPayload = inviteUrl || inviteCode || "";
+
+  function handleCopyCode() {
+    if (!inviteCode) return;
+    Clipboard.setString(inviteCode);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
 
   // Auto generate invite via hook if tripId is provided and no inviteCode passed
   useEffect(() => {
@@ -125,11 +139,52 @@ export function InviteShareModal({
               <Text style={styles.loadingText}>Đang tạo mã mời...</Text>
             </View>
           ) : (
-            <View style={styles.codeContainer}>
-              <Text style={styles.codeLabel}>MÃ MỜI CỦA BẠN</Text>
-              <Text style={styles.codeText} selectable>
-                {inviteCode || "Đang lấy mã..."}
-              </Text>
+            <View style={styles.contentWrapper}>
+              {/* QR Code Container */}
+              {qrPayload ? (
+                <View style={styles.qrCard}>
+                  <View style={styles.qrInner}>
+                    <QRCode
+                      value={qrPayload}
+                      size={180}
+                      color="#000000"
+                      backgroundColor="#FFFFFF"
+                    />
+                  </View>
+                  <Text style={styles.qrHint}>
+                    Quét mã QR để tự động tham gia đoàn
+                  </Text>
+                </View>
+              ) : null}
+
+              {/* Code Container */}
+              <View style={styles.codeContainer}>
+                <View style={styles.codeHeaderRow}>
+                  <Text style={styles.codeLabel}>MÃ MỜI THAM GIA</Text>
+                  <TouchableOpacity
+                    style={styles.copyButton}
+                    onPress={handleCopyCode}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons
+                      name={copied ? "checkmark-circle" : "copy-outline"}
+                      size={14}
+                      color={copied ? "#059669" : Colors.primaryDark}
+                    />
+                    <Text
+                      style={[
+                        styles.copyText,
+                        copied && { color: "#059669", fontWeight: "700" },
+                      ]}
+                    >
+                      {copied ? "Đã chép" : "Sao chép"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.codeText} selectable numberOfLines={3}>
+                  {inviteCode || "Đang lấy mã..."}
+                </Text>
+              </View>
             </View>
           )}
 
@@ -240,28 +295,72 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: Colors.onSurfaceVariant,
   },
+  contentWrapper: {
+    width: "100%",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  qrCard: {
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    padding: 14,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    borderColor: Colors.surfaceContainerHigh,
+    marginBottom: 14,
+    ...Shadows.card,
+  },
+  qrInner: {
+    padding: 8,
+    backgroundColor: "#FFFFFF",
+    borderRadius: Radius.md,
+  },
+  qrHint: {
+    fontSize: 11,
+    color: Colors.onSurfaceVariant,
+    marginTop: 8,
+    fontWeight: "600",
+  },
   codeContainer: {
     width: "100%",
-    padding: 14,
+    padding: 12,
     borderRadius: Radius.lg,
     backgroundColor: Colors.surfaceContainerLow,
     borderWidth: 1,
     borderColor: Colors.surfaceContainerHigh,
+  },
+  codeHeaderRow: {
+    flexDirection: "row",
     alignItems: "center",
-    marginBottom: 18,
+    justifyContent: "space-between",
+    marginBottom: 6,
   },
   codeLabel: {
     fontSize: 10,
     fontWeight: "800",
     color: Colors.onSurfaceVariant,
     letterSpacing: 0.5,
-    marginBottom: 4,
+  },
+  copyButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.surfaceContainerHigh,
+  },
+  copyText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: Colors.primaryDark,
   },
   codeText: {
-    fontSize: 18,
-    fontWeight: "900",
+    fontSize: 13,
+    fontWeight: "700",
     color: Colors.primaryDark,
-    letterSpacing: 1.2,
+    letterSpacing: 0.8,
+    fontFamily: "monospace",
   },
   actionButtons: {
     width: "100%",

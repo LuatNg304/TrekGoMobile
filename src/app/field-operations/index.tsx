@@ -3,7 +3,7 @@ import { useApp } from '@/context/AppContext';
 import { deliveryTasks } from '@/data/fieldOpsMock';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/features/auth/AuthContext';
-import { LeaderDashboardScreen } from '@/features/leaders/screens';
+import { LeaderNavigationShell } from '@/features/leaders/screens';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
@@ -29,10 +29,12 @@ export default function FieldOperationsHome() {
         }
     }, [effectiveRole, router]);
 
+    const logout = () => { signOut(); void authSignOut(); router.replace('/'); };
+
     if (!effectiveRole) return null;
 
     if (effectiveRole === 'LEADER') {
-        return <LeaderDashboardScreen />;
+        return <LeaderNavigationShell onLogout={logout} />;
     }
 
     const workflowTaskStatuses = [fieldWorkflow.deliveryStatus, fieldWorkflow.returnStatus];
@@ -45,7 +47,6 @@ export default function FieldOperationsHome() {
         return fieldWorkflow.deliveryStatus === 'COMPLETED' ? 'COMPLETED' : deliveryInProgress ? 'IN_PROGRESS' : 'WAITING';
     };
     const visibleTasks = deliveryTasks.filter(task => taskStatus(task) === activeTaskTab);
-    const logout = () => { signOut(); void authSignOut(); router.replace('/'); };
 
     return (
         <SafeAreaView style={styles.safeArea}>

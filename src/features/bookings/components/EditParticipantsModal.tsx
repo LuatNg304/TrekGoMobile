@@ -42,9 +42,6 @@ export function EditParticipantsModal({
           id: p.id,
           fullName: p.fullName || "",
           phone: p.phone || "",
-          dateOfBirth: p.dateOfBirth || "",
-          emergencyContactName: p.emergencyContactName || "",
-          emergencyContactPhone: p.emergencyContactPhone || "",
         })),
       );
     }
@@ -56,9 +53,6 @@ export function EditParticipantsModal({
       {
         fullName: "",
         phone: "",
-        dateOfBirth: "",
-        emergencyContactName: "",
-        emergencyContactPhone: "",
       },
     ]);
   }
@@ -99,28 +93,12 @@ export function EditParticipantsModal({
         );
         return;
       }
-      if (p.phone && p.phone.trim().length < 5) {
+      if (!p.phone || p.phone.trim().length < 8) {
         Alert.alert(
           "SĐT không hợp lệ",
-          `Số điện thoại thành viên #${i + 1} phải có ít nhất 5 chữ số.`,
+          `Số điện thoại thành viên #${i + 1} phải có ít nhất 8 chữ số.`,
         );
         return;
-      }
-      if (p.dateOfBirth && p.dateOfBirth.trim()) {
-        if (!dateRegex.test(p.dateOfBirth.trim())) {
-          Alert.alert(
-            "Ngày sinh sai định dạng",
-            `Ngày sinh thành viên #${i + 1} phải theo định dạng YYYY-MM-DD.`,
-          );
-          return;
-        }
-        if (p.dateOfBirth.trim() > todayStr) {
-          Alert.alert(
-            "Ngày sinh không hợp lệ",
-            `Ngày sinh thành viên #${i + 1} không được vượt quá ngày hiện tại.`,
-          );
-          return;
-        }
       }
     }
 
@@ -214,56 +192,16 @@ export function EditParticipantsModal({
                     />
                   </View>
 
-                  <View style={styles.row}>
-                    <View style={[styles.inputGroup, styles.flex1]}>
-                      <Text style={styles.label}>Số điện thoại</Text>
-                      <TextInput
-                        style={styles.input}
-                        value={p.phone || ""}
-                        onChangeText={(v) => handleFieldChange(index, "phone", v)}
-                        placeholder="0901234567"
-                        placeholderTextColor={Colors.onSurfaceMuted}
-                        keyboardType="phone-pad"
-                      />
-                    </View>
-                    <View style={[styles.inputGroup, styles.flex1]}>
-                      <Text style={styles.label}>Ngày sinh (YYYY-MM-DD)</Text>
-                      <TextInput
-                        style={styles.input}
-                        value={p.dateOfBirth || ""}
-                        onChangeText={(v) => handleFieldChange(index, "dateOfBirth", v)}
-                        placeholder="1998-05-20"
-                        placeholderTextColor={Colors.onSurfaceMuted}
-                      />
-                    </View>
-                  </View>
-
-                  <View style={styles.row}>
-                    <View style={[styles.inputGroup, styles.flex1]}>
-                      <Text style={styles.label}>Tên liên hệ khẩn cấp</Text>
-                      <TextInput
-                        style={styles.input}
-                        value={p.emergencyContactName || ""}
-                        onChangeText={(v) =>
-                          handleFieldChange(index, "emergencyContactName", v)
-                        }
-                        placeholder="Người thân"
-                        placeholderTextColor={Colors.onSurfaceMuted}
-                      />
-                    </View>
-                    <View style={[styles.inputGroup, styles.flex1]}>
-                      <Text style={styles.label}>SĐT khẩn cấp</Text>
-                      <TextInput
-                        style={styles.input}
-                        value={p.emergencyContactPhone || ""}
-                        onChangeText={(v) =>
-                          handleFieldChange(index, "emergencyContactPhone", v)
-                        }
-                        placeholder="0909876543"
-                        placeholderTextColor={Colors.onSurfaceMuted}
-                        keyboardType="phone-pad"
-                      />
-                    </View>
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.label}>Số điện thoại *</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={p.phone || ""}
+                      onChangeText={(v) => handleFieldChange(index, "phone", v)}
+                      placeholder="0901234567"
+                      placeholderTextColor={Colors.onSurfaceMuted}
+                      keyboardType="phone-pad"
+                    />
                   </View>
                 </View>
               ))}

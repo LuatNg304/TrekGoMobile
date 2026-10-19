@@ -15,7 +15,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 type FilterTabKey = "all" | "draft" | "open" | "in_progress" | "completed" | "cancelled";
 
@@ -112,10 +112,28 @@ function getStatusBadge(status: string) {
   }
 }
 
-export function LeaderTripsScreen() {
+interface LeaderTripsScreenProps {
+  showBackButton?: boolean;
+  onNavigateTab?: (tabKey: "dashboard" | "create" | "profile") => void;
+}
+
+export function LeaderTripsScreen({
+  showBackButton = true,
+  onNavigateTab,
+}: LeaderTripsScreenProps = {}) {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { accessToken } = useAuth();
-  const { trips, loading, error, fetchMyTrips } = useLeaderTrips(accessToken);
+  const {
+    trips,
+    total,
+    page,
+    pageSize,
+    loading,
+    loadingMore,
+    error,
+    fetchMyTrips,
+  } = useLeaderTrips(accessToken);
 
   const [activeTab, setActiveTab] = useState<FilterTabKey>("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -123,15 +141,25 @@ export function LeaderTripsScreen() {
 
   useEffect(() => {
     if (accessToken) {
-      void fetchMyTrips();
+      void fetchMyTrips(1, 20);
     }
   }, [accessToken, fetchMyTrips]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await fetchMyTrips();
+    await fetchMyTrips(1, 20);
     setRefreshing(false);
   }, [fetchMyTrips]);
+
+  const handleLoadMore = useCallback(async () => {
+    if (loading || loadingMore) return;
+    if (trips.length < total) {
+      const nextPage = page + 1;
+      await fetchMyTrips(nextPage, pageSize, true);
+    }
+  }, [loading, loadingMore, trips.length, total, page, pageSize, fetchMyTrips]);
+
+  const hasMore = trips.length < total;
 
   // Đếm số lượng chuyến cho từng tab
   const tabCounts = useMemo(() => {
@@ -191,17 +219,28 @@ export function LeaderTripsScreen() {
   }, [trips, activeTab, searchQuery]);
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView
+      style={[
+        styles.safeArea,
+        {
+          paddingLeft: Math.max(0, insets.left),
+          paddingRight: Math.max(0, insets.right),
+        },
+      ]}
+      edges={["top", "left", "right"]}
+    >
       {/* 1. Header */}
       <View style={styles.header}>
         <View style={styles.headerTop}>
-          <TouchableOpacity
-            style={styles.backBtn}
-            onPress={() => router.back()}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="arrow-back" size={22} color={Colors.ink} />
-          </TouchableOpacity>
+          {showBackButton && (
+            <TouchableOpacity
+              style={styles.backBtn}
+              onPress={() => router.back()}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="arrow-back" size={22} color={Colors.ink} />
+            </TouchableOpacity>
+          )}
           <View style={{ flex: 1 }}>
             <Text style={styles.headerTitle}>Chuyến đi của tôi</Text>
             <Text style={styles.headerSubtitle} numberOfLines={1}>
@@ -213,7 +252,10 @@ export function LeaderTripsScreen() {
         {/* Nút Tạo chuyến đi mới */}
         <TouchableOpacity
           style={styles.createBtn}
-          onPress={() => router.push("/field-operations/leader-create-trip" as any)}
+          onPress={() => {
+            if (onNavigateTab) onNavigateTab("create");
+            else router.push("/field-operations/leader-create-trip" as any);
+          }}
           activeOpacity={0.88}
         >
           <Ionicons name="add-circle" size={18} color="#ffffff" />
@@ -273,7 +315,10 @@ export function LeaderTripsScreen() {
 
       {/* 4. Danh sách Thẻ Chuyến đi */}
       <ScrollView
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[
+          styles.listContent,
+          { paddingBottom: Math.max(40, insets.bottom + 28) },
+        ]}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#125238"]} />
         }
@@ -288,7 +333,7 @@ export function LeaderTripsScreen() {
             <Ionicons name="alert-circle-outline" size={32} color="#ba1a1a" />
             <Text style={styles.errorTitle}>Lỗi tải dữ liệu</Text>
             <Text style={styles.errorText}>{error}</Text>
-            <TouchableOpacity style={styles.retryBtn} onPress={() => fetchMyTrips()}>
+            <TouchableOpacity style={styles.retryBtn} onPress={() => fetchMyTrips(1, 20)}>
               <Text style={styles.retryBtnText}>Thử lại</Text>
             </TouchableOpacity>
           </View>
@@ -310,118 +355,153 @@ export function LeaderTripsScreen() {
             </TouchableOpacity>
           </View>
         ) : (
-          filteredTrips.map((trip) => {
-            const shortId = trip.id ? trip.id.slice(0, 8).toUpperCase() : "TOUR";
-            const badge = getStatusBadge(trip.status);
-            const cpCount = trip.checkpoints?.length || 0;
-            const trailName = trip.trails?.[0]?.snapshotName || trip.trails?.[0]?.name || trip.title;
-            const startDate = formatVnDate(trip.startAt);
-            const endDate = formatVnDate(trip.endAt);
+          <>
+            {filteredTrips.map((trip) => {
+              const shortId = trip.id ? trip.id.slice(0, 8).toUpperCase() : "TOUR";
+              const badge = getStatusBadge(trip.status);
+              const cpCount = trip.checkpoints?.length || 0;
+              const trailName = trip.trails?.[0]?.snapshotName || trip.trails?.[0]?.name || trip.title;
+              const startDate = formatVnDate(trip.startAt);
+              const endDate = formatVnDate(trip.endAt);
 
-            const totalCapacity = trip.capacity || 15;
-            const remaining =
-              typeof trip.remainingSlots === "number"
-                ? trip.remainingSlots
-                : trip.status === "DRAFT"
-                  ? totalCapacity
-                  : totalCapacity;
-            const registered = Math.max(0, totalCapacity - remaining);
-            const fillPercent = Math.min(100, Math.round((registered / totalCapacity) * 100));
+              const totalCapacity = trip.capacity || 15;
+              const remaining =
+                typeof trip.remainingSlots === "number"
+                  ? trip.remainingSlots
+                  : trip.status === "DRAFT"
+                    ? totalCapacity
+                    : totalCapacity;
+              const registered = Math.max(0, totalCapacity - remaining);
+              const fillPercent = Math.min(100, Math.round((registered / totalCapacity) * 100));
 
-            const unitPrice = Number(trip.price || trip.pricePerPax || 0);
-            const expectedRevenue = unitPrice * totalCapacity;
+              const unitPrice = Number(trip.price || trip.pricePerPax || 0);
+              const expectedRevenue = unitPrice * totalCapacity;
 
-            return (
-              <View key={trip.id} style={styles.tripCard}>
-                {/* Top: Code & Status */}
-                <View style={styles.cardTopRow}>
-                  <View style={styles.codeWrap}>
-                    <Text style={styles.codeText}>#{shortId}</Text>
+              return (
+                <TouchableOpacity
+                  key={trip.id}
+                  style={styles.tripCard}
+                  activeOpacity={0.92}
+                  onPress={() =>
+                    router.push({
+                      pathname: "/field-operations/leader-trip-detail" as any,
+                      params: { tripId: trip.id },
+                    })
+                  }
+                >
+                  {/* Top: Code & Status */}
+                  <View style={styles.cardTopRow}>
+                    <View style={styles.codeWrap}>
+                      <Text style={styles.codeText}>#{shortId}</Text>
+                    </View>
+                    <View style={[styles.statusBadge, { backgroundColor: badge.bg }]}>
+                      <Ionicons name={badge.icon} size={12} color={badge.color} />
+                      <Text style={[styles.statusBadgeText, { color: badge.color }]}>
+                        {badge.label}
+                      </Text>
+                    </View>
                   </View>
-                  <View style={[styles.statusBadge, { backgroundColor: badge.bg }]}>
-                    <Ionicons name={badge.icon} size={12} color={badge.color} />
-                    <Text style={[styles.statusBadgeText, { color: badge.color }]}>
-                      {badge.label}
-                    </Text>
-                  </View>
-                </View>
 
-                {/* Title & Checkpoints subtitle */}
-                <Text style={styles.tripTitle}>{trip.title}</Text>
-                <Text style={styles.tripSubtitle}>
-                  Hành trình {cpCount} trạm kiểm soát VFRS
-                </Text>
-
-                {/* Trail Snapshot Name */}
-                <View style={styles.trailRow}>
-                  <Text style={styles.trailIcon}>⌁</Text>
-                  <Text style={styles.trailName} numberOfLines={1}>
-                    {trailName}
+                  {/* Title & Checkpoints subtitle */}
+                  <Text style={styles.tripTitle}>{trip.title}</Text>
+                  <Text style={styles.tripSubtitle}>
+                    Hành trình {cpCount} trạm kiểm soát VFRS
                   </Text>
-                </View>
 
-                {/* Schedule Dates */}
-                <View style={styles.infoRow}>
-                  <Ionicons name="calendar-outline" size={14} color="#707972" />
-                  <Text style={styles.infoText}>
-                    {startDate} – {endDate}
-                  </Text>
-                </View>
-
-                {/* Members progress bar */}
-                <View style={styles.progressSection}>
-                  <View style={styles.progressLabels}>
-                    <Text style={styles.progressCountLabel}>
-                      Thành viên: <Text style={styles.boldText}>{registered}/{totalCapacity}</Text>
-                    </Text>
-                    <Text style={styles.remainingSlotsText}>
-                      Còn {remaining} slot trống
-                    </Text>
-                  </View>
-                  <View style={styles.progressBarTrack}>
-                    <View
-                      style={[
-                        styles.progressBarFill,
-                        {
-                          width: `${fillPercent}%`,
-                          backgroundColor:
-                            fillPercent >= 100
-                              ? "#0369a1"
-                              : fillPercent >= 50
-                                ? "#125238"
-                                : "#ca8a04",
-                        },
-                      ]}
-                    />
-                  </View>
-                </View>
-
-                {/* Footer: Revenue & Quản lý đoàn Button */}
-                <View style={styles.cardFooter}>
-                  <View style={styles.revenueWrap}>
-                    <Text style={styles.revenueLabel}>Doanh thu dự kiến</Text>
-                    <Text style={styles.revenueValue}>
-                      {formatCurrency(expectedRevenue)} ₫
+                  {/* Trail Snapshot Name */}
+                  <View style={styles.trailRow}>
+                    <Text style={styles.trailIcon}>⌁</Text>
+                    <Text style={styles.trailName} numberOfLines={1}>
+                      {trailName}
                     </Text>
                   </View>
 
-                  <TouchableOpacity
-                    style={styles.manageBtn}
-                    onPress={() =>
-                      router.push({
-                        pathname: "/field-operations/leader-trip-detail" as any,
-                        params: { tripId: trip.id },
-                      })
-                    }
-                    activeOpacity={0.8}
-                  >
-                    <Text style={styles.manageBtnText}>Quản lý đoàn</Text>
-                    <Ionicons name="arrow-forward" size={14} color="#ffffff" />
-                  </TouchableOpacity>
-                </View>
+                  {/* Schedule Dates */}
+                  <View style={styles.infoRow}>
+                    <Ionicons name="calendar-outline" size={14} color="#707972" />
+                    <Text style={styles.infoText}>
+                      {startDate} – {endDate}
+                    </Text>
+                  </View>
+
+                  {/* Members progress bar */}
+                  <View style={styles.progressSection}>
+                    <View style={styles.progressLabels}>
+                      <Text style={styles.progressCountLabel}>
+                        Thành viên: <Text style={styles.boldText}>{registered}/{totalCapacity}</Text>
+                      </Text>
+                      <Text style={styles.remainingSlotsText}>
+                        Còn {remaining} slot trống
+                      </Text>
+                    </View>
+                    <View style={styles.progressBarTrack}>
+                      <View
+                        style={[
+                          styles.progressBarFill,
+                          {
+                            width: `${fillPercent}%`,
+                            backgroundColor:
+                              fillPercent >= 100
+                                ? "#0369a1"
+                                : fillPercent >= 50
+                                  ? "#125238"
+                                  : "#ca8a04",
+                          },
+                        ]}
+                      />
+                    </View>
+                  </View>
+
+                  {/* Footer: Revenue & Xem chi tiết chuyến Button */}
+                  <View style={styles.cardFooter}>
+                    <View style={styles.revenueWrap}>
+                      <Text style={styles.revenueLabel}>Doanh thu dự kiến</Text>
+                      <Text style={styles.revenueValue}>
+                        {formatCurrency(expectedRevenue)} ₫
+                      </Text>
+                    </View>
+
+                    <TouchableOpacity
+                      style={styles.manageBtn}
+                      onPress={() =>
+                        router.push({
+                          pathname: "/field-operations/leader-trip-detail" as any,
+                          params: { tripId: trip.id },
+                        })
+                      }
+                      activeOpacity={0.8}
+                    >
+                      <Text style={styles.manageBtnText}>Chi tiết chuyến</Text>
+                      <Ionicons name="arrow-forward" size={14} color="#ffffff" />
+                    </TouchableOpacity>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+
+            {/* Phân trang: Nút Tải thêm chuyến đi nếu còn dữ liệu */}
+            {hasMore && (
+              <View style={styles.loadMoreContainer}>
+                <TouchableOpacity
+                  style={styles.loadMoreBtn}
+                  onPress={handleLoadMore}
+                  disabled={loadingMore}
+                  activeOpacity={0.8}
+                >
+                  {loadingMore ? (
+                    <ActivityIndicator size="small" color="#125238" />
+                  ) : (
+                    <>
+                      <Ionicons name="reload-outline" size={15} color="#125238" />
+                      <Text style={styles.loadMoreBtnText}>
+                        Xem thêm chuyến đi ({trips.length}/{total})
+                      </Text>
+                    </>
+                  )}
+                </TouchableOpacity>
               </View>
-            );
-          })
+            )}
+          </>
         )}
       </ScrollView>
     </SafeAreaView>
@@ -785,5 +865,29 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     fontSize: 12,
     fontWeight: "800",
+  },
+  loadMoreContainer: {
+    paddingVertical: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  loadMoreBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    backgroundColor: "#ffffff",
+    borderWidth: 1.5,
+    borderColor: "#125238",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: Radius.md,
+    ...Shadows.card,
+    minWidth: 200,
+  },
+  loadMoreBtnText: {
+    fontSize: 12.5,
+    fontWeight: "800",
+    color: "#125238",
   },
 });

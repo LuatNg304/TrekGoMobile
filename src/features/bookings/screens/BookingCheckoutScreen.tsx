@@ -62,28 +62,41 @@ export function BookingCheckoutScreen({
   const [qrModalData, setQrModalData] = useState<string | null>(null);
   const [paymentWebViewUrl, setPaymentWebViewUrl] = useState<string | null>(null);
   const [showSuccessModal, setShowSuccessModal] = useState<boolean>(false);
+  const [isWaitingPaymentConfirmation, setIsWaitingPaymentConfirmation] = useState<boolean>(false);
 
   const handlePaymentWebViewComplete = useCallback(
     async (result: PaymentCompleteResult) => {
       setPaymentWebViewUrl(null);
-      // Xóa key cũ sau khi đã thanh toán (dù thành công hay thất bại để lần sau tạo mới)
-      bookingApiService.clearBookingPaymentSession(bookingId);
 
       if (result.success) {
+        // Chỉ xóa session key khi thanh toán đã thành công để các đơn sau tạo mới bình thường
+        bookingApiService.clearBookingPaymentSession(bookingId);
+        setIsWaitingPaymentConfirmation(true);
+
         // Retry refetch để đảm bảo backend đã kịp ghi nhận webhook / return và đổi trạng thái sang CONFIRMED
         let updated = await refetch();
         if (updated?.status !== "CONFIRMED") {
-          for (let attempt = 0; attempt < 3; attempt++) {
-            await new Promise((r) => setTimeout(r, 1200));
+          for (let attempt = 0; attempt < 8; attempt++) {
+            await new Promise((r) => setTimeout(r, 1500));
             updated = await refetch();
             if (updated?.status === "CONFIRMED") break;
           }
         }
-        setShowSuccessModal(true);
+        setIsWaitingPaymentConfirmation(false);
+        if (updated?.status === "CONFIRMED") {
+          setShowSuccessModal(true);
+        } else {
+          Alert.alert(
+            "Đang xử lý đối soát",
+            "Giao dịch của bạn đã được tiếp nhận và đang chờ máy chủ cập nhật trạng thái.",
+          );
+        }
       } else {
+        setIsWaitingPaymentConfirmation(false);
+        // KHÔNG xóa session key ở đây để nếu user bấm "Thanh toán ngay" lại, app tái sử dụng cùng key/phiên thanh toán
         Alert.alert(
           "Chưa hoàn tất thanh toán",
-          result.message || "Giao dịch không thành công. Bạn có thể thử lại.",
+          result.message || "Giao dịch chưa hoàn tất. Bạn có thể nhấn 'Thanh toán ngay' để tiếp tục.",
         );
       }
     },
@@ -155,27 +168,75 @@ export function BookingCheckoutScreen({
       return;
     }
 
-        try {
+    // 1. Kiểm tra xem booking hiện tại đã có checkout URL của phiên đang mở hay chưa
+    const existingCheckout = booking.paymentSummary?.checkout;
+    const isSameGateway =
+      !booking.paymentSummary?.gateway ||
+      booking.paymentSummary?.gateway?.toLowerCase() === selectedGateway.toLowerCase();
+    const isCheckoutNotExpired =
+      !existingCheckout?.expiresAt ||
+      new Date(existingCheckout.expiresAt).getTime() > Date.now();
+
+    if (existingCheckout?.url && isSameGateway && isCheckoutNotExpired) {
+      setPaymentWebViewUrl(existingCheckout.url);
+      return;
+    }
+
+    try {
       const res = await createPayment(
         booking.id,
         "REDIRECT",
         selectedGateway,
-        // Bỏ booking.paymentSummary?.paymentId đi để luôn dùng 1 key duy nhất theo bookingId + gateway
+        booking.paymentSummary?.paymentId,
       );
 
       if (res.checkout?.url) {
-        // Open payment in integrated in-app WebView
         setPaymentWebViewUrl(res.checkout.url);
       } else if (res.checkout?.qrData) {
         setQrModalData(res.checkout.qrData);
       }
 
-      // Re-fetch detail
       void refetch();
     } catch (err: any) {
+      const errMsg = err?.message || "";
+      const isUnresolved =
+        err?.code === "PAYMENT_ATTEMPT_IN_PROGRESS" ||
+        errMsg.toLowerCase().includes("unresolved") ||
+        err?.status === 409;
+
+      if (isUnresolved) {
+        // Tự động refetch lại chi tiết đơn đặt chỗ từ server
+        const fresh = await refetch();
+
+        // Nếu trạng thái đơn thực ra đã là CONFIRMED
+        if (fresh?.status === "CONFIRMED") {
+          setShowSuccessModal(true);
+          return;
+        }
+
+        // Nếu phiên thanh toán cũ vẫn có checkout URL khả dụng, mở lại ngay cho user
+        if (fresh?.paymentSummary?.checkout?.url) {
+          setPaymentWebViewUrl(fresh.paymentSummary.checkout.url);
+          return;
+        }
+
+        Alert.alert(
+          "Giao dịch đang được xử lý",
+          "Cổng thanh toán đang có một phiên giao dịch chưa kết thúc. Vui lòng chờ 30 giây để hệ thống tự động hoàn tất hoặc hủy phiên cũ.",
+          [
+            {
+              text: "Kiểm tra lại",
+              onPress: () => void refetch(),
+            },
+            { text: "Đóng", style: "cancel" },
+          ],
+        );
+        return;
+      }
+
       Alert.alert(
         "Lỗi thanh toán",
-        err?.message || "Không thể khởi tạo cổng thanh toán lúc này.",
+        errMsg || "Không thể khởi tạo cổng thanh toán lúc này.",
       );
     }
   }
@@ -507,13 +568,23 @@ export function BookingCheckoutScreen({
             </Text>
           </View>
           <TouchableOpacity
-            style={[styles.payNowBtn, isSubmitting && styles.btnDisabled]}
+            style={[
+              styles.payNowBtn,
+              (isSubmitting || isWaitingPaymentConfirmation) && styles.btnDisabled,
+            ]}
             onPress={handlePay}
-            disabled={isSubmitting}
+            disabled={isSubmitting || isWaitingPaymentConfirmation}
             activeOpacity={0.88}
           >
-            {isSubmitting ? (
-              <ActivityIndicator size="small" color="#FFFFFF" />
+            {isSubmitting || isWaitingPaymentConfirmation ? (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <ActivityIndicator size="small" color="#FFFFFF" />
+                <Text style={styles.payNowText}>
+                  {isWaitingPaymentConfirmation
+                    ? "Đang chờ xác nhận..."
+                    : "Đang xử lý..."}
+                </Text>
+              </View>
             ) : (
               <>
                 <Text style={styles.payNowText}>Thanh toán ngay</Text>

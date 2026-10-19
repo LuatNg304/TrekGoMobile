@@ -75,7 +75,7 @@ export const TripHeroSection = memo(function TripHeroSection({
         </View>
         <View style={styles.statTile}>
           <Ionicons name="git-commit-outline" size={16} color={Colors.primaryDark} />
-          <Text style={styles.statLabel}>KHOẢNG CÁCH</Text>
+          <Text style={styles.statLabel}>CỰ LY</Text>
           <Text style={styles.statValue}>{totalDistanceKm.toFixed(1)}km</Text>
         </View>
       </View>

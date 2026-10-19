@@ -1,9 +1,7 @@
-import { Trip3DMapView } from "@/components/Trip3DMapView";
 import { Colors, Radius, Shadows } from "@/constants/theme";
 import type { TripOptionCheckpoint } from "@/features/leaders/hooks";
 import type {
   LeaderTrailSuggestion,
-  SystemTrailDetail,
 } from "@/features/leaders/services/leader-public-trips.api";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useMemo } from "react";
@@ -58,64 +56,6 @@ export function LeaderTripRouteStep({
       .map((id) => destinationCheckpoints.find((cp) => cp.id === id))
       .filter((cp): cp is TripOptionCheckpoint => Boolean(cp));
   }, [selectedTrail, destinationCheckpoints]);
-
-  // Construct trail 3D detail data for 3D Map preview
-  const trail3DData = useMemo<SystemTrailDetail | null>(() => {
-    if (!selectedTrail) return null;
-
-    const coords = currentCheckpoints.map((cp) => [
-      Number(cp.longitude) || 106.17,
-      Number(cp.latitude) || 11.37,
-    ]);
-
-    const firstCp = currentCheckpoints[0];
-    const centerLng = Number(firstCp?.longitude) || 106.1712;
-    const centerLat = Number(firstCp?.latitude) || 11.3789;
-
-    return {
-      id: selectedTrail.id,
-      code: `TR-${selectedTrail.id.slice(-6).toUpperCase()}`,
-      name: selectedTrail.name,
-      distanceKm: Number(selectedTrail.distanceKm || selectedTrail.lengthKm || 5.2),
-      elevationGainM: Number(selectedTrail.elevationGainM || 450),
-      destination: {
-        name: destinationName || "Điểm đến trekking",
-        centerLat,
-        centerLng,
-      },
-      routeGeojson: selectedTrail.routeGeojson || {
-        type: "FeatureCollection",
-        features: [
-          {
-            type: "Feature",
-            geometry: {
-              type: "LineString",
-              coordinates:
-                coords.length > 1
-                  ? coords
-                  : [
-                      [centerLng, centerLat],
-                      [centerLng + 0.008, centerLat + 0.008],
-                    ],
-            },
-          },
-        ],
-      },
-      checkpoints: currentCheckpoints.map((cp, idx) => ({
-        id: cp.id,
-        name: cp.name,
-        sequence: idx + 1,
-        latitude: Number(cp.latitude) || centerLat,
-        longitude: Number(cp.longitude) || centerLng,
-      })),
-      initialCamera: {
-        center: [centerLng, centerLat],
-        zoom: 13.5,
-        pitch: 60,
-        bearing: -20,
-      },
-    };
-  }, [selectedTrail, currentCheckpoints, destinationName]);
 
   const canProceed = Boolean(
     selectedTrail &&
@@ -249,7 +189,7 @@ export function LeaderTripRouteStep({
                       />
                     </View>
 
-                    <View style={{ flex: 1 }}>
+                    <View style={{ flex: 1, minWidth: 0 }}>
                       <View style={styles.trailNameRow}>
                         <Text
                           style={[
@@ -260,7 +200,7 @@ export function LeaderTripRouteStep({
                         >
                           {trail.name}
                         </Text>
-                        <Text style={styles.trailCpCount}>• Đi qua {cpCount} checkpoint</Text>
+                        <Text style={styles.trailCpCount}>• {cpCount} checkpoint</Text>
                       </View>
 
                       {/* Metrics Badges */}
@@ -295,12 +235,12 @@ export function LeaderTripRouteStep({
           </View>
         )}
 
-        {/* Selected Trail Overview & 3D Map */}
-        {selectedTrail && trail3DData && (
+        {/* Selected Trail Overview */}
+        {selectedTrail && (
           <View style={styles.trailOverviewBox}>
             <View style={styles.overviewHeader}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.overviewTitle}>
+              <View style={{ flex: 1, minWidth: 0, marginRight: 8 }}>
+                <Text style={styles.overviewTitle} numberOfLines={1}>
                   Tổng quan: {selectedTrail.name}
                 </Text>
                 <Text style={styles.overviewSubTitle}>
@@ -310,14 +250,9 @@ export function LeaderTripRouteStep({
               <View style={styles.peakBadge}>
                 <Ionicons name="trending-up" size={12} color="#125238" />
                 <Text style={styles.peakBadgeText}>
-                  {selectedTrail.elevationGainM ? `${selectedTrail.elevationGainM}m Peak` : "399m Peak"}
+                  {selectedTrail.elevationGainM ? `${selectedTrail.elevationGainM}m Peak` : "500m Peak"}
                 </Text>
               </View>
-            </View>
-
-            {/* 3D Map Preview */}
-            <View style={styles.map3DWrap}>
-              <Trip3DMapView trailData={trail3DData} height={220} />
             </View>
 
             {/* Stats Summary Grid */}
@@ -325,13 +260,13 @@ export function LeaderTripRouteStep({
               <View style={styles.statCell}>
                 <Text style={styles.statLabel}>Tổng cự ly</Text>
                 <Text style={styles.statValue}>
-                  {selectedTrail.distanceKm || selectedTrail.lengthKm || "5.2"} km
+                  {selectedTrail.distanceKm || selectedTrail.lengthKm || "5.0"} km
                 </Text>
               </View>
               <View style={styles.statCell}>
                 <Text style={styles.statLabel}>Độ cao đỉnh</Text>
                 <Text style={styles.statValue}>
-                  {selectedTrail.elevationGainM ? `${selectedTrail.elevationGainM}m` : "399m"}
+                  {selectedTrail.elevationGainM ? `${selectedTrail.elevationGainM}m` : "500m"}
                 </Text>
               </View>
               <View style={styles.statCell}>
@@ -372,13 +307,13 @@ export function LeaderTripRouteStep({
           <View style={styles.cardHeaderIcon}>
             <Ionicons name="flag" size={18} color="#125238" />
           </View>
-          <View style={{ flex: 1 }}>
+          <View style={{ flex: 1, minWidth: 0 }}>
             <View style={styles.checkpointHeaderTitleRow}>
               <Text style={styles.cardTitle}>2. TRẠM DỪNG & CHECKPOINTS AN TOÀN</Text>
               {currentCheckpoints.length > 0 && (
                 <View style={styles.reqCpBadge}>
                   <Text style={styles.reqCpBadgeText}>
-                    {currentCheckpoints.length} MỐC BẮT BUỘC
+                    {currentCheckpoints.length} MỐC
                   </Text>
                 </View>
               )}
@@ -719,15 +654,16 @@ const styles = StyleSheet.create({
   trailItemContent: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 10,
   },
   trailThumbnail: {
-    width: 44,
-    height: 44,
+    width: 42,
+    height: 42,
     borderRadius: 8,
     backgroundColor: "#e8ede9",
     alignItems: "center",
     justifyContent: "center",
+    flexShrink: 0,
   },
   trailThumbnailSelected: {
     backgroundColor: "#d1e8d5",
@@ -737,6 +673,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 6,
     marginBottom: 6,
+    flexWrap: "wrap",
   },
   trailName: {
     fontSize: 13,
@@ -754,7 +691,8 @@ const styles = StyleSheet.create({
   trailMetricsRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    flexWrap: "wrap",
+    gap: 6,
   },
   metricChip: {
     flexDirection: "row",
@@ -788,6 +726,9 @@ const styles = StyleSheet.create({
   },
   radioWrap: {
     paddingLeft: 4,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
   },
   trailOverviewBox: {
     marginTop: 8,
@@ -821,19 +762,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 6,
+    flexShrink: 0,
   },
   peakBadgeText: {
     fontSize: 10,
     fontWeight: "800",
     color: "#125238",
-  },
-  map3DWrap: {
-    height: 220,
-    borderRadius: Radius.md,
-    overflow: "hidden",
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: "#e1e9e2",
   },
   statsGrid: {
     flexDirection: "row",
@@ -890,12 +824,15 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    flexWrap: "wrap",
+    gap: 6,
   },
   reqCpBadge: {
     backgroundColor: "#125238",
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 6,
+    flexShrink: 0,
   },
   reqCpBadgeText: {
     fontSize: 10,
