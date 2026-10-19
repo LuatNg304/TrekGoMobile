@@ -120,27 +120,35 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
   const currentRecordingIdRef = useRef<string | null>(null);
   const samplesSinceLastSyncRef = useRef(0);
   const recordedCoordinatesRef = useRef<GpsPoint[]>([]);
-  const lastRouteRenderAtRef = useRef(0);
+  const previewLocationRef = useRef<Location.LocationObject | null>(null);
+  const detectingLocationRef = useRef(false);
+  const locationRequestRef = useRef(0);
+
+  const hasRecentLocation = useCallback(() => {
+    const location = previewLocationRef.current;
+    return !!location && Date.now() - location.timestamp <= 30_000 &&
+      location.coords.accuracy != null && location.coords.accuracy <= 25;
+  }, []);
 
   const replaceRecordedCoordinates = useCallback((points: GpsPoint[]) => {
     recordedCoordinatesRef.current = [...points];
-    lastRouteRenderAtRef.current = Date.now();
     setRecordedCoordinates([...points]);
   }, []);
 
   const appendRecordedCoordinate = useCallback((point: GpsPoint) => {
     recordedCoordinatesRef.current.push(point);
-    const now = Date.now();
-    if (now - lastRouteRenderAtRef.current >= 10_000) {
-      lastRouteRenderAtRef.current = now;
-      setRecordedCoordinates([...recordedCoordinatesRef.current]);
-    }
+    setRecordedCoordinates([...recordedCoordinatesRef.current]);
   }, []);
 
   // Hàm xác định toạ độ GPS tức thì của người dùng (chỉ dùng để hiển thị ban đầu, không đưa vào bản ghi thật)
   const detectCurrentLocation = useCallback(async (): Promise<MapCoordinate | null> => {
+    if (isRecordingRef.current || detectingLocationRef.current) return null;
+    detectingLocationRef.current = true;
+    const requestId = locationRequestRef.current;
+    const isActive = () => requestId === locationRequestRef.current && !isRecordingRef.current;
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
+      if (!isActive()) return null;
       if (status !== "granted") {
         setGpsStatus("DENIED");
         Alert.alert(
@@ -150,13 +158,22 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
         return null;
       }
 
+      if (hasRecentLocation()) {
+        setGpsStatus("READY");
+        const cached = previewLocationRef.current!;
+        return { latitude: cached.coords.latitude, longitude: cached.coords.longitude };
+      }
+      setGpsStatus("SEARCHING");
+
       // 1. Thử lấy vị trí lưu gần nhất
       try {
         const lastKnown = await Location.getLastKnownPositionAsync({
-          maxAge: 10000,
+          maxAge: 30_000,
           requiredAccuracy: 25,
         });
-        if (lastKnown && !isRecordingRef.current) {
+        if (!isActive()) return null;
+        if (lastKnown) {
+          previewLocationRef.current = lastKnown;
           const altitude =
             lastKnown.coords.altitude != null
               ? Math.round(lastKnown.coords.altitude)
@@ -168,8 +185,9 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
           };
           setCurrentPosition(coord);
           setGpsAccuracy(lastKnown.coords.accuracy || null);
-          setGpsStatus("SEARCHING");
+          setGpsStatus("READY");
           mapRef.current?.centerOnUser(coord.longitude, coord.latitude);
+          return coord;
         }
       } catch {
         // bỏ qua nếu thiết bị chưa từng có cache vị trí
@@ -191,7 +209,11 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
         }
       }
 
+      if (!isActive()) return null;
       if (fresh) {
+        if (previewLocationRef.current &&
+            previewLocationRef.current.timestamp > fresh.timestamp) return null;
+        previewLocationRef.current = fresh;
         const altitude =
           fresh.coords.altitude != null
             ? Math.round(fresh.coords.altitude)
@@ -209,14 +231,16 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
         return coord;
       }
 
-      if (!isRecordingRef.current) setGpsStatus("SEARCHING");
+      if (isActive()) setGpsStatus("SEARCHING");
       return null;
     } catch (e) {
       console.warn("[LiveTrailRecorder] detectCurrentLocation error:", e);
-      setGpsStatus("SEARCHING");
+      if (isActive()) setGpsStatus("SEARCHING");
       return null;
+    } finally {
+      if (requestId === locationRequestRef.current) detectingLocationRef.current = false;
     }
-  }, []);
+  }, [hasRecentLocation]);
 
   const resetSession = () => {
     isRecordingRef.current = false;
@@ -255,8 +279,11 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
 
   // Yêu cầu quyền vị trí và lắng nghe GPS
   const startLocationTracking = useCallback(async () => {
+    const requestId = locationRequestRef.current;
     try {
+      if (locationSubscription.current) return true;
       const { status } = await Location.requestForegroundPermissionsAsync();
+      if (requestId !== locationRequestRef.current) return false;
       if (status !== "granted") {
         setGpsStatus("DENIED");
         Alert.alert(
@@ -267,6 +294,7 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
       }
 
       const enabled = await Location.hasServicesEnabledAsync();
+      if (requestId !== locationRequestRef.current) return false;
       if (!enabled) {
         Alert.alert(
           "GPS chưa bật",
@@ -275,8 +303,7 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
         return false;
       }
 
-      locationSubscription.current?.remove();
-      locationSubscription.current = null;
+      if (locationSubscription.current) return true;
 
       try {
         const targetAccuracy =
@@ -284,13 +311,25 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
             ? Location.Accuracy.BestForNavigation
             : Location.Accuracy.High;
 
-        locationSubscription.current = await Location.watchPositionAsync(
+        const subscription = await Location.watchPositionAsync(
           {
             accuracy: targetAccuracy,
             distanceInterval: 1, // Nhận sự kiện di chuyển từ 1 mét
-            timeInterval: 3000, // Cập nhật nhịp tim 3 giây / lần
+            timeInterval: 1000, // Yêu cầu cập nhật mỗi giây trên Android
           },
           (location) => {
+            if (requestId !== locationRequestRef.current) return;
+            if (!Number.isFinite(location.coords.latitude) ||
+                !Number.isFinite(location.coords.longitude)) return;
+            previewLocationRef.current = location;
+            // Chấm vị trí theo GPS trực tiếp, độc lập với bộ lọc tuyến ghi.
+            setCurrentPosition({
+              latitude: location.coords.latitude,
+              longitude: location.coords.longitude,
+              elevation: location.coords.altitude ?? undefined,
+            });
+            setGpsAccuracy(location.coords.accuracy ?? null);
+            setGpsStatus("READY");
             if (!isRecordingRef.current || isPausedRef.current) return;
 
             const recId = currentRecordingIdRef.current;
@@ -349,14 +388,6 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
             }
 
             const pt = result.point;
-            const currentCoord: MapCoordinate = {
-              latitude: pt.latitude,
-              longitude: pt.longitude,
-              elevation:
-                pt.elevation != null ? Math.round(pt.elevation) : undefined,
-            };
-
-            setCurrentPosition(currentCoord);
             appendRecordedCoordinate(pt);
             setDistanceKm(result.distanceM / 1000);
             setElevationGainM(result.elevationGainM);
@@ -364,6 +395,11 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
             setGpsStatus("READY");
           },
         );
+        if (requestId !== locationRequestRef.current || locationSubscription.current) {
+          subscription.remove();
+          return requestId === locationRequestRef.current;
+        }
+        locationSubscription.current = subscription;
         return true;
       } catch (watchErr) {
         console.warn(
@@ -383,7 +419,9 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
     let timer: ReturnType<typeof setTimeout> | null = null;
     if (visible) {
       timer = setTimeout(() => {
-        detectCurrentLocation();
+        // Theo dõi ngay khi mở màn, kể cả chưa bắt đầu ghi.
+        void startLocationTracking();
+        void detectCurrentLocation();
       }, 0);
 
       // Kiểm tra phiên ghi dở dang nếu modal vừa mở và chưa đang ghi
@@ -531,6 +569,8 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
       }
     }
     return () => {
+      locationRequestRef.current += 1;
+      detectingLocationRef.current = false;
       if (timer) clearTimeout(timer);
       if (locationSubscription.current) {
         locationSubscription.current.remove();
@@ -547,7 +587,7 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
   const handleStart = async () => {
     const startedAt = new Date().toISOString();
     gpsProcessorRef.current.reset(Date.parse(startedAt));
-    setGpsStatus("SEARCHING");
+    setGpsStatus(hasRecentLocation() ? "READY" : "SEARCHING");
     replaceRecordedCoordinates([]);
     setDistanceKm(0);
     setElevationGainM(0);

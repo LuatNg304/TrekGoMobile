@@ -45,7 +45,7 @@ export interface GpsProcessorSnapshot {
 }
 
 export const GPS_CONFIG = {
-  maxAccuracyM: 25,
+  maxAccuracyM: 50,
   minMovementM: 5,
   maxWalkingSpeedMs: 4.5, // ~16.2 km/h (giới hạn tốc độ trekking/chạy địa hình)
   maxPointAgeMs: 45000,
@@ -205,11 +205,12 @@ export class GpsProcessor {
       return reject("STALE_LOCATION");
     }
 
+    const previousObservedTimestamp = this.lastObservedTimestamp;
     this.lastObservedTimestamp = timestamp;
 
     // Confirm a fresh cluster before recording the start; never connect warm-up fixes.
     if (this.awaitingStartFix) {
-      if (accuracy > 15) {
+      if (accuracy > GPS_CONFIG.maxAccuracyM) {
         this.startFixes = [];
         return reject("LOW_ACCURACY");
       }
@@ -234,7 +235,8 @@ export class GpsProcessor {
 
     // 4. Kiểm tra mất sóng GPS kéo dài (Tracking Gap)
     if (this.lastPoint) {
-      const gapMs = timestamp - this.lastPoint.timestamp;
+      // Các mẫu bị lọc do đứng yên vẫn chứng minh GPS đang hoạt động.
+      const gapMs = timestamp - previousObservedTimestamp;
       if (gapMs > GPS_CONFIG.maxTrackingGapMs) {
         // Mất tín hiệu quá lâu -> tách sang segment mới, không cộng đoạn nối không kiểm chứng
         this.breakSegment();
