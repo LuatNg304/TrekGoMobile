@@ -292,19 +292,86 @@ export type RentalOrderTimelineItem = {
 export type RentalOrderDetail = {
   order: RentalOrderSummary;
   items: RentalOrderLine[];
+  quantityReservations: {
+    id: string;
+    orderLineId: string;
+    productId: string;
+    quantity: number;
+    occupiedFrom: string;
+    occupiedUntil: string;
+    status: string;
+    holdExpiresAt?: string | null;
+  }[];
   assignedUnits?: RentalAssignedUnit[];
   payment?: RentalPaymentStatus | null;
   deposit?: RentalDepositStatus | null;
   timeline?: RentalOrderTimelineItem[];
 };
 
+export type RentalPaymentGateway = "momo" | "vnpay";
+
+export type RentalPaymentState =
+  | "NOT_STARTED"
+  | "PENDING"
+  | "PROCESSING"
+  | "SUCCEEDED"
+  | "FAILED"
+  | "CANCELLED"
+  | "EXPIRED";
+
 export type RentalPaymentStatus = {
-  status: string;
-  paymentRef?: string;
-  nextAction?: unknown;
-  amount?: number;
-  refundedAmount?: number;
-  expiresAt?: string;
+  paymentRef: string;
+  status: RentalPaymentState;
+  nextAction: {
+    type: "CREATE_PAYMENT" | "AWAIT_PAYMENT_RESULT" | "RETRY_PAYMENT";
+  } | null;
+  expiresAt: string | null;
+  amount: number;
+  refundedAmount: number;
+  paidAt?: string | null;
+  invoiceStatus: string | null;
+  applicationStatus: "PENDING" | "APPLIED" | "REJECTED" | null;
+  applicationReasonCode: string | null;
+  reconciliationStatus: string | null;
+  reconciliationRequired: boolean;
+  gateway: RentalPaymentGateway | null;
+  providerEnvironment: string | null;
+  paymentMethod: "QR" | "REDIRECT" | null;
+  orderStatus: string;
+  financialStatus: string;
+};
+
+export type RentalPaymentOptions = {
+  defaultGateway?: RentalPaymentGateway;
+  gateways: {
+    gateway: RentalPaymentGateway;
+    environment: "MOCK" | "SANDBOX" | "PRODUCTION" | string;
+    methods?: ("QR" | "REDIRECT")[];
+  }[];
+};
+
+export type RentalPaymentCheckout = {
+  paymentId: string;
+  invoiceId: string;
+  invoiceType: "RENTAL";
+  status:
+    | "PENDING"
+    | "PROCESSING"
+    | "SUCCEEDED"
+    | "FAILED"
+    | "CANCELLED"
+    | "EXPIRED";
+  amount: string;
+  currency: string;
+  providerEnvironment: string;
+  gateway: RentalPaymentGateway;
+  checkout: {
+    type: "QR" | "REDIRECT";
+    url: string | null;
+    qrData: string | null;
+  } | null;
+  expiresAt: string | null;
+  reconciliationRequired: boolean;
 };
 
 export type RentalPickupCode = {
@@ -329,9 +396,14 @@ export type RentalHandoverPreview = {
 export type RentalDepositItem = {
   unitId: string;
   assetCode?: string;
-  amount: number;
+  depositAmount?: number;
+  amount?: number;
   status: string;
+  inspectionStatus?: string | null;
   refundRef?: string | null;
+  refundStatus?: string | null;
+  refundAmount?: number | null;
+  heldReason?: string | null;
   deduction?: number | null;
   reason?: string | null;
 };
@@ -340,8 +412,10 @@ export type RentalDepositStatus = {
   collectedAmount: number;
   heldAmount: number;
   refundedAmount: number;
+  refundPendingAmount?: number;
   deductionAmount: number;
   items: RentalDepositItem[];
+  groupedRefunds?: Record<string, unknown>[];
 };
 
 export function calculateProductDeposit(product: RentalProduct) {

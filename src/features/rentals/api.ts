@@ -11,6 +11,9 @@ import {
   RentalOrderDetail,
   RentalOrderCreated,
   RentalOrderSummary,
+  RentalPaymentCheckout,
+  RentalPaymentGateway,
+  RentalPaymentOptions,
   RentalPaymentStatus,
   RentalPickupCode,
   RentalProduct,
@@ -546,6 +549,37 @@ export const rentalApi = {
     const response = await apiRequest<Envelope<RentalPaymentStatus>>(
       `/api/v1/rental-orders/${orderId}/payment`,
       { method: "GET", accessToken },
+    );
+
+    return unwrap(response);
+  },
+
+  async listPaymentOptions(accessToken: string) {
+    const response = await apiRequest<Envelope<RentalPaymentOptions>>(
+      "/api/v1/payments/options",
+      { method: "GET", accessToken },
+    );
+
+    return unwrap(response);
+  },
+
+  async createPayment(
+    orderId: string,
+    input: {
+      gateway: RentalPaymentGateway;
+      paymentMethod: "REDIRECT";
+    },
+    idempotencyKey: string,
+    accessToken: string,
+  ) {
+    const response = await apiRequest<Envelope<RentalPaymentCheckout>>(
+      `/api/v1/rental-orders/${orderId}/payments`,
+      {
+        method: "POST",
+        accessToken,
+        headers: { "Idempotency-Key": idempotencyKey },
+        body: JSON.stringify(input),
+      },
     );
 
     return unwrap(response);

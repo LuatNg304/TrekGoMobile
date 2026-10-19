@@ -1,10 +1,12 @@
 import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  AppState,
+  Linking,
   RefreshControl,
-
   ScrollView,
   StyleSheet,
   Text,
@@ -16,10 +18,12 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Colors, Radius, Shadows } from "@/constants/theme";
 import { useAuth } from "@/features/auth/AuthContext";
 import { rentalApi } from "@/features/rentals/api";
+import { ApiError } from "@/lib/api-client";
 import {
   RentalDepositStatus,
   RentalHandoverPreview,
   RentalOrderDetail,
+  RentalPaymentGateway,
   RentalPaymentStatus,
   RentalPickupCode,
 } from "@/features/rentals/types";
@@ -64,6 +68,47 @@ const dateTime = (value?: string | null) => {
   });
 };
 
+const gatewayLabel = (gateway: RentalPaymentGateway) =>
+  gateway === "vnpay" ? "VNPay" : "MoMo";
+
+const TERMINAL_PAYMENT_STATUSES = new Set([
+  "FAILED",
+  "CANCELLED",
+  "EXPIRED",
+]);
+const PAYMENT_POLL_INTERVAL_MS = 1_500;
+const PAYMENT_POLL_TIMEOUT_MS = 60_000;
+
+const paymentStorageKey = (
+  orderId: string,
+  gateway: RentalPaymentGateway,
+) => `rental-payment:${orderId}:${gateway}`;
+
+async function getOrCreatePaymentKey(
+  orderId: string,
+  gateway: RentalPaymentGateway,
+) {
+  const storageKey = paymentStorageKey(orderId, gateway);
+  const stored = await AsyncStorage.getItem(storageKey);
+  if (stored) return stored;
+
+  const key = `mobile-rental-${orderId}-${gateway}-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2)}`;
+  await AsyncStorage.setItem(storageKey, key);
+  return key;
+}
+
+async function clearPaymentKeys(orderId: string) {
+  await AsyncStorage.multiRemove([
+    paymentStorageKey(orderId, "momo"),
+    paymentStorageKey(orderId, "vnpay"),
+  ]);
+}
+
+const wait = (durationMs: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, durationMs));
+
 export default function RentalOrderDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string | string[] }>();
@@ -77,8 +122,20 @@ export default function RentalOrderDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [codeLoading, setCodeLoading] = useState(false);
+  const [paying, setPaying] = useState(false);
+  const [pollingPayment, setPollingPayment] = useState(false);
+  const [paymentGateways, setPaymentGateways] = useState<
+    RentalPaymentGateway[]
+  >([]);
+  const [selectedGateway, setSelectedGateway] =
+    useState<RentalPaymentGateway>();
   const [error, setError] = useState<string>();
   const [codeError, setCodeError] = useState<string>();
+  const [paymentError, setPaymentError] = useState<string>();
+  const [paymentNotice, setPaymentNotice] = useState<string>();
+  const awaitingPaymentReturn = useRef(false);
+  const paymentPollRunning = useRef(false);
+  const paymentPollGeneration = useRef(0);
 
   const loadOrder = useCallback(
     async (isRefresh = false) => {
@@ -132,12 +189,171 @@ export default function RentalOrderDetailScreen() {
     [accessToken, orderId],
   );
 
+  const pollPaymentUntilApplied = useCallback(async () => {
+    if (!accessToken || !orderId || paymentPollRunning.current) return;
+
+    const generation = ++paymentPollGeneration.current;
+    const deadline = Date.now() + PAYMENT_POLL_TIMEOUT_MS;
+    paymentPollRunning.current = true;
+    setPollingPayment(true);
+    setPaymentError(undefined);
+    setPaymentNotice("Đang chờ Backend xác nhận và áp dụng thanh toán...");
+
+    try {
+      while (
+        Date.now() < deadline &&
+        generation === paymentPollGeneration.current
+      ) {
+        const [orderDetail, paymentStatus] = await Promise.all([
+          rentalApi.getOrder(orderId, accessToken),
+          rentalApi.getPaymentStatus(orderId, accessToken),
+        ]);
+        setDetail(orderDetail);
+        setPayment(paymentStatus);
+
+        const reservationsConfirmed =
+          orderDetail.quantityReservations.length > 0 &&
+          orderDetail.quantityReservations.every(
+            (reservation) => reservation.status === "CONFIRMED",
+          );
+        const paymentApplied =
+          paymentStatus.status === "SUCCEEDED" &&
+          paymentStatus.applicationStatus === "APPLIED" &&
+          paymentStatus.invoiceStatus === "PAID" &&
+          paymentStatus.orderStatus === "PAID" &&
+          paymentStatus.financialStatus === "PAID" &&
+          orderDetail.order.status === "PAID" &&
+          orderDetail.order.financialStatus === "PAID" &&
+          reservationsConfirmed;
+
+        if (paymentApplied) {
+          await clearPaymentKeys(orderId);
+          setPaymentNotice(
+            "Thanh toán đã được Backend xác nhận. Kho đang nhận nhiệm vụ chuẩn bị thiết bị.",
+          );
+          return;
+        }
+
+        const needsManualReconciliation =
+          paymentStatus.applicationStatus === "REJECTED" ||
+          paymentStatus.reconciliationStatus === "NEEDS_REVIEW" ||
+          paymentStatus.reconciliationRequired;
+
+        if (needsManualReconciliation) {
+          setPaymentNotice(undefined);
+          setPaymentError(
+            `Giao dịch cần hỗ trợ đối soát${
+              paymentStatus.applicationReasonCode
+                ? ` (${paymentStatus.applicationReasonCode})`
+                : ""
+            }. Không tạo thêm giao dịch mới.`,
+          );
+          return;
+        }
+
+        if (
+          TERMINAL_PAYMENT_STATUSES.has(paymentStatus.status) ||
+          ["CANCELLED", "EXPIRED"].includes(orderDetail.order.status)
+        ) {
+          await clearPaymentKeys(orderId);
+          setPaymentNotice(undefined);
+          setPaymentError(
+            orderDetail.order.status === "EXPIRED"
+              ? "Đơn đã hết hạn giữ thiết bị. Hãy tạo báo giá và đơn mới."
+              : `Thanh toán kết thúc với trạng thái ${paymentStatus.status}.`,
+          );
+          return;
+        }
+
+        await wait(PAYMENT_POLL_INTERVAL_MS);
+      }
+
+      if (generation === paymentPollGeneration.current) {
+        setPaymentNotice(
+          "Backend vẫn đang xử lý thanh toán. Bạn có thể bấm kiểm tra lại mà không tạo giao dịch mới.",
+        );
+      }
+    } catch (requestError) {
+      setPaymentError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Không kiểm tra được trạng thái thanh toán.",
+      );
+    } finally {
+      if (generation === paymentPollGeneration.current) {
+        paymentPollRunning.current = false;
+        setPollingPayment(false);
+      }
+    }
+  }, [accessToken, orderId]);
+
   useEffect(() => {
     const timer = setTimeout(() => {
       void loadOrder();
     }, 0);
     return () => clearTimeout(timer);
   }, [loadOrder]);
+
+  useEffect(
+    () => () => {
+      paymentPollGeneration.current += 1;
+      paymentPollRunning.current = false;
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!accessToken || detail?.order.status !== "PENDING_PAYMENT") return;
+
+    const timer = setTimeout(() => {
+      void rentalApi
+        .listPaymentOptions(accessToken)
+        .then((options) => {
+          const gateways = options.gateways.map((option) => option.gateway);
+          setPaymentGateways(gateways);
+          setSelectedGateway((current) =>
+            current && gateways.includes(current)
+              ? current
+              : options.defaultGateway &&
+                  gateways.includes(options.defaultGateway)
+                ? options.defaultGateway
+                : gateways[0],
+          );
+        })
+        .catch((requestError) => {
+          setPaymentError(
+            requestError instanceof Error
+              ? requestError.message
+              : "Không tải được cổng thanh toán.",
+          );
+        });
+    }, 0);
+
+    return () => clearTimeout(timer);
+  }, [accessToken, detail?.order.status]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active" && awaitingPaymentReturn.current) {
+        awaitingPaymentReturn.current = false;
+        void pollPaymentUntilApplied();
+      }
+    });
+
+    return () => subscription.remove();
+  }, [pollPaymentUntilApplied]);
+
+  useEffect(() => {
+    const needsAuthoritativeConfirmation =
+      detail?.order.status === "PENDING_PAYMENT" &&
+      ["PENDING", "PROCESSING", "SUCCEEDED"].includes(payment?.status || "");
+    if (!needsAuthoritativeConfirmation) return;
+
+    const timer = setTimeout(() => {
+      void pollPaymentUntilApplied();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [detail?.order.status, payment?.status, pollPaymentUntilApplied]);
 
   const currentStep = useMemo(() => {
     if (!detail) return -1;
@@ -158,6 +374,73 @@ export default function RentalOrderDetailScreen() {
       );
     } finally {
       setCodeLoading(false);
+    }
+  }
+
+  async function startPayment() {
+    if (!accessToken || !orderId || !selectedGateway) return;
+
+    setPaying(true);
+    setPaymentError(undefined);
+    setPaymentNotice(undefined);
+    if (["FAILED", "CANCELLED", "EXPIRED"].includes(payment?.status || "")) {
+      await AsyncStorage.removeItem(paymentStorageKey(orderId, selectedGateway));
+    }
+
+    try {
+      const idempotencyKey = await getOrCreatePaymentKey(
+        orderId,
+        selectedGateway,
+      );
+      const checkout = await rentalApi.createPayment(
+        orderId,
+        { gateway: selectedGateway, paymentMethod: "REDIRECT" },
+        idempotencyKey,
+        accessToken,
+      );
+
+      const checkoutUrl = checkout.checkout?.url;
+      if (
+        checkoutUrl &&
+        ["PENDING", "PROCESSING"].includes(checkout.status)
+      ) {
+        awaitingPaymentReturn.current = true;
+        await Linking.openURL(checkoutUrl);
+      } else {
+        setPaymentNotice(
+          "Payment đã được ghi nhận nhưng checkout chưa sẵn sàng. Đang đối soát với Backend...",
+        );
+        void pollPaymentUntilApplied();
+      }
+    } catch (requestError) {
+      awaitingPaymentReturn.current = false;
+      if (
+        requestError instanceof ApiError &&
+        requestError.code === "PAYMENT_ATTEMPT_IN_PROGRESS"
+      ) {
+        setPaymentNotice(
+          "Đã có giao dịch đang xử lý. Mobile sẽ kiểm tra giao dịch hiện tại thay vì tạo giao dịch mới.",
+        );
+        void pollPaymentUntilApplied();
+      } else {
+        if (
+          requestError instanceof ApiError &&
+          requestError.code === "PAYMENT_INVALID_STATE"
+        ) {
+          void loadOrder(true);
+        }
+        setPaymentError(
+          requestError instanceof Error
+            ? `${requestError.message}${
+                requestError instanceof ApiError && requestError.retryable
+                  ? " Bạn có thể thử lại với cùng giao dịch."
+                  : ""
+              }`
+            : "Không khởi tạo được thanh toán Rental.",
+        );
+      }
+    } finally {
+      setPaying(false);
     }
   }
 
@@ -190,6 +473,20 @@ export default function RentalOrderDetailScreen() {
 
   const { order, items, assignedUnits = [], timeline = [] } = detail;
   const canShowPickupCode = order.status === "READY_FOR_HANDOVER";
+  const canStartPayment =
+    order.status === "PENDING_PAYMENT" &&
+    !payment?.reconciliationRequired &&
+    payment?.applicationStatus !== "REJECTED" &&
+    payment?.reconciliationStatus !== "NEEDS_REVIEW" &&
+    (payment?.nextAction?.type === "CREATE_PAYMENT" ||
+      payment?.nextAction?.type === "RETRY_PAYMENT" ||
+      (!payment?.nextAction &&
+        ["NOT_STARTED", "FAILED", "CANCELLED", "EXPIRED"].includes(
+          payment?.status || "NOT_STARTED",
+        )));
+  const paymentNeedsConfirmation =
+    order.status === "PENDING_PAYMENT" &&
+    ["PENDING", "PROCESSING", "SUCCEEDED"].includes(payment?.status || "");
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -303,9 +600,95 @@ export default function RentalOrderDetailScreen() {
           <Text style={styles.paymentStatus}>
             Trạng thái: {payment?.status || order.financialStatus || "Chưa cập nhật"}
           </Text>
+          {payment?.status === "SUCCEEDED" &&
+            payment.applicationStatus !== "APPLIED" && (
+              <Text style={styles.readOnlyNote}>
+                Cổng thanh toán đã ghi nhận tiền. Hệ thống vẫn đang xác nhận đơn thuê;
+                chưa chuyển sang bước chuẩn bị thiết bị.
+              </Text>
+            )}
+          {(payment?.applicationStatus === "REJECTED" ||
+            payment?.reconciliationStatus === "NEEDS_REVIEW" ||
+            payment?.reconciliationRequired) && (
+              <Text style={styles.inlineError}>
+                Giao dịch cần hỗ trợ đối soát. Không thanh toán lại để tránh trùng giao dịch.
+              </Text>
+            )}
           {order.paymentExpiresAt && (
             <Text style={styles.deadline}>Hạn thanh toán: {dateTime(order.paymentExpiresAt)}</Text>
           )}
+          {canStartPayment && (
+            <>
+              <View style={styles.gatewayRow}>
+                {paymentGateways.map((gateway) => {
+                  const selected = selectedGateway === gateway;
+                  return (
+                    <TouchableOpacity
+                      key={gateway}
+                      style={[
+                        styles.gatewayButton,
+                        selected && styles.gatewayButtonSelected,
+                      ]}
+                      onPress={() => {
+                        setSelectedGateway(gateway);
+                      }}
+                    >
+                      <Text
+                        style={[
+                          styles.gatewayText,
+                          selected && styles.gatewayTextSelected,
+                        ]}
+                      >
+                        {gatewayLabel(gateway)}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <TouchableOpacity
+                style={[
+                  styles.payButton,
+                  (!selectedGateway || paying) && styles.buttonDisabled,
+                ]}
+                disabled={!selectedGateway || paying}
+                onPress={() => void startPayment()}
+              >
+                {paying ? (
+                  <ActivityIndicator color={Colors.onPrimary} />
+                ) : (
+                  <>
+                    <Ionicons name="card-outline" size={18} color={Colors.onPrimary} />
+                    <Text style={styles.payButtonText}>Thanh toán ngay</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+              {paymentGateways.length === 0 && !paymentError && (
+                <Text style={styles.readOnlyNote}>Đang tải cổng thanh toán...</Text>
+              )}
+            </>
+          )}
+          {paymentNeedsConfirmation && (
+            <TouchableOpacity
+              style={styles.checkPaymentButton}
+              disabled={pollingPayment}
+              onPress={() => void pollPaymentUntilApplied()}
+            >
+              {pollingPayment ? (
+                <ActivityIndicator size="small" color={Colors.primaryDark} />
+              ) : (
+                <Ionicons name="refresh" size={17} color={Colors.primaryDark} />
+              )}
+              <Text style={styles.checkPaymentText}>
+                {pollingPayment
+                  ? "Đang xác nhận với Backend..."
+                  : "Kiểm tra trạng thái thanh toán"}
+              </Text>
+            </TouchableOpacity>
+          )}
+          {paymentNotice && (
+            <Text style={styles.paymentNotice}>{paymentNotice}</Text>
+          )}
+          {paymentError && <Text style={styles.inlineError}>{paymentError}</Text>}
         </Section>
 
         {canShowPickupCode && (
@@ -344,6 +727,11 @@ export default function RentalOrderDetailScreen() {
           <Section title="Theo dõi tiền cọc" subtitle="Cọc được xử lý riêng theo từng thiết bị">
             <MoneyRow label="Đã thu" value={deposit.collectedAmount} currency={order.currency} />
             <MoneyRow label="Đang giữ" value={deposit.heldAmount} currency={order.currency} />
+            <MoneyRow
+              label="Đang chờ hoàn"
+              value={deposit.refundPendingAmount}
+              currency={order.currency}
+            />
             <MoneyRow label="Đã hoàn" value={deposit.refundedAmount} currency={order.currency} />
             <MoneyRow label="Khấu trừ" value={deposit.deductionAmount} currency={order.currency} />
             {deposit.items.map((item) => (
@@ -353,9 +741,21 @@ export default function RentalOrderDetailScreen() {
                   <Text style={styles.lineMeta}>{item.status.replaceAll("_", " ")}</Text>
                   {item.reason ? <Text style={styles.reasonText}>{item.reason}</Text> : null}
                 </View>
-                <Text style={styles.lineAmount}>{money(item.amount, order.currency)}</Text>
+                <Text style={styles.lineAmount}>
+                  {money(item.depositAmount ?? item.amount, order.currency)}
+                </Text>
               </View>
             ))}
+            {deposit.items.some(
+              (item) =>
+                item.status === "REVIEW_REQUIRED" ||
+                item.heldReason === "FINAL_PASS_AWAIT_GROUPED_REFUND",
+            ) && (
+              <Text style={styles.readOnlyNote}>
+                Đang chờ xử lý hoàn cọc. Đây chưa phải trạng thái đã hoàn tiền; nếu kéo
+                dài, vui lòng liên hệ hỗ trợ.
+              </Text>
+            )}
           </Section>
         )}
 
@@ -531,6 +931,17 @@ const styles = StyleSheet.create({
   totalDivider: { height: 1, marginVertical: 8, backgroundColor: Colors.surfaceContainer },
   paymentStatus: { marginTop: 12, color: Colors.onSurface, fontSize: 10, fontWeight: "800" },
   deadline: { marginTop: 4, color: "#A32020", fontSize: 10 },
+  gatewayRow: { marginTop: 14, flexDirection: "row", gap: 8 },
+  gatewayButton: { flex: 1, minHeight: 42, alignItems: "center", justifyContent: "center", borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.surfaceContainerHighest, backgroundColor: Colors.surfaceContainerLowest },
+  gatewayButtonSelected: { borderColor: Colors.primaryDark, backgroundColor: Colors.primaryPale },
+  gatewayText: { color: Colors.onSurfaceVariant, fontSize: 11, fontWeight: "800" },
+  gatewayTextSelected: { color: Colors.primaryDark },
+  payButton: { marginTop: 10, minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: Radius.full, backgroundColor: Colors.primaryDark },
+  payButtonText: { color: Colors.onPrimary, fontWeight: "900" },
+  buttonDisabled: { opacity: 0.55 },
+  checkPaymentButton: { marginTop: 12, minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, borderRadius: Radius.full, borderWidth: 1, borderColor: Colors.primaryDark },
+  checkPaymentText: { color: Colors.primaryDark, fontSize: 11, fontWeight: "900" },
+  paymentNotice: { marginTop: 9, color: Colors.primaryDark, fontSize: 10, lineHeight: 16, textAlign: "center" },
   codeBox: { padding: 18, alignItems: "center", borderRadius: Radius.lg, backgroundColor: Colors.inkDeep },
   codeValue: { color: Colors.primary, fontSize: 30, fontWeight: "900", letterSpacing: 5 },
   codeExpiry: { marginTop: 6, color: Colors.primaryNeutral, fontSize: 10 },
