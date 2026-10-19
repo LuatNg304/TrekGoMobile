@@ -66,8 +66,8 @@ export const Colors = {
 
 export const Typography = {
   fontFamily: {
-    display: 'Space Grotesk, Inter, system-ui, sans-serif',
-    body: 'Inter, system-ui, sans-serif',
+    display: 'Roboto, system-ui, sans-serif',
+    body: 'Roboto, system-ui, sans-serif',
   },
   fontSize: {
     displayMega: 44,
@@ -78,6 +78,17 @@ export const Typography = {
     bodyMd: 14,
     bodySm: 12,
     labelSm: 10,
+  },
+  lineHeightMultiplier: 1.5,
+  lineHeight: {
+    displayMega: 66,
+    headlineLg: 48,
+    headlineMd: 33,
+    headlineSm: 27,
+    bodyLg: 24,
+    bodyMd: 21,
+    bodySm: 18,
+    labelSm: 15,
   },
 };
 
