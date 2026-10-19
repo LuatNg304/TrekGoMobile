@@ -67,7 +67,7 @@ export interface PublicTripsFilter {
 
 // ─── API Functions ────────────────────────────────────────────────────────────
 
-/** GET /api/v1/trips — Explore feed (public, no auth required) */
+/** GET /api/v1/public-trips — Explore feed (public, no auth required) */
 export async function getPublicTrips(
   filter: PublicTripsFilter = {},
 ): Promise<PublicTripsListResponse> {
@@ -82,11 +82,11 @@ export async function getPublicTrips(
 
   const query = params.toString();
   return apiRequest<PublicTripsListResponse>(
-    `/api/v1/trips${query ? `?${query}` : ""}`,
+    `/api/v1/public-trips${query ? `?${query}` : ""}`,
   );
 }
 
-/** GET /api/v1/trips/:id — Trip detail for user */
+/** GET /api/v1/public-trips/:id — Trip detail for user (no internal priceExplanation) */
 export async function getPublicTripById(id: string): Promise<PublicTrip> {
-  return apiRequest<PublicTrip>(`/api/v1/trips/${id}`);
+  return apiRequest<PublicTrip>(`/api/v1/public-trips/${id}`);
 }

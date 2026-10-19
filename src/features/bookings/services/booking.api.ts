@@ -133,7 +133,7 @@ export const BOOKING_STATUS_LABELS: Record<string, string> = {
 
 export const bookingApiService = {
   /**
-   * GET /api/v1/trips
+   * GET /api/v1/public-trips
    * Khám phá danh sách Public Trips mở đăng ký
    */
   getPublicTrips: async (
@@ -150,16 +150,16 @@ export const bookingApiService = {
 
     const q = params.toString();
     return apiRequest<PageResponse<PublicBookingTrip>>(
-      `/api/v1/trips${q ? `?${q}` : ""}`,
+      `/api/v1/public-trips${q ? `?${q}` : ""}`,
     );
   },
 
   /**
-   * GET /api/v1/trips/{id}
+   * GET /api/v1/public-trips/{id}
    * Chi tiết Public Trip
    */
   getPublicTripDetail: async (tripId: string): Promise<PublicBookingTrip> => {
-    return apiRequest<PublicBookingTrip>(`/api/v1/trips/${tripId}`);
+    return apiRequest<PublicBookingTrip>(`/api/v1/public-trips/${tripId}`);
   },
 
   /**

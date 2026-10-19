@@ -50,7 +50,20 @@ export function LeaderDashboardScreen() {
   const { user: authUser, accessToken, signOut: authSignOut } = useAuth();
   const [modalVisible, setModalVisible] = useState(false);
 
-  const { trips: leaderTrips, loading: loadingTrips, fetchMyTrips } = useLeaderTrips(accessToken);
+  const {
+    trips: leaderTrips,
+    loading: loadingTrips,
+    fetchMyTrips,
+    cancelTrip,
+  } = useLeaderTrips(accessToken);
+
+  const handleCancelTrip = async (
+    tripId: string,
+    version: number,
+    reason: string,
+  ) => {
+    await cancelTrip(tripId, { expectedVersion: version, reason });
+  };
 
   useEffect(() => {
     if (accessToken) {
@@ -183,9 +196,14 @@ export function LeaderDashboardScreen() {
           label="Tạo Public Trip mới"
           onPress={() => router.push("/field-operations/leader-create-trip" as any)}
         />
+        <Action
+          icon="briefcase-outline"
+          label="Chuyến đi của tôi (Quản lý đoàn)"
+          onPress={() => router.push("/field-operations/leader-trips" as any)}
+        />
 
         {/* Created Trips List */}
-        <LeaderTripList trips={leaderTrips} />
+        <LeaderTripList trips={leaderTrips} onCancelTrip={handleCancelTrip} />
 
         {/* Member Preview */}
         <View style={styles.memberPreview}>

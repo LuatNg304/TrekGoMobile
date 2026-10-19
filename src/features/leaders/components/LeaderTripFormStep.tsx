@@ -13,7 +13,7 @@ import {
   parseVnDate,
 } from "@/features/leaders/utils/tripDateUtils";
 import { Ionicons } from "@expo/vector-icons";
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import {
   ActivityIndicator,
   StyleSheet,
@@ -60,10 +60,14 @@ export function LeaderTripFormStep({
   isLoadingMeta,
   submitError,
   onUpdateField,
+  onToggleCheckpoint,
   onProceed,
   onBack,
   onRetryLoadMeta,
 }: LeaderTripFormStepProps) {
+  const [destDropdownOpen, setDestDropdownOpen] = useState(false);
+  const [pickupDropdownOpen, setPickupDropdownOpen] = useState(false);
+
   // Compute duration in real-time
   const durationInfo = useMemo(() => {
     const start = parseVnDate(form.startDate);
@@ -96,6 +100,11 @@ export function LeaderTripFormStep({
   const selectedDest = useMemo(
     () => destinations.find((d) => d.id === form.destinationId),
     [destinations, form.destinationId],
+  );
+
+  const selectedPickup = useMemo(
+    () => pickupPoints.find((p) => p.id === form.pickupPointId),
+    [pickupPoints, form.pickupPointId],
   );
 
   // Generate 3D Trail Model immediately once destination & checkpoints are selected
@@ -166,7 +175,7 @@ export function LeaderTripFormStep({
           </TouchableOpacity>
           <View>
             <Text style={styles.headerTitle}>TẠO PUBLIC TRIP</Text>
-            <Text style={styles.headerSubtitle}>BƯỚC 1/2 · THÔNG TIN CHUYẾN</Text>
+            <Text style={styles.headerSubtitle}>BƯỚC 1/3 · THÔNG TIN CHUYẾN</Text>
           </View>
         </View>
         <View style={styles.badgeVfrs}>
@@ -182,12 +191,12 @@ export function LeaderTripFormStep({
             <View style={styles.progressStepCircle}>
               <Text style={styles.progressStepNum}>1</Text>
             </View>
-            <Text style={styles.progressStepText}>BƯỚC 1/2: THIẾT LẬP THÔNG TIN CHUYẾN</Text>
+            <Text style={styles.progressStepText}>BƯỚC 1/3: THIẾT LẬP THÔNG TIN CHUYẾN</Text>
           </View>
-          <Text style={styles.progressPercent}>50%</Text>
+          <Text style={styles.progressPercent}>33%</Text>
         </View>
         <View style={styles.progressBarTrack}>
-          <View style={[styles.progressBarFill, { width: "50%" }]} />
+          <View style={[styles.progressBarFill, { width: "33%" }]} />
         </View>
       </View>
 
@@ -210,44 +219,69 @@ export function LeaderTripFormStep({
         </View>
       )}
 
-      {/* 1. CARD: THÔNG TIN TỔ CHỨC & LỊCH TRÌNH (Moved to TOP) */}
+      {/* 1. CARD: THÔNG TIN CHUNG */}
       <View style={styles.card}>
         <View style={styles.cardHeader}>
-          <Ionicons name="calendar" size={20} color="#125238" />
-          <Text style={styles.cardTitle}>THÔNG TIN TỔ CHỨC & LỊCH TRÌNH</Text>
+          <Ionicons name="information-circle" size={20} color="#125238" />
+          <Text style={styles.cardTitle}>1. THÔNG TIN CHUNG</Text>
         </View>
 
         {/* Trip Title */}
         <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Tên chuyến đi hiển thị *</Text>
+          <Text style={styles.inputLabel}>Tiêu đề chuyến đi *</Text>
           <TextInput
             value={form.name}
             onChangeText={(val) => onUpdateField("name", val)}
-            placeholder="Ví dụ: Chinh phục Fansipan cùng Leader Hoàng Nam"
+            placeholder="Ví dụ: Chinh phục Fansipan cùng Mountain Leader"
             placeholderTextColor="#707972"
             style={[styles.inputBox, errors.name && styles.inputError]}
           />
           <Text style={styles.inputHint}>
-            Tên sẽ hiển thị công khai trên ứng dụng TrekGo để người tham gia tìm kiếm.
+            Tên chuyến đi ngắn gọn, hấp dẫn và nêu bật đặc trưng hành trình.
           </Text>
           {errors.name && <Text style={styles.fieldError}>{errors.name}</Text>}
         </View>
 
+        {/* Trip Type: Fixed Public */}
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>Loại hình chuyến đi</Text>
+          <View style={styles.tripTypeBox}>
+            <Ionicons name="radio-button-on" size={18} color="#125238" />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.tripTypeTitle}>Chuyến đi Công khai (PUBLIC)</Text>
+              <Text style={styles.tripTypeSub}>
+                Mở bán vé rộng rãi trên hệ thống, tiếp cận cộng đồng hơn 40.000 trekker.
+              </Text>
+            </View>
+            <View style={styles.tripTypeBadge}>
+              <Text style={styles.tripTypeBadgeText}>MỞ BÁN</Text>
+            </View>
+          </View>
+        </View>
+
         {/* Trip Description */}
         <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Mô tả lộ trình & yêu cầu</Text>
+          <Text style={styles.inputLabel}>Mô tả chi tiết chuyến đi & Lịch trình tóm tắt *</Text>
           <TextInput
             value={form.description}
             onChangeText={(val) => onUpdateField("description", val)}
-            placeholder="Mô tả ngắn gọn cung đường, thể lực yêu cầu, điều kiện thời tiết..."
+            placeholder="Nhập mô tả chi tiết chuyến đi, lịch trình tóm tắt, yêu cầu thể lực và các lưu ý chuẩn bị cho đoàn..."
             placeholderTextColor="#707972"
             multiline
             numberOfLines={3}
             style={[styles.inputBox, styles.inputMultiline]}
           />
         </View>
+      </View>
 
-        {/* DATE CONSTRAINTS & DUAL INPUT */}
+      {/* 2. CARD: THỜI GIAN & ĐIỂM TẬP KẾT ĐOÀN */}
+      <View style={styles.card}>
+        <View style={styles.cardHeader}>
+          <Ionicons name="calendar" size={20} color="#125238" />
+          <Text style={styles.cardTitle}>2. THỜI GIAN & ĐIỂM TẬP KẾT ĐOÀN</Text>
+        </View>
+
+        {/* Date constraints & Dual input */}
         <View style={styles.dateSection}>
           <View style={styles.dateSectionTop}>
             <Text style={styles.inputLabel}>Lịch trình di chuyển (Ngày đi & về) *</Text>
@@ -327,40 +361,244 @@ export function LeaderTripFormStep({
           </Text>
         </View>
 
-        {/* Pickup point */}
-        {pickupPoints.length > 0 && (
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Điểm đón / Tập kết toàn đoàn *</Text>
-            <View style={styles.pickupList}>
-              {pickupPoints.map((pt) => {
-                const isSelected = form.pickupPointId === pt.id;
-                return (
-                  <TouchableOpacity
-                    key={pt.id}
-                    style={[styles.pickupChip, isSelected && styles.pickupChipSelected]}
-                    onPress={() => onUpdateField("pickupPointId", pt.id)}
-                    activeOpacity={0.8}
+        {/* 1. SỔ DROPDOWN CHỌN DESTINATION */}
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>Điểm đến (Destination) *</Text>
+          {isLoadingMeta ? (
+            <View style={styles.loadingRow}>
+              <ActivityIndicator size="small" color="#125238" />
+              <Text style={styles.muted}>Đang đồng bộ danh mục điểm đến từ máy chủ...</Text>
+            </View>
+          ) : destinations.length === 0 ? (
+            <View style={styles.emptyCard}>
+              <Ionicons name="map-outline" size={28} color="#707972" />
+              <Text style={styles.emptyText}>Chưa có danh sách điểm đến từ máy chủ.</Text>
+            </View>
+          ) : (
+            <>
+              <TouchableOpacity
+                style={[
+                  styles.dropdownTrigger,
+                  destDropdownOpen && styles.dropdownTriggerActive,
+                  errors.destinationId && styles.dropdownTriggerError,
+                ]}
+                onPress={() => {
+                  setDestDropdownOpen((prev) => !prev);
+                  setPickupDropdownOpen(false);
+                }}
+                activeOpacity={0.8}
+              >
+                <View style={styles.dropdownLeft}>
+                  <View
+                    style={[
+                      styles.dropdownIconCircle,
+                      selectedDest && styles.dropdownIconCircleSelected,
+                    ]}
                   >
                     <Ionicons
-                      name="bus-outline"
-                      size={16}
-                      color={isSelected ? "#125238" : "#707972"}
+                      name="location"
+                      size={18}
+                      color={selectedDest ? "#125238" : "#707972"}
                     />
-                    <Text style={[styles.pickupText, isSelected && styles.pickupTextSelected]}>
-                      {pt.name}
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text
+                      style={[
+                        styles.dropdownSelectedText,
+                        !selectedDest && styles.dropdownPlaceholderText,
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {selectedDest ? selectedDest.name : "-- Chọn điểm đến trekking từ hệ thống --"}
                     </Text>
-                  </TouchableOpacity>
-                );
-              })}
+                    {selectedDest && (
+                      <Text style={styles.dropdownSubText}>Tuyến Trekking Tiêu Chuẩn Quốc Gia</Text>
+                    )}
+                  </View>
+                </View>
+                <Ionicons
+                  name={destDropdownOpen ? "chevron-up" : "chevron-down"}
+                  size={20}
+                  color="#125238"
+                />
+              </TouchableOpacity>
+
+              {destDropdownOpen && (
+                <View style={styles.dropdownMenu}>
+                  {destinations.map((dest) => {
+                    const isSelected = form.destinationId === dest.id;
+                    return (
+                      <TouchableOpacity
+                        key={dest.id}
+                        style={[
+                          styles.dropdownMenuItem,
+                          isSelected && styles.dropdownMenuItemSelected,
+                        ]}
+                        onPress={() => {
+                          onUpdateField("destinationId", dest.id);
+                          setDestDropdownOpen(false);
+                        }}
+                        activeOpacity={0.8}
+                      >
+                        <View style={styles.dropdownItemLeft}>
+                          <Ionicons
+                            name="location-outline"
+                            size={18}
+                            color={isSelected ? "#125238" : "#707972"}
+                          />
+                          <View style={{ flex: 1 }}>
+                            <Text
+                              style={[
+                                styles.dropdownMenuItemText,
+                                isSelected && styles.dropdownMenuItemTextSelected,
+                              ]}
+                            >
+                              {dest.name}
+                            </Text>
+                            <Text style={styles.dropdownMenuItemSubText}>
+                              Tuyến Trekking Tiêu Chuẩn VFRS
+                            </Text>
+                          </View>
+                        </View>
+                        {isSelected && (
+                          <Ionicons name="checkmark-circle" size={18} color="#125238" />
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
+            </>
+          )}
+          {errors.destinationId && <Text style={styles.fieldError}>{errors.destinationId}</Text>}
+        </View>
+
+        {/* 2. SỔ DROPDOWN CHỌN ĐIỂM ĐÓN (PICKUP POINT) */}
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>Địa điểm tập kết đón đoàn *</Text>
+          {!form.destinationId ? (
+            <View style={styles.disabledPromptBox}>
+              <Ionicons name="information-circle-outline" size={18} color="#707972" />
+              <Text style={styles.disabledPromptText}>
+                Vui lòng chọn Điểm đến trước
+              </Text>
             </View>
-          </View>
-        )}
+          ) : pickupPoints.length === 0 ? (
+            <View style={styles.disabledPromptBox}>
+              <Ionicons name="alert-circle-outline" size={18} color="#707972" />
+              <Text style={styles.disabledPromptText}>
+                Chưa có điểm đón nào được thiết lập cho tuyến này.
+              </Text>
+            </View>
+          ) : (
+            <>
+              <TouchableOpacity
+                style={[
+                  styles.dropdownTrigger,
+                  pickupDropdownOpen && styles.dropdownTriggerActive,
+                  errors.pickupPointId && styles.dropdownTriggerError,
+                ]}
+                onPress={() => {
+                  setPickupDropdownOpen((prev) => !prev);
+                  setDestDropdownOpen(false);
+                }}
+                activeOpacity={0.8}
+              >
+                <View style={styles.dropdownLeft}>
+                  <View
+                    style={[
+                      styles.dropdownIconCircle,
+                      selectedPickup && styles.dropdownIconCircleSelected,
+                    ]}
+                  >
+                    <Ionicons
+                      name="bus"
+                      size={18}
+                      color={selectedPickup ? "#125238" : "#707972"}
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text
+                      style={[
+                        styles.dropdownSelectedText,
+                        !selectedPickup && styles.dropdownPlaceholderText,
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {selectedPickup ? selectedPickup.name : "-- Chọn điểm đón / tập kết --"}
+                    </Text>
+                    {selectedPickup && (
+                      <Text style={styles.dropdownSubText}>
+                        Điểm tập kết toàn đoàn trước giờ xuất phát
+                      </Text>
+                    )}
+                  </View>
+                </View>
+                <Ionicons
+                  name={pickupDropdownOpen ? "chevron-up" : "chevron-down"}
+                  size={20}
+                  color="#125238"
+                />
+              </TouchableOpacity>
+
+              {pickupDropdownOpen && (
+                <View style={styles.dropdownMenu}>
+                  {pickupPoints.map((pt) => {
+                    const isSelected = form.pickupPointId === pt.id;
+                    return (
+                      <TouchableOpacity
+                        key={pt.id}
+                        style={[
+                          styles.dropdownMenuItem,
+                          isSelected && styles.dropdownMenuItemSelected,
+                        ]}
+                        onPress={() => {
+                          onUpdateField("pickupPointId", pt.id);
+                          setPickupDropdownOpen(false);
+                        }}
+                        activeOpacity={0.8}
+                      >
+                        <View style={styles.dropdownItemLeft}>
+                          <Ionicons
+                            name="bus-outline"
+                            size={18}
+                            color={isSelected ? "#125238" : "#707972"}
+                          />
+                          <Text
+                            style={[
+                              styles.dropdownMenuItemText,
+                              isSelected && styles.dropdownMenuItemTextSelected,
+                            ]}
+                          >
+                            {pt.name}
+                          </Text>
+                        </View>
+                        {isSelected && (
+                          <Ionicons name="checkmark-circle" size={18} color="#125238" />
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
+            </>
+          )}
+          {errors.pickupPointId && <Text style={styles.fieldError}>{errors.pickupPointId}</Text>}
+        </View>
+      </View>
+
+      {/* 3. CARD: QUY MÔ ĐOÀN, GIÁ VÉ & CƠ CẤU CHI PHÍ */}
+      <View style={styles.card}>
+        <View style={styles.cardHeader}>
+          <Ionicons name="cash" size={20} color="#125238" />
+          <Text style={styles.cardTitle}>3. QUY MÔ ĐOÀN, GIÁ VÉ & CẤP ĐỘ THỬ THÁCH</Text>
+        </View>
 
         {/* Member Slots Stepper */}
         <View style={styles.inputGroup}>
           <View style={styles.slotHeader}>
-            <Text style={styles.inputLabel}>Số lượng thành viên mở bán (Slots) *</Text>
-            <Text style={styles.slotCapTag}>{slotNum} / 14 Max</Text>
+            <Text style={styles.inputLabel}>Số thành viên tối đa *</Text>
+            <Text style={styles.slotCapTag}>{slotNum} / 15 Thành viên</Text>
           </View>
 
           <View style={styles.stepperContainer}>
@@ -374,7 +612,7 @@ export function LeaderTripFormStep({
 
             <View style={styles.stepperDisplay}>
               <Text style={styles.stepperValue}>{slotNum}</Text>
-              <Text style={styles.stepperSub}>Suất đăng ký</Text>
+              <Text style={styles.stepperSub}>Thành viên</Text>
             </View>
 
             <TouchableOpacity
@@ -386,163 +624,34 @@ export function LeaderTripFormStep({
             </TouchableOpacity>
           </View>
           <Text style={styles.slotRuleHint}>
-            Quy định an toàn VFRS: Tối đa 14 thành viên / 1 Leader chính kèm Porter dẫn đường.
+            Hạn ngạch Leader hiện tại: Tối đa 15 người / đoàn theo chuẩn an toàn VFRS.
           </Text>
           {errors.slots && <Text style={styles.fieldError}>{errors.slots}</Text>}
         </View>
-      </View>
 
-      {/* 2. CARD: ĐIỂM ĐẾN & CUNG ĐƯỜNG LIÊN KẾT (Followed after Info) */}
-      <View style={styles.card}>
-        <View style={styles.cardHeader}>
-          <Ionicons name="trail-sign" size={20} color="#125238" />
-          <Text style={styles.cardTitle}>ĐIỂM ĐẾN & CUNG ĐƯỜNG LIÊN KẾT</Text>
-        </View>
-
-        {isLoadingMeta ? (
-          <View style={styles.loadingRow}>
-            <ActivityIndicator size="small" color="#125238" />
-            <Text style={styles.muted}>Đang đồng bộ danh mục điểm đến từ máy chủ...</Text>
-          </View>
-        ) : destinations.length > 0 ? (
-          <View style={styles.destList}>
-            {destinations.map((dest) => {
-              const isSelected = form.destinationId === dest.id;
-              return (
-                <TouchableOpacity
-                  key={dest.id}
-                  style={[styles.destCard, isSelected && styles.destCardSelected]}
-                  onPress={() => onUpdateField("destinationId", dest.id)}
-                  activeOpacity={0.8}
-                >
-                  <View style={[styles.destIconBox, isSelected && styles.destIconBoxSelected]}>
-                    <Ionicons
-                      name="location"
-                      size={20}
-                      color={isSelected ? "#125238" : "#707972"}
-                    />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.destName, isSelected && styles.destNameSelected]}>
-                      {dest.name}
-                    </Text>
-                    <Text style={styles.destMeta}>Tuyến Trekking Tiêu Chuẩn Quốc Gia</Text>
-                  </View>
-                  {isSelected && (
-                    <Ionicons name="checkmark-circle" size={22} color="#125238" />
-                  )}
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        ) : (
-          <View style={styles.emptyCard}>
-            <Ionicons name="map-outline" size={32} color="#707972" />
-            <Text style={styles.emptyText}>
-              Chưa có danh sách điểm đến trả về từ máy chủ.
-            </Text>
-            <Text style={styles.emptySubtext}>
-              Vui lòng thử lại sau hoặc liên hệ ban quản trị để được hỗ trợ.
-            </Text>
-          </View>
-        )}
-        {errors.destinationId && <Text style={styles.fieldError}>{errors.destinationId}</Text>}
-
-        {/* Checkpoints list: Fixed list by default, NOT checkboxes */}
-        {checkpoints.length > 0 && (
-          <View style={styles.checkpointSection}>
-            <View style={styles.checkpointSectionHeader}>
-              <View style={styles.checkpointSectionTitleRow}>
-                <Ionicons name="flag" size={16} color="#125238" />
-                <Text style={styles.checkpointSectionTitle}>
-                  TRẠM KIỂM SOÁT VFRS ({checkpoints.length} CHECKPOINTS MẶC ĐỊNH)
-                </Text>
-              </View>
-              <Text style={styles.checkpointCountBadge}>
-                {checkpoints.length} trạm theo tuyến
-              </Text>
-            </View>
-
-            <View style={styles.checkpointList}>
-              {checkpoints.map((cp, idx) => (
-                <View key={cp.id} style={styles.checkpointRow}>
-                  <View style={styles.cpLeft}>
-                    <View style={styles.cpPill}>
-                      <Text style={styles.cpPillText}>CP0{idx + 1}</Text>
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.cpName}>{cp.name}</Text>
-                      <Text style={styles.cpCoords}>
-                        Tọa độ GPS: {Number(cp.latitude).toFixed(4)}, {Number(cp.longitude).toFixed(4)}
-                      </Text>
-                    </View>
-                  </View>
-                  <View style={styles.cpDefaultBadge}>
-                    <Ionicons name="shield-checkmark" size={13} color="#125238" />
-                    <Text style={styles.cpDefaultBadgeText}>Cố định</Text>
-                  </View>
-                </View>
-              ))}
-            </View>
-            {errors.checkpointIds && (
-              <Text style={styles.fieldError}>{errors.checkpointIds}</Text>
-            )}
-          </View>
-        )}
-
-        {/* 3D MAP PREVIEW: Rendered immediately upon selecting Destination & Trail */}
-        {trail3DData && (
-          <View style={styles.map3DSection}>
-            <View style={styles.map3DHeader}>
-              <View style={styles.map3DTitleRow}>
-                <Ionicons name="cube" size={16} color="#125238" />
-                <Text style={styles.map3DTitle}>MÔ HÌNH ĐỊA HÌNH 3D (VFRS DEM SATELLITE)</Text>
-              </View>
-              <View style={styles.map3DBadge}>
-                <Ionicons name="scan-outline" size={11} color="#002113" />
-                <Text style={styles.map3DBadgeText}>3D MapLibre</Text>
-              </View>
-            </View>
-
-            <View style={styles.map3DContainer}>
-              <Trip3DMapView trailData={trail3DData} height={260} />
-            </View>
-            <Text style={styles.map3DNote}>
-              Mô hình 3D thực địa vệ tinh & cao độ trực quan cho toàn bộ tuyến {selectedDest?.name}.
-            </Text>
-          </View>
-        )}
-      </View>
-
-      {/* 3. CARD: TÀI CHÍNH & MỨC GIÁ */}
-      <View style={styles.card}>
-        <View style={styles.cardHeader}>
-          <Ionicons name="cash" size={20} color="#125238" />
-          <Text style={styles.cardTitle}>TÀI CHÍNH & MỨC PHÍ TOUR</Text>
-        </View>
-
+        {/* Price Input */}
         <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Giá trọn gói mỗi thành viên (VNĐ) *</Text>
+          <Text style={styles.inputLabel}>Giá tour trọn gói / người *</Text>
           <View style={styles.priceInputWrapper}>
             <TextInput
               value={form.price}
               onChangeText={(val) => onUpdateField("price", val.replace(/[^0-9]/g, ""))}
-              placeholder="2500000"
+              placeholder="2850000"
               placeholderTextColor="#707972"
               keyboardType="numeric"
               style={styles.priceInput}
             />
-            <Text style={styles.priceSuffix}>VNĐ / suất</Text>
+            <Text style={styles.priceSuffix}>VNĐ</Text>
           </View>
           <Text style={styles.priceFormatted}>
-            {Number(form.price || 0).toLocaleString("vi-VN")} đ / người
+            {Number(form.price || 0).toLocaleString("vi-VN")} VNĐ / người · Đã gồm bảo hiểm VFRS 500 trđ/người.
           </Text>
         </View>
 
         {/* Price Explanation — Bắt buộc trước khi publish */}
         <View style={styles.inputGroup}>
           <View style={styles.explanationHeaderRow}>
-            <Text style={styles.inputLabel}>Giải thích cơ cấu giá vé (priceExplanation) *</Text>
+            <Text style={styles.inputLabel}>Cơ sở tính giá & Giải trình chi phí (Nội bộ) *</Text>
             <Text style={styles.charCountText}>
               {(form.priceExplanation || "").length}/5000
             </Text>
@@ -572,7 +681,7 @@ export function LeaderTripFormStep({
 
       {/* Bottom Action Button */}
       <TouchableOpacity style={styles.primaryBtn} onPress={onProceed} activeOpacity={0.88}>
-        <Text style={styles.primaryBtnText}>TIẾP TỤC: XEM LẠI & XUẤT BẢN</Text>
+        <Text style={styles.primaryBtnText}>TIẾP TỤC: THIẾT LẬP LỘ TRÌNH</Text>
         <Ionicons name="arrow-forward" size={18} color="#fff" />
       </TouchableOpacity>
     </View>
@@ -754,6 +863,112 @@ const styles = StyleSheet.create({
     color: "#707972",
     fontSize: 12,
   },
+  dropdownTrigger: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#eff4ff",
+    borderRadius: Radius.sm,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderWidth: 1.5,
+    borderColor: "transparent",
+    marginTop: 4,
+  },
+  dropdownTriggerActive: {
+    borderColor: "#125238",
+    backgroundColor: "#ffffff",
+  },
+  dropdownTriggerError: {
+    borderColor: "#ba1a1a",
+    backgroundColor: "#ffdad6",
+  },
+  dropdownLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    flex: 1,
+  },
+  dropdownIconCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#dee9fc",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  dropdownIconCircleSelected: {
+    backgroundColor: "#b1f0cd",
+  },
+  dropdownSelectedText: {
+    color: "#121c2a",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  dropdownPlaceholderText: {
+    color: "#707972",
+    fontWeight: "500",
+  },
+  dropdownSubText: {
+    color: "#404943",
+    fontSize: 10,
+    marginTop: 2,
+  },
+  dropdownMenu: {
+    backgroundColor: "#ffffff",
+    borderRadius: Radius.sm,
+    borderWidth: 1,
+    borderColor: "#c1ecd2",
+    marginTop: 6,
+    overflow: "hidden",
+    ...Shadows.card,
+  },
+  dropdownMenuItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    borderBottomWidth: 1,
+    borderBottomColor: "#eff4ff",
+  },
+  dropdownMenuItemSelected: {
+    backgroundColor: "#e8f5e9",
+  },
+  dropdownItemLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    flex: 1,
+  },
+  dropdownMenuItemText: {
+    color: "#121c2a",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  dropdownMenuItemTextSelected: {
+    color: "#125238",
+    fontWeight: "800",
+  },
+  dropdownMenuItemSubText: {
+    color: "#707972",
+    fontSize: 10,
+    marginTop: 2,
+  },
+  disabledPromptBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#eff4ff",
+    padding: 12,
+    borderRadius: Radius.sm,
+    marginTop: 4,
+  },
+  disabledPromptText: {
+    color: "#707972",
+    fontSize: 12,
+    flex: 1,
+  },
   destList: {
     gap: 10,
   },
@@ -854,6 +1069,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#e0ece4",
   },
+  checkpointRowSelected: {
+    borderColor: "#125238",
+    backgroundColor: "#ffffff",
+  },
   cpLeft: {
     flexDirection: "row",
     alignItems: "center",
@@ -861,10 +1080,13 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   cpPill: {
-    backgroundColor: "#125238",
+    backgroundColor: "#707972",
     paddingHorizontal: 7,
     paddingVertical: 3,
     borderRadius: 4,
+  },
+  cpPillSelected: {
+    backgroundColor: "#125238",
   },
   cpPillText: {
     color: "#ffffff",
@@ -872,9 +1094,13 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
   cpName: {
-    color: "#121c2a",
+    color: "#404943",
     fontSize: 12,
-    fontWeight: "700",
+    fontWeight: "600",
+  },
+  cpNameSelected: {
+    color: "#121c2a",
+    fontWeight: "800",
   },
   cpCoords: {
     color: "#707972",
@@ -885,17 +1111,25 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    backgroundColor: "#e8f5e9",
+    backgroundColor: "#eff4ff",
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: "#c8e6c9",
+    borderColor: "#dee9fc",
+  },
+  cpDefaultBadgeActive: {
+    backgroundColor: "#b1f0cd",
+    borderColor: "#74d99f",
   },
   cpDefaultBadgeText: {
-    color: "#125238",
+    color: "#707972",
     fontSize: 10,
-    fontWeight: "700",
+    fontWeight: "600",
+  },
+  cpDefaultBadgeTextActive: {
+    color: "#002113",
+    fontWeight: "800",
   },
   map3DSection: {
     marginTop: 18,
@@ -991,6 +1225,37 @@ const styles = StyleSheet.create({
     color: "#707972",
     fontSize: 11,
     marginTop: 4,
+  },
+  tripTypeBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: "#e8f5e9",
+    borderRadius: Radius.sm,
+    padding: 12,
+    borderWidth: 1.5,
+    borderColor: "#125238",
+  },
+  tripTypeTitle: {
+    color: "#125238",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  tripTypeSub: {
+    color: "#404943",
+    fontSize: 11,
+    marginTop: 2,
+  },
+  tripTypeBadge: {
+    backgroundColor: "#b1f0cd",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  tripTypeBadgeText: {
+    color: "#002113",
+    fontSize: 10,
+    fontWeight: "800",
   },
   fieldError: {
     color: "#ba1a1a",

@@ -13,8 +13,10 @@ import {
   setTripTrails,
   updatePublicTrip,
   getLeaderPublicTripById,
+  requestTripCancellation,
   type CreatePublicTripInput,
   type UpdatePublicTripInput,
+  type RequestCancellationInput,
   type LeaderPublicTrip,
   type LeaderTrailSuggestion,
   type ReadinessCheckResponse,
@@ -49,11 +51,68 @@ export function useLeaderTrips(accessToken?: string | null) {
     [accessToken],
   );
 
+  const cancelTrip = useCallback(
+    async (
+      tripId: string,
+      input: RequestCancellationInput,
+    ): Promise<LeaderPublicTrip> => {
+      if (!accessToken) throw new Error("Chưa có phiên đăng nhập.");
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await requestTripCancellation(tripId, input, accessToken);
+        await fetchMyTrips();
+        return res;
+      } catch (err) {
+        const msg =
+          err instanceof ApiError
+            ? err.message
+            : "Gửi yêu cầu hủy chuyến thất bại.";
+        setError(msg);
+        throw err;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [accessToken, fetchMyTrips],
+  );
+
+  const getTripById = useCallback(
+    async (tripId: string): Promise<LeaderPublicTrip> => {
+      if (!accessToken) throw new Error("Chưa có phiên đăng nhập.");
+      return getLeaderPublicTripById(tripId, accessToken);
+    },
+    [accessToken],
+  );
+
+  const updateTrip = useCallback(
+    async (tripId: string, input: UpdatePublicTripInput): Promise<LeaderPublicTrip> => {
+      if (!accessToken) throw new Error("Chưa có phiên đăng nhập.");
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await updatePublicTrip(tripId, input, accessToken);
+        await fetchMyTrips();
+        return res;
+      } catch (err) {
+        const msg = err instanceof ApiError ? err.message : "Cập nhật chuyến đi thất bại.";
+        setError(msg);
+        throw err;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [accessToken, fetchMyTrips],
+  );
+
   return {
     trips,
     loading,
     error,
     fetchMyTrips,
+    cancelTrip,
+    getTripById,
+    updateTrip,
   };
 }
 
@@ -85,9 +144,13 @@ export function useLeaderTripCreation(accessToken?: string | null) {
   );
 
   const checkConflict = useCallback(
-    async (startAt: string, endAt: string): Promise<ScheduleConflictResponse> => {
+    async (
+      startAt: string,
+      endAt: string,
+      excludeTripId?: string,
+    ): Promise<ScheduleConflictResponse> => {
       if (!accessToken) throw new Error("Chưa có phiên đăng nhập.");
-      return checkScheduleConflict(startAt, endAt, accessToken);
+      return checkScheduleConflict(startAt, endAt, accessToken, excludeTripId);
     },
     [accessToken],
   );
@@ -209,6 +272,30 @@ export function useLeaderTripCreation(accessToken?: string | null) {
     [accessToken],
   );
 
+  const cancelTrip = useCallback(
+    async (
+      tripId: string,
+      input: RequestCancellationInput,
+    ): Promise<LeaderPublicTrip> => {
+      if (!accessToken) throw new Error("Chưa có phiên đăng nhập.");
+      setLoading(true);
+      setError(null);
+      try {
+        return await requestTripCancellation(tripId, input, accessToken);
+      } catch (err) {
+        const msg =
+          err instanceof ApiError
+            ? err.message
+            : "Gửi yêu cầu hủy chuyến thất bại.";
+        setError(msg);
+        throw err;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [accessToken],
+  );
+
   return {
     loading,
     error,
@@ -224,5 +311,6 @@ export function useLeaderTripCreation(accessToken?: string | null) {
     assignTrails,
     checkReadiness,
     publish,
+    cancelTrip,
   };
 }
