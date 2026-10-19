@@ -53,6 +53,7 @@ function isTrekGoMobileRole(role?: string) {
     !role ||
     role === "USER" ||
     role === "LEADER" ||
+    role === "STAFF_INVENTORY" ||
     role === "STAFF_DELIVERY" ||
     role === "STAFF"
   );

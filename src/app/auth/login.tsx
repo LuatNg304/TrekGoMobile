@@ -30,7 +30,9 @@ export default function LoginScreen() {
 
     try {
       const loggedUser = await signIn(email, password);
-      if (loggedUser.role === "STAFF_DELIVERY" || loggedUser.role === "LEADER") {
+      if (loggedUser.role === "STAFF_INVENTORY") {
+        router.replace("/inventory-operations" as Href);
+      } else if (loggedUser.role === "STAFF_DELIVERY" || loggedUser.role === "LEADER") {
         router.replace("/field-operations" as Href);
       } else {
         router.replace("/(tabs)" as Href);
