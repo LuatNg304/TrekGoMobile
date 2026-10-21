@@ -5,6 +5,7 @@ import type {
   InvitePreviewData,
   JoinTripResponse,
   LeaveTripResponse,
+  MyPrivateTripsResponse,
   PickupPointOption,
   PrivateTrip,
   PurchaseTrailPayload,
@@ -223,8 +224,12 @@ export async function createPrivateTrip(payload: CreatePrivateTripPayload) {
 }
 
 /** GET /private-trips — Lấy danh sách chuyến đi do mình tạo */
-export async function getMyPrivateTrips(page = 1) {
-  return apiRequest<PrivateTrip[]>(`/api/v1/private-trips?page=${page}`);
+/** GET /me/private-trips - Active memberships, including host and invited member. */
+export async function getMyPrivateTrips(page = 1, pageSize = 50) {
+  const result = await apiRequest<MyPrivateTripsResponse>(
+    `/api/v1/me/private-trips?page=${page}&pageSize=${pageSize}`,
+  );
+  return result.items;
 }
 
 /** GET /private-trips/:id — Chi tiết chuyến đi dành cho Host */

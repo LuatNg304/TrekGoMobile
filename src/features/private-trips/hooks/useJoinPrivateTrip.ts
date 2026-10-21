@@ -33,7 +33,7 @@ export function useJoinPrivateTrip(explicitAccessToken?: string | null) {
         setLoading(false);
       }
     },
-    [],
+    [token],
   );
 
   return {

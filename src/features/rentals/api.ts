@@ -52,6 +52,13 @@ type PrivateTrip = {
   status: string;
 };
 
+type PrivateTripListResult = {
+  items: PrivateTrip[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
+
 type EligibilityResult = {
   eligible: boolean;
   reason?: string;
@@ -192,7 +199,7 @@ export const rentalApi = {
         "/api/v1/bookings?page=1&pageSize=50",
         { method: "GET", accessToken },
       ),
-      apiRequest<Envelope<PrivateTrip[]>>("/api/v1/private-trips?page=1", {
+      apiRequest<Envelope<PrivateTripListResult>>("/api/v1/me/private-trips?page=1&pageSize=50", {
         method: "GET",
         accessToken,
       }),
@@ -218,9 +225,10 @@ export const rentalApi = {
     const privateTrips =
       privateTripResult.status === "fulfilled"
         ? unwrap(privateTripResult.value)
-            .filter(
+            .items.filter(
               (trip) =>
-                trip.status === "OPEN" && new Date(trip.endAt).getTime() > now,
+                ["OPEN", "FULL", "CLOSED"].includes(trip.status) &&
+                new Date(trip.endAt).getTime() > now,
             )
             .map((trip) => ({
               id: trip.id,

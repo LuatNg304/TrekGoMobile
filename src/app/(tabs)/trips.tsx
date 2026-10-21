@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { type Href, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   RefreshControl,
@@ -58,6 +58,7 @@ export default function TripsScreen() {
   const isLeader = authUser?.role === "LEADER" || user?.role === "LEADER";
 
   const [mainTab, setMainTab] = useState<MainTab>("MY_TRIPS");
+  const [activeFilter, setActiveFilter] = useState<TripFilter>("UPCOMING");
   const [publicSearch, setPublicSearch] = useState("");
   const [selectedDifficulty, setSelectedDifficulty] = useState<string>("Tất cả");
 
@@ -94,24 +95,6 @@ export default function TripsScreen() {
 
   const params = useLocalSearchParams<{ tab?: string; filter?: string }>();
 
-  // Synchronize URL search params if navigated from Home shortcuts
-  useEffect(() => {
-    if (params.tab === "PUBLIC_TRIPS") {
-      setMainTab("PUBLIC_TRIPS");
-    } else if (params.tab === "MY_TRIPS") {
-      setMainTab("MY_TRIPS");
-    }
-
-    if (params.filter === "PRIVATE") {
-      setActiveFilter("PRIVATE");
-    } else if (params.filter === "UPCOMING") {
-      setActiveFilter("UPCOMING");
-    } else if (params.filter === "PENDING") {
-      setActiveFilter("PENDING");
-    } else if (params.filter === "HISTORY") {
-      setActiveFilter("HISTORY");
-    }
-  }, [params.tab, params.filter]);
 
   // Refetch private trips & bookings automatically on focus (e.g. after joining a trip)
   useFocusEffect(
@@ -125,6 +108,12 @@ export default function TripsScreen() {
       }
       if (params.filter === "PRIVATE") {
         setActiveFilter("PRIVATE");
+      } else if (params.filter === "UPCOMING") {
+        setActiveFilter("UPCOMING");
+      } else if (params.filter === "PENDING") {
+        setActiveFilter("PENDING");
+      } else if (params.filter === "HISTORY") {
+        setActiveFilter("HISTORY");
       }
     }, [refetchBookings, refetchPrivateTrips, params.tab, params.filter]),
   );
@@ -170,7 +159,7 @@ export default function TripsScreen() {
   const upcomingPrivateTrips = useMemo(
     () =>
       privateTrips.filter(
-        (t) => t.status === "OPEN" || t.status === "IN_PROGRESS",
+        (t) => ["OPEN", "FULL", "CLOSED", "CANCEL_PENDING", "IN_PROGRESS"].includes(t.status),
       ),
     [privateTrips],
   );
@@ -178,14 +167,11 @@ export default function TripsScreen() {
   const historyPrivateTrips = useMemo(
     () =>
       privateTrips.filter(
-        (t) => t.status === "COMPLETED" || t.status === "CANCELLED",
+        (t) => ["COMPLETED", "CANCELLED", "INTERRUPTED"].includes(t.status),
       ),
     [privateTrips],
   );
 
-  const [activeFilter, setActiveFilter] = useState<TripFilter>(
-    pendingBookings.length > 0 ? "PENDING" : "UPCOMING",
-  );
 
   const [prepModalVisible, setPrepModalVisible] = useState(false);
 
