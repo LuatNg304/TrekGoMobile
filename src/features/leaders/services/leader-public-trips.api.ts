@@ -32,10 +32,20 @@ export interface ScheduleConflictResponse {
 export interface LeaderTrailSuggestion {
   id: string;
   name: string;
-  difficulty: string;
-  distanceKm: string;
-  canAppend: boolean;
-  coveredCheckpointIds: string[];
+  difficulty?: string;
+  distanceKm?: string | number;
+  lengthKm?: string | number;
+  elevationGainM?: number;
+  canAppend?: boolean;
+  checkpointIds?: string[];
+  coveredCheckpointIds?: string[];
+  routeGeojson?: any;
+  destination?: {
+    id?: string;
+    name?: string;
+    centerLat?: number;
+    centerLng?: number;
+  };
 }
 
 export interface SystemTrailDetail {
@@ -74,7 +84,45 @@ export interface SystemTrailDetail {
   };
 }
 
-export type LeaderTripStatus = "DRAFT" | "OPEN" | "FULL" | "CLOSED";
+export type LeaderTripStatus =
+  | "DRAFT"
+  | "OPEN"
+  | "FULL"
+  | "IN_PROGRESS"
+  | "COMPLETED"
+  | "CLOSED"
+  | "CANCEL_PENDING"
+  | "CANCELLED";
+
+export interface LeaderCheckpointDetail {
+  id?: string;
+  sourceCheckpointId?: string;
+  name: string;
+  description?: string | null;
+  latitude: number | string;
+  longitude: number | string;
+  radiusMeters?: number;
+  sequence?: number;
+  isRequired?: boolean;
+  isEnabled?: boolean;
+}
+
+export interface LeaderTrailDetail {
+  id?: string;
+  systemTrailId?: string;
+  sequence?: number;
+  snapshotName?: string;
+  name?: string;
+  snapshotDifficulty?: string;
+  difficulty?: string;
+  snapshotDistanceKm?: number | string;
+  distanceKm?: number | string;
+  snapshotElevationGainM?: number;
+  elevationGainM?: number;
+  snapshotGeojson?: any;
+  sourceTrailVersion?: number;
+  snapshotCheckpointIds?: string[];
+}
 
 export interface LeaderPublicTrip {
   id: string;
@@ -85,14 +133,30 @@ export interface LeaderPublicTrip {
   endAt: string;
   capacity: number;
   remainingSlots?: number;
-  pricePerPax: string;
-  currency: string;
+  pricePerPax?: string;
+  price?: string;
+  currency?: string;
   version: number;
   publishedAt?: string;
+  destinationId?: string;
   destination?: { id: string; name: string };
-  pickupPoint?: { id: string; name: string };
+  pickupPointId?: string;
+  pickupPoint?: { id: string; name: string; address?: string | null };
   priceExplanation?: string | null;
-  tripType?: "PUBLIC";
+  tripType?: "PUBLIC" | string;
+  creatorId?: string;
+  leaderId?: string;
+  checkpoints?: LeaderCheckpointDetail[];
+  trails?: LeaderTrailDetail[];
+}
+
+export interface TripDiscoverySlots {
+  id: string;
+  capacity: number;
+  remainingSlots: number;
+  destination?: { id: string; name: string };
+  pickup?: { id: string; name: string; address?: string | null };
+  leader?: { id: string; fullName: string };
 }
 
 export interface CreatePublicTripInput {
@@ -134,6 +198,12 @@ export interface PublishTripInput {
   expectedVersion: number;
 }
 
+export interface RequestCancellationInput {
+  expectedVersion: number;
+  reason: string;
+  evidenceUrls?: string[];
+}
+
 export interface ReadinessIssue {
   code?: string;
   message?: string;
@@ -157,48 +227,56 @@ export interface LeaderTripsListResponse {
 
 // ─── [NHÓM A] Data Fetching for Leader ───────────────────────────────────────
 
-/** GET /api/v1/leader/trip-options/destinations */
+/** GET /api/v1/leader/trip-options/destinations?page=1&pageSize=20 */
 export async function getDestinations(
   accessToken: string,
+  page = 1,
+  pageSize = 20,
 ): Promise<TripOptionDestination[]> {
   return apiRequest<TripOptionDestination[]>(
-    "/api/v1/leader/trip-options/destinations?page=1&pageSize=100",
+    `/api/v1/leader/trip-options/destinations?page=${page}&pageSize=${pageSize}`,
     { accessToken },
   );
 }
 
-/** GET /api/v1/leader/trip-options/pickup-points?destinationId={id} */
+/** GET /api/v1/leader/trip-options/pickup-points?destinationId={id}&page=1&pageSize=20 */
 export async function getPickupPoints(
   destinationId: string,
   accessToken: string,
+  page = 1,
+  pageSize = 20,
 ): Promise<TripOptionPickupPoint[]> {
   return apiRequest<TripOptionPickupPoint[]>(
-    `/api/v1/leader/trip-options/pickup-points?destinationId=${destinationId}`,
+    `/api/v1/leader/trip-options/pickup-points?destinationId=${destinationId}&page=${page}&pageSize=${pageSize}`,
     { accessToken },
   );
 }
 
-/** GET /api/v1/leader/trip-options/checkpoints?destinationId={id} */
+/** GET /api/v1/leader/trip-options/checkpoints?destinationId={id}&page=1&pageSize=20 */
 export async function getCheckpointOptions(
   destinationId: string,
   accessToken: string,
+  page = 1,
+  pageSize = 20,
 ): Promise<TripOptionCheckpoint[]> {
   return apiRequest<TripOptionCheckpoint[]>(
-    `/api/v1/leader/trip-options/checkpoints?destinationId=${destinationId}`,
+    `/api/v1/leader/trip-options/checkpoints?destinationId=${destinationId}&page=${page}&pageSize=${pageSize}`,
     { accessToken },
   );
 }
 
-/** GET /api/v1/leaders/me/schedule-conflicts?startAt=&endAt= */
+/** GET /api/v1/leaders/me/schedule-conflicts?startAt={ISO}&endAt={ISO}&excludeTripId={tripId} */
 export async function checkScheduleConflict(
   startAt: string,
   endAt: string,
   accessToken: string,
+  excludeTripId?: string,
 ): Promise<ScheduleConflictResponse> {
-  return apiRequest<ScheduleConflictResponse>(
-    `/api/v1/leaders/me/schedule-conflicts?startAt=${encodeURIComponent(startAt)}&endAt=${encodeURIComponent(endAt)}`,
-    { accessToken },
-  );
+  let url = `/api/v1/leaders/me/schedule-conflicts?startAt=${encodeURIComponent(startAt)}&endAt=${encodeURIComponent(endAt)}`;
+  if (excludeTripId) {
+    url += `&excludeTripId=${encodeURIComponent(excludeTripId)}`;
+  }
+  return apiRequest<ScheduleConflictResponse>(url, { accessToken });
 }
 
 // ─── [NHÓM B] Leader Create & Publish Flow ───────────────────────────────────
@@ -314,16 +392,51 @@ export async function publishTrip(
   );
 }
 
-/** GET /api/v1/leader/public-trips */
+/** POST /api/v1/leader/public-trips/:id/cancellation-requests */
+export async function requestTripCancellation(
+  tripId: string,
+  input: RequestCancellationInput,
+  accessToken: string,
+): Promise<LeaderPublicTrip> {
+  return apiRequest<LeaderPublicTrip>(
+    `/api/v1/leader/public-trips/${tripId}/cancellation-requests`,
+    {
+      method: "POST",
+      accessToken,
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+/** GET /api/v1/leader/public-trips?page=1&pageSize=20&destinationId=... */
 export async function getLeaderTrips(
   accessToken: string,
   page = 1,
   pageSize = 20,
+  destinationId?: string,
 ): Promise<LeaderTripsListResponse> {
-  return apiRequest<LeaderTripsListResponse>(
-    `/api/v1/leader/public-trips?page=${page}&pageSize=${pageSize}`,
-    { accessToken },
-  );
+  let url = `/api/v1/leader/public-trips?page=${page}&pageSize=${pageSize}`;
+  if (destinationId) {
+    url += `&destinationId=${encodeURIComponent(destinationId)}`;
+  }
+  const res = await apiRequest<LeaderTripsListResponse | LeaderPublicTrip[]>(url, { accessToken });
+
+  // BE trả về trực tiếp mảng LeaderPublicTrip[] hoặc object { items, total, page, pageSize }
+  if (Array.isArray(res)) {
+    return {
+      items: res,
+      total: res.length,
+      page,
+      pageSize,
+    };
+  }
+
+  return {
+    items: Array.isArray(res?.items) ? res.items : [],
+    total: typeof res?.total === "number" ? res.total : (res?.items?.length ?? 0),
+    page: res?.page || page,
+    pageSize: res?.pageSize || pageSize,
+  };
 }
 
 /** GET /api/v1/system-trails/:trailCode */
@@ -342,4 +455,15 @@ export async function getSystemTrailById(
     `/api/v1/leader/trip-options/system-trails/${trailId}`,
     { accessToken },
   );
+}
+
+/** GET /api/v1/trips/:id — Booking discovery slots info */
+export async function getTripDiscoverySlots(
+  tripId: string,
+): Promise<TripDiscoverySlots | null> {
+  try {
+    return await apiRequest<TripDiscoverySlots>(`/api/v1/trips/${tripId}`);
+  } catch {
+    return null;
+  }
 }

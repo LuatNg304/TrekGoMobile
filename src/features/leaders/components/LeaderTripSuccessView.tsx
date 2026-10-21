@@ -8,7 +8,9 @@ interface LeaderTripSuccessViewProps {
   publishedTrip: { id: string; title: string; code: string };
   form: LeaderTripFormData;
   selectedDestination?: TripOptionDestination;
-  onProceedPretrip: () => void;
+  onProceedPretrip?: () => void;
+  onViewTripDetail?: () => void;
+  onGoToDashboard?: () => void;
 }
 
 export function LeaderTripSuccessView({
@@ -16,7 +18,11 @@ export function LeaderTripSuccessView({
   form,
   selectedDestination,
   onProceedPretrip,
+  onViewTripDetail,
+  onGoToDashboard,
 }: LeaderTripSuccessViewProps) {
+  const handleProceed = onViewTripDetail || onProceedPretrip;
+
   return (
     <View style={styles.container}>
       <View style={styles.successIcon}>
@@ -53,10 +59,20 @@ export function LeaderTripSuccessView({
         </View>
       </View>
 
-      <TouchableOpacity style={styles.primary} onPress={onProceedPretrip} activeOpacity={0.85}>
-        <Text style={styles.primaryText}>TIẾP TỤC PRE-TRIP</Text>
-        <Ionicons name="arrow-forward" size={17} color="#fff" />
-      </TouchableOpacity>
+      {/* Lựa chọn điều hướng: Xem chi tiết hoặc Về Dashboard */}
+      <View style={styles.actionsContainer}>
+        <TouchableOpacity style={styles.primary} onPress={handleProceed} activeOpacity={0.85}>
+          <Ionicons name="eye-outline" size={17} color="#fff" />
+          <Text style={styles.primaryText}>XEM CHI TIẾT CHUYẾN ĐI</Text>
+        </TouchableOpacity>
+
+        {Boolean(onGoToDashboard) && (
+          <TouchableOpacity style={styles.secondaryBtn} onPress={onGoToDashboard} activeOpacity={0.85}>
+            <Ionicons name="grid-outline" size={17} color="#125238" />
+            <Text style={styles.secondaryBtnText}>VỀ DASHBOARD CHỈ HUY</Text>
+          </TouchableOpacity>
+        )}
+      </View>
     </View>
   );
 }
@@ -126,6 +142,11 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 2,
   },
+  actionsContainer: {
+    alignSelf: "stretch",
+    gap: 10,
+    marginTop: 20,
+  },
   primary: {
     alignSelf: "stretch",
     flexDirection: "row",
@@ -133,12 +154,29 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 8,
     backgroundColor: Colors.primaryDark,
-    padding: 15,
-    borderRadius: Radius.sm,
-    marginTop: 24,
+    padding: 14,
+    borderRadius: Radius.md,
+    ...Shadows.card,
   },
   primaryText: {
     color: "#fff",
+    fontWeight: "800",
+    fontSize: 13,
+  },
+  secondaryBtn: {
+    alignSelf: "stretch",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#ffffff",
+    borderWidth: 1.5,
+    borderColor: Colors.primaryDark,
+    padding: 13,
+    borderRadius: Radius.md,
+  },
+  secondaryBtnText: {
+    color: Colors.primaryDark,
     fontWeight: "800",
     fontSize: 13,
   },

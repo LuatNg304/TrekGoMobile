@@ -2,7 +2,10 @@ import { ApiError } from "@/lib/api-client";
 import { useCallback, useState } from "react";
 import {
   checkTrailAccess,
+  clearTrailPurchaseSession,
+  getTrailPurchaseSession,
   purchaseTrailAccess,
+  type TrailPurchaseSession,
 } from "../services/private-trips.api";
 import type {
   PurchaseTrailPayload,
@@ -14,6 +17,8 @@ export function useTrailAccess() {
   const [accessInfo, setAccessInfo] = useState<TrailAccessResponse | null>(null);
   const [purchaseResult, setPurchaseResult] =
     useState<PurchaseTrailResponse | null>(null);
+  const [activeSession, setActiveSession] =
+    useState<TrailPurchaseSession | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -24,6 +29,13 @@ export function useTrailAccess() {
       try {
         const res = await checkTrailAccess(trailId);
         setAccessInfo(res);
+        if (res.hasAccess) {
+          await clearTrailPurchaseSession(trailId);
+          setActiveSession(null);
+        } else {
+          const session = await getTrailPurchaseSession(trailId);
+          setActiveSession(session);
+        }
         return res;
       } catch (err: any) {
         const msg =
@@ -42,14 +54,20 @@ export function useTrailAccess() {
   const purchaseAccess = useCallback(
     async (
       trailId: string,
-      payload: PurchaseTrailPayload = { paymentMethod: "QR" },
+      payload: PurchaseTrailPayload = {
+        paymentMethod: "REDIRECT",
+        gateway: "vnpay",
+      },
+      idempotencyKey?: string,
     ): Promise<PurchaseTrailResponse> => {
       setLoading(true);
       setError(null);
       try {
-        const res = await purchaseTrailAccess(trailId, payload);
+        const res = await purchaseTrailAccess(trailId, payload, idempotencyKey);
         setPurchaseResult(res);
         if (res.accessStatus === "ACTIVE") {
+          await clearTrailPurchaseSession(trailId);
+          setActiveSession(null);
           setAccessInfo({
             hasAccess: true,
             accessId: res.trailAccessId,
@@ -71,7 +89,11 @@ export function useTrailAccess() {
     [],
   );
 
-  const reset = useCallback(() => {
+  const reset = useCallback(async (trailId?: string) => {
+    if (trailId) {
+      await clearTrailPurchaseSession(trailId);
+    }
+    setActiveSession(null);
     setAccessInfo(null);
     setPurchaseResult(null);
     setError(null);
@@ -81,6 +103,7 @@ export function useTrailAccess() {
   return {
     accessInfo,
     purchaseResult,
+    activeSession,
     loading,
     error,
     checkAccess,

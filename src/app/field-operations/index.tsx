@@ -3,7 +3,7 @@ import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/features/auth/AuthContext";
 import { rentalApi } from "@/features/rentals/api";
 import { DeliveryTaskSummary } from "@/features/rentals/types";
-import { LeaderDashboardScreen } from "@/features/leaders/screens";
+import { LeaderNavigationShell } from "@/features/leaders/screens";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -131,14 +131,16 @@ export default function FieldOperationsHome() {
   const inProgressCount = tasks.filter((task) => taskTab(task) === "IN_PROGRESS").length;
   const completedCount = tasks.filter((task) => taskTab(task) === "COMPLETED").length;
 
-  if (!effectiveRole) return null;
-  if (effectiveRole === "LEADER") return <LeaderDashboardScreen />;
-
   const logout = () => {
     signOut();
     void authSignOut();
     router.replace("/");
   };
+
+  if (!effectiveRole) return null;
+  if (effectiveRole === "LEADER") {
+    return <LeaderNavigationShell onLogout={logout} />;
+  }
 
   const openTask = (task: DeliveryTaskSummary) => {
     router.push({

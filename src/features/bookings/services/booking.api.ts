@@ -1,4 +1,4 @@
-import { apiRequest, ApiError } from "@/lib/api-client";
+import { ApiError, apiRequest } from "@/lib/api-client";
 import type {
   BookingDetail,
   BookingListQuery,
@@ -14,7 +14,7 @@ import type {
   PublicTripsQuery,
 } from "../types";
 
-// ─── UUID / Idempotency Key Generator ──────────────────────────────────────────
+// ─── UUID / Idempotency Key Generator & Session Cache ──────────────────────────
 
 /**
  * Generates an RFC 4122 v4 UUID string for Idempotency-Key header.
@@ -30,6 +30,24 @@ export function generateIdempotencyKey(): string {
   });
 }
 
+/**
+ * Cache lưu Idempotency-Key theo bookingId trong bộ nhớ tạm để tránh tạo đè
+ * gây lỗi 409 PAYMENT_ATTEMPT_IN_PROGRESS ("A payment attempt is still unresolved")
+ */
+interface PaymentSessionItem {
+  key: string;
+  paymentMethod: PaymentMethod;
+  gateway?: PaymentGateway;
+  createdAt: number;
+}
+const bookingPaymentSessions: Record<string, PaymentSessionItem> = {};
+
+type SessionCleanupListener = (bookingId: string) => void;
+const cleanupListeners: SessionCleanupListener[] = [];
+export function registerPaymentSessionCleanup(listener: SessionCleanupListener) {
+  cleanupListeners.push(listener);
+}
+
 // ─── Payload Formatters ────────────────────────────────────────────────────────
 
 /**
@@ -43,21 +61,10 @@ export function formatParticipantsPayload(participants: Participant[]) {
     participants: participants.map((p) => {
       const item: Record<string, any> = {
         fullName: p.fullName.trim(),
+        phone: p.phone ? p.phone.trim() : "",
       };
       if (p.id) {
         item.id = p.id;
-      }
-      if (p.phone && p.phone.trim()) {
-        item.phone = p.phone.trim();
-      }
-      if (p.dateOfBirth && p.dateOfBirth.trim()) {
-        item.dateOfBirth = p.dateOfBirth.trim();
-      }
-      if (p.emergencyContactName && p.emergencyContactName.trim()) {
-        item.emergencyContactName = p.emergencyContactName.trim();
-      }
-      if (p.emergencyContactPhone && p.emergencyContactPhone.trim()) {
-        item.emergencyContactPhone = p.emergencyContactPhone.trim();
       }
       return item;
     }),
@@ -77,7 +84,7 @@ export const BOOKING_ERROR_MESSAGES: Record<string, string> = {
   BOOKING_VERSION_CONFLICT:
     "Đặt chỗ đã thay đổi trên máy chủ. Vui lòng tải lại trước khi sửa.",
   PAYMENT_ATTEMPT_IN_PROGRESS:
-    "Giao dịch đang được xử lý. Vui lòng chờ kết quả trước khi tiếp tục.",
+    "Giao dịch thanh toán trước đó đang chờ xử lý. Vui lòng thử lại sau ít phút hoặc mở lại trang thanh toán.",
   PAYMENT_PROVIDER_UNAVAILABLE:
     "Cổng thanh toán đang tạm thời không khả dụng. Vui lòng thử lại sau.",
   BOOKING_POLICY_UNAVAILABLE:
@@ -100,7 +107,14 @@ export function getBookingErrorMessage(
     const bookingId = details?.bookingId as string | undefined;
 
     let message = fallback;
-    if (code && BOOKING_ERROR_MESSAGES[code]) {
+    if (
+      code === "PAYMENT_ATTEMPT_IN_PROGRESS" ||
+      error.message?.toLowerCase().includes("unresolved") ||
+      error.status === 409
+    ) {
+      message =
+        "Phiên thanh toán trước đó đang chờ xử lý từ cổng thanh toán. Vui lòng thử lại sau giây lát.";
+    } else if (code && BOOKING_ERROR_MESSAGES[code]) {
       message = BOOKING_ERROR_MESSAGES[code];
     } else if (error.message) {
       message = error.message;
@@ -133,7 +147,7 @@ export const BOOKING_STATUS_LABELS: Record<string, string> = {
 
 export const bookingApiService = {
   /**
-   * GET /api/v1/trips
+   * GET /api/v1/public-trips
    * Khám phá danh sách Public Trips mở đăng ký
    */
   getPublicTrips: async (
@@ -150,16 +164,16 @@ export const bookingApiService = {
 
     const q = params.toString();
     return apiRequest<PageResponse<PublicBookingTrip>>(
-      `/api/v1/trips${q ? `?${q}` : ""}`,
+      `/api/v1/public-trips${q ? `?${q}` : ""}`,
     );
   },
 
   /**
-   * GET /api/v1/trips/{id}
+   * GET /api/v1/public-trips/{id}
    * Chi tiết Public Trip
    */
   getPublicTripDetail: async (tripId: string): Promise<PublicBookingTrip> => {
-    return apiRequest<PublicBookingTrip>(`/api/v1/trips/${tripId}`);
+    return apiRequest<PublicBookingTrip>(`/api/v1/public-trips/${tripId}`);
   },
 
   /**
@@ -169,13 +183,14 @@ export const bookingApiService = {
   createBooking: async (
     tripId: string,
     participants: Participant[],
-    idempotencyKey: string,
+    idempotencyKey?: string,
   ): Promise<BookingDetail> => {
+    const key = idempotencyKey || generateIdempotencyKey();
     const payload = formatParticipantsPayload(participants);
     return apiRequest<BookingDetail>(`/api/v1/trips/${tripId}/bookings`, {
       method: "POST",
       headers: {
-        "Idempotency-Key": idempotencyKey,
+        "Idempotency-Key": key,
       },
       body: JSON.stringify(payload),
     });
@@ -240,26 +255,76 @@ export const bookingApiService = {
   /**
    * POST /api/v1/bookings/{id}/payments
    * Khởi tạo thanh toán (Redirect / QR)
+   * Tự động quản lý Idempotency-Key: tái sử dụng key trong vòng 14 phút nếu cùng phương thức
+   * để không bị lỗi 409 PAYMENT_ATTEMPT_IN_PROGRESS.
    */
   createPayment: async (
     bookingId: string,
-    idempotencyKey: string,
+    idempotencyKey?: string,
     paymentMethod: PaymentMethod = "REDIRECT",
     gateway?: PaymentGateway,
   ): Promise<PaymentCheckoutResponse> => {
+    const now = Date.now();
+    const session = bookingPaymentSessions[bookingId];
+
+    let finalKey = idempotencyKey;
+
+    // Nếu không truyền key từ ngoài vào, tự động quản lý phiên:
+    if (!finalKey) {
+      if (
+        session &&
+        session.paymentMethod === paymentMethod &&
+        session.gateway === gateway &&
+        now - session.createdAt < 14 * 60 * 1000
+      ) {
+        // Tái sử dụng key cũ đang còn hiệu lực
+        finalKey = session.key;
+      } else {
+        // Sinh key mới và lưu vào session
+        finalKey = generateIdempotencyKey();
+        bookingPaymentSessions[bookingId] = {
+          key: finalKey,
+          paymentMethod,
+          gateway,
+          createdAt: now,
+        };
+      }
+    }
+
     const body: Record<string, any> = { paymentMethod };
     if (gateway) body.gateway = gateway;
 
-    return apiRequest<PaymentCheckoutResponse>(
-      `/api/v1/bookings/${bookingId}/payments`,
-      {
-        method: "POST",
-        headers: {
-          "Idempotency-Key": idempotencyKey,
+    try {
+      const res = await apiRequest<PaymentCheckoutResponse>(
+        `/api/v1/bookings/${bookingId}/payments`,
+        {
+          method: "POST",
+          headers: {
+            "Idempotency-Key": finalKey,
+          },
+          body: JSON.stringify(body),
         },
-        body: JSON.stringify(body),
-      },
-    );
+      );
+      return res;
+    } catch (err: any) {
+      // Nếu payload bị xung đột (ví dụ đổi cổng từ vnpay sang momo), xóa session cũ
+      if (err?.code === "IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD") {
+        delete bookingPaymentSessions[bookingId];
+      }
+      throw err;
+    }
+  },
+
+  /**
+   * Dọn dẹp key thanh toán khi booking đã thanh toán thành công hoặc đã hủy
+   */
+  clearBookingPaymentSession: (bookingId: string) => {
+    delete bookingPaymentSessions[bookingId];
+    cleanupListeners.forEach((fn) => {
+      try {
+        fn(bookingId);
+      } catch {}
+    });
   },
 
   /**
@@ -269,17 +334,21 @@ export const bookingApiService = {
   cancelBooking: async (
     bookingId: string,
     reason: string,
-    idempotencyKey: string,
+    idempotencyKey?: string,
   ): Promise<CancelBookingResponse> => {
-    return apiRequest<CancelBookingResponse>(
+    const key = idempotencyKey || generateIdempotencyKey();
+    const res = await apiRequest<CancelBookingResponse>(
       `/api/v1/bookings/${bookingId}/cancel`,
       {
         method: "POST",
         headers: {
-          "Idempotency-Key": idempotencyKey,
+          "Idempotency-Key": key,
         },
         body: JSON.stringify({ reason }),
       },
     );
+    // Hủy xong thì giải phóng luôn session thanh toán
+    delete bookingPaymentSessions[bookingId];
+    return res;
   },
 };
