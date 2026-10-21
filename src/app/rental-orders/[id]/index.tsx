@@ -5,7 +5,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   AppState,
-  Linking,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -17,6 +16,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { Colors, Radius, Shadows } from "@/constants/theme";
 import { useAuth } from "@/features/auth/AuthContext";
+import { PaymentWebViewModal } from "@/features/bookings/components/PaymentWebViewModal";
 import { rentalApi } from "@/features/rentals/api";
 import { ApiError } from "@/lib/api-client";
 import {
@@ -133,6 +133,7 @@ export default function RentalOrderDetailScreen() {
   const [codeError, setCodeError] = useState<string>();
   const [paymentError, setPaymentError] = useState<string>();
   const [paymentNotice, setPaymentNotice] = useState<string>();
+  const [paymentCheckoutUrl, setPaymentCheckoutUrl] = useState<string>();
   const awaitingPaymentReturn = useRef(false);
   const paymentPollRunning = useRef(false);
   const paymentPollGeneration = useRef(0);
@@ -405,7 +406,7 @@ export default function RentalOrderDetailScreen() {
         ["PENDING", "PROCESSING"].includes(checkout.status)
       ) {
         awaitingPaymentReturn.current = true;
-        await Linking.openURL(checkoutUrl);
+        setPaymentCheckoutUrl(checkoutUrl);
       } else {
         setPaymentNotice(
           "Payment đã được ghi nhận nhưng checkout chưa sẵn sàng. Đang đối soát với Backend...",
@@ -520,7 +521,7 @@ export default function RentalOrderDetailScreen() {
           </View>
         </View>
 
-        {order.exceptionStatus && (
+        {order.exceptionStatus && order.exceptionStatus !== "NONE" && (
           <InfoBanner
             tone="warning"
             icon="warning-outline"
@@ -582,8 +583,8 @@ export default function RentalOrderDetailScreen() {
           {assignedUnits.length > 0 && (
             <View style={styles.unitWrap}>
               <Text style={styles.subheading}>Thiết bị vật lý đã gán</Text>
-              {assignedUnits.map((unit) => (
-                <Text key={unit.id} style={styles.unitText}>
+              {assignedUnits.map((unit, index) => (
+                <Text key={`${unit.id ?? unit.unitId ?? unit.assetCode ?? "unit"}-${index}`} style={styles.unitText}>
                   • {unit.assetCode || unit.unitId || unit.id}
                   {unit.condition ? ` · ${unit.condition}` : ""}
                 </Text>
@@ -780,6 +781,30 @@ export default function RentalOrderDetailScreen() {
           description="Bạn chỉ theo dõi và xuất trình mã nhận. Staff chịu trách nhiệm bàn giao, thu hồi, kiểm định; Admin xử lý khấu trừ và hệ thống thực hiện hoàn cọc."
         />
       </ScrollView>
+      {paymentCheckoutUrl ? (
+        <PaymentWebViewModal
+          visible
+          url={paymentCheckoutUrl}
+          title="Thanh toán đơn thuê"
+          onClose={() => {
+            setPaymentCheckoutUrl(undefined);
+            awaitingPaymentReturn.current = false;
+            setPaymentNotice(
+              "Đã đóng cổng thanh toán. Hệ thống sẽ kiểm tra giao dịch hiện tại.",
+            );
+            void pollPaymentUntilApplied();
+          }}
+          onPaymentComplete={(result) => {
+            setPaymentCheckoutUrl(undefined);
+            awaitingPaymentReturn.current = false;
+            setPaymentNotice(
+              result.message ??
+                "Đã nhận kết quả từ cổng thanh toán. Đang xác nhận với Backend.",
+            );
+            void pollPaymentUntilApplied();
+          }}
+        />
+      ) : null}
     </SafeAreaView>
   );
 }

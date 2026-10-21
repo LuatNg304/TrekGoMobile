@@ -1,4 +1,4 @@
-import { Colors, Radius, Shadows } from "@/constants/theme";
+import { Colors, Radius } from "@/constants/theme";
 import { API_BASE_URL } from "@/lib/api-client";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useCallback, useRef, useState } from "react";
