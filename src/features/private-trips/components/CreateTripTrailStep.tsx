@@ -266,7 +266,7 @@ export function CreateTripTrailStep({
         lộ trình cho chuyến đi.
       </Text>
 
-      <ScrollView style={styles.trailList} showsVerticalScrollIndicator={false}>
+      <View style={styles.trailList}>
         {trails.map((trail) => {
           const isSelected = trail.id === selectedTrailId;
           const isPersonal = trail.type === "PERSONAL";
@@ -342,7 +342,7 @@ export function CreateTripTrailStep({
             Mua thêm quyền Cung đường hệ thống khác
           </Text>
         </TouchableOpacity>
-      </ScrollView>
+      </View>
 
       {/* Preview selected trail checkpoints */}
       {selectedTrail && selectedTrail.points.length > 0 ? (
@@ -427,7 +427,6 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   trailList: {
-    maxHeight: 280,
     marginBottom: 12,
   },
   trailCard: {

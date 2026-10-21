@@ -95,21 +95,33 @@ export type LeaderTripStatus =
   | "CANCELLED";
 
 export interface LeaderCheckpointDetail {
-  id: string;
+  id?: string;
+  sourceCheckpointId?: string;
   name: string;
-  latitude: number;
-  longitude: number;
+  description?: string | null;
+  latitude: number | string;
+  longitude: number | string;
   radiusMeters?: number;
   sequence?: number;
+  isRequired?: boolean;
+  isEnabled?: boolean;
 }
 
 export interface LeaderTrailDetail {
-  id: string;
+  id?: string;
+  systemTrailId?: string;
+  sequence?: number;
   snapshotName?: string;
   name?: string;
   snapshotDifficulty?: string;
-  snapshotDistanceKm?: number;
+  difficulty?: string;
+  snapshotDistanceKm?: number | string;
+  distanceKm?: number | string;
   snapshotElevationGainM?: number;
+  elevationGainM?: number;
+  snapshotGeojson?: any;
+  sourceTrailVersion?: number;
+  snapshotCheckpointIds?: string[];
 }
 
 export interface LeaderPublicTrip {
@@ -131,7 +143,9 @@ export interface LeaderPublicTrip {
   pickupPointId?: string;
   pickupPoint?: { id: string; name: string; address?: string | null };
   priceExplanation?: string | null;
-  tripType?: "PUBLIC";
+  tripType?: "PUBLIC" | string;
+  creatorId?: string;
+  leaderId?: string;
   checkpoints?: LeaderCheckpointDetail[];
   trails?: LeaderTrailDetail[];
 }
@@ -405,7 +419,24 @@ export async function getLeaderTrips(
   if (destinationId) {
     url += `&destinationId=${encodeURIComponent(destinationId)}`;
   }
-  return apiRequest<LeaderTripsListResponse>(url, { accessToken });
+  const res = await apiRequest<LeaderTripsListResponse | LeaderPublicTrip[]>(url, { accessToken });
+
+  // BE trả về trực tiếp mảng LeaderPublicTrip[] hoặc object { items, total, page, pageSize }
+  if (Array.isArray(res)) {
+    return {
+      items: res,
+      total: res.length,
+      page,
+      pageSize,
+    };
+  }
+
+  return {
+    items: Array.isArray(res?.items) ? res.items : [],
+    total: typeof res?.total === "number" ? res.total : (res?.items?.length ?? 0),
+    page: res?.page || page,
+    pageSize: res?.pageSize || pageSize,
+  };
 }
 
 /** GET /api/v1/system-trails/:trailCode */

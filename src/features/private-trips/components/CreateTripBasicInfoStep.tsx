@@ -1,4 +1,6 @@
 import { Colors, Radius, Shadows } from "@/constants/theme";
+import { WheelDatePickerModal } from "@/features/leaders/components";
+import { parseVnDate } from "@/features/leaders/utils/tripDateUtils";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useEffect, useMemo, useState } from "react";
 import {
@@ -139,6 +141,7 @@ export function CreateTripBasicInfoStep({
   const [startTimeInput, setStartTimeInput] = useState(initialStart.timeStr);
   const [endDateInput, setEndDateInput] = useState(initialEnd.dateStr);
   const [endTimeInput, setEndTimeInput] = useState(initialEnd.timeStr);
+  const [datePickerTarget, setDatePickerTarget] = useState<"start" | "end" | null>(null);
 
   // Sync back if parent props change externally
   useEffect(() => {
@@ -171,6 +174,25 @@ export function CreateTripBasicInfoStep({
     if (iso) {
       onChangeEndAt(iso);
     }
+  }
+
+  // Handle confirm from WheelDatePickerModal
+  function handleConfirmWheelDate(dateStr: string) {
+    if (datePickerTarget === "start") {
+      handleUpdateStart(dateStr, startTimeInput);
+      // Gợi ý ngày kết thúc nếu endDate trống hoặc nhỏ hơn startDate
+      const s = parseVnDate(dateStr);
+      const e = parseVnDate(endDateInput);
+      if (s && (!e || e.getTime() < s.getTime())) {
+        const next = new Date(s);
+        next.setDate(next.getDate() + 1); // Mặc định 2 ngày 1 đêm
+        const nextStr = `${String(next.getDate()).padStart(2, "0")}/${String(next.getMonth() + 1).padStart(2, "0")}/${next.getFullYear()}`;
+        handleUpdateEnd(nextStr, endTimeInput);
+      }
+    } else if (datePickerTarget === "end") {
+      handleUpdateEnd(dateStr, endTimeInput);
+    }
+    setDatePickerTarget(null);
   }
 
   // Quick preset handlers
@@ -324,18 +346,28 @@ export function CreateTripBasicInfoStep({
 
             <View style={styles.timeCard}>
               {/* Ngày */}
-              <View style={styles.inputSubRow}>
+              <TouchableOpacity
+                style={styles.inputSubRow}
+                onPress={() => setDatePickerTarget("start")}
+                activeOpacity={0.7}
+              >
                 <Ionicons name="calendar-outline" size={16} color={Colors.primaryDark} />
-                <TextInput
-                  style={styles.dateTextInput}
-                  placeholder="DD/MM/YYYY"
-                  placeholderTextColor={Colors.mute}
-                  value={startDateInput}
-                  onChangeText={(val) => handleUpdateStart(val, startTimeInput)}
-                  keyboardType="numbers-and-punctuation"
-                  maxLength={10}
+                <Text
+                  style={[
+                    styles.dateDisplayValue,
+                    !startDateInput && styles.datePlaceholder,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {startDateInput || "DD/MM/YYYY"}
+                </Text>
+                <Ionicons
+                  name="chevron-down"
+                  size={14}
+                  color={Colors.onSurfaceVariant}
+                  style={{ marginLeft: "auto" }}
                 />
-              </View>
+              </TouchableOpacity>
 
               {startDayName ? (
                 <View style={styles.dayTag}>
@@ -391,18 +423,28 @@ export function CreateTripBasicInfoStep({
 
             <View style={styles.timeCard}>
               {/* Ngày */}
-              <View style={styles.inputSubRow}>
+              <TouchableOpacity
+                style={styles.inputSubRow}
+                onPress={() => setDatePickerTarget("end")}
+                activeOpacity={0.7}
+              >
                 <Ionicons name="calendar-outline" size={16} color="#0284C7" />
-                <TextInput
-                  style={styles.dateTextInput}
-                  placeholder="DD/MM/YYYY"
-                  placeholderTextColor={Colors.mute}
-                  value={endDateInput}
-                  onChangeText={(val) => handleUpdateEnd(val, endTimeInput)}
-                  keyboardType="numbers-and-punctuation"
-                  maxLength={10}
+                <Text
+                  style={[
+                    styles.dateDisplayValue,
+                    !endDateInput && styles.datePlaceholder,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {endDateInput || "DD/MM/YYYY"}
+                </Text>
+                <Ionicons
+                  name="chevron-down"
+                  size={14}
+                  color={Colors.onSurfaceVariant}
+                  style={{ marginLeft: "auto" }}
                 />
-              </View>
+              </TouchableOpacity>
 
               {endDayName ? (
                 <View style={[styles.dayTag, styles.dayTagEnd]}>
@@ -474,6 +516,25 @@ export function CreateTripBasicInfoStep({
           </Text>
         </View>
       </View>
+
+      {/* Wheel Date Picker Modals */}
+      <WheelDatePickerModal
+        visible={datePickerTarget === "start"}
+        title="Chọn ngày khởi hành"
+        initialDate={startDateInput}
+        minDate={new Date()}
+        onClose={() => setDatePickerTarget(null)}
+        onConfirm={handleConfirmWheelDate}
+      />
+
+      <WheelDatePickerModal
+        visible={datePickerTarget === "end"}
+        title="Chọn ngày dự kiến về"
+        initialDate={endDateInput || startDateInput}
+        minDate={parseVnDate(startDateInput) || new Date()}
+        onClose={() => setDatePickerTarget(null)}
+        onConfirm={handleConfirmWheelDate}
+      />
     </View>
   );
 }
@@ -624,12 +685,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.surfaceContainerHigh,
   },
-  dateTextInput: {
+  dateDisplayValue: {
     flex: 1,
     fontSize: 13,
     fontWeight: "700",
     color: Colors.onSurface,
-    padding: 0,
+  },
+  datePlaceholder: {
+    color: Colors.mute,
+    fontWeight: "400",
   },
   dayTag: {
     alignSelf: "flex-start",

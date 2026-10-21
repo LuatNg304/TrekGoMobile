@@ -5,12 +5,35 @@ import { RentalSelectionProvider } from "@/features/rentals/RentalSelectionConte
 import { Stack, useRouter, useSegments, type Href } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Platform, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Platform, StyleSheet, Text, TextInput, View } from "react-native";
 import * as SQLite from "expo-sqlite";
 import { useDrizzleStudio } from "expo-drizzle-studio-plugin";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { getDatabase } from "@/services/storage/recordingDatabase";
 import "@/services/location/backgroundLocationTask";
+
+// Global font setup: Áp dụng font Roboto cho toàn bộ Text và TextInput của dự án
+const defaultFont = Platform.select({
+  ios: "Roboto",
+  android: "Roboto",
+  default: "Roboto, system-ui, sans-serif",
+});
+
+if ((Text as any).defaultProps == null) {
+  (Text as any).defaultProps = {};
+}
+(Text as any).defaultProps.style = [
+  { fontFamily: defaultFont },
+  (Text as any).defaultProps.style,
+];
+
+if ((TextInput as any).defaultProps == null) {
+  (TextInput as any).defaultProps = {};
+}
+(TextInput as any).defaultProps.style = [
+  { fontFamily: defaultFont },
+  (TextInput as any).defaultProps.style,
+];
 export default function RootLayout() {
   const [db, setDb] = useState<SQLite.SQLiteDatabase | null>(null);
 

@@ -2,11 +2,14 @@ import { Colors, Radius, Shadows } from "@/constants/theme";
 import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/features/auth/AuthContext";
 import {
+  getDestinations,
   getLeaderPublicTripById,
+  getPickupPoints,
   getTripDiscoverySlots,
   type LeaderPublicTrip,
   type TripDiscoverySlots,
 } from "@/features/leaders/services/leader-public-trips.api";
+import { getDayOfWeekName } from "@/features/leaders/utils/tripDateUtils";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
@@ -22,7 +25,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 interface MemberItem {
   id: string;
@@ -34,6 +37,7 @@ interface MemberItem {
   rentedGear: string;
   paymentStatus: "PAID" | "DEPOSIT";
   checkedIn: boolean;
+  isLeader?: boolean;
 }
 
 const KICK_REASONS = [
@@ -57,12 +61,29 @@ function formatVnDate(dateStr?: string): string {
   }
 }
 
+function formatVnDateTime(dateStr?: string): string {
+  if (!dateStr) return "Chưa cập nhật";
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return "Chưa cập nhật";
+    const hours = String(d.getHours()).padStart(2, "0");
+    const mins = String(d.getMinutes()).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const yyyy = d.getFullYear();
+    const dayName = getDayOfWeekName(d);
+    return `${hours}:${mins} • ${dd}/${mm}/${yyyy} (${dayName})`;
+  } catch {
+    return "Chưa cập nhật";
+  }
+}
+
 function getStatusBadge(status: string) {
   switch (status) {
     case "DRAFT":
       return { label: "Bản nháp", bg: "#f1f5f9", color: "#475569" };
     case "OPEN":
-      return { label: "Đang mở bán", bg: "#dcfce7", color: "#166534" };
+      return { label: "Đang mở nhận khách", bg: "#dcfce7", color: "#166534" };
     case "FULL":
       return { label: "Đã đủ chỗ", bg: "#e0f2fe", color: "#0369a1" };
     case "IN_PROGRESS":
@@ -88,6 +109,8 @@ export function LeaderTripDetailScreen() {
 
   const [trip, setTrip] = useState<LeaderPublicTrip | null>(null);
   const [slots, setSlots] = useState<TripDiscoverySlots | null>(null);
+  const [resolvedDestinationName, setResolvedDestinationName] = useState<string | null>(null);
+  const [resolvedPickupName, setResolvedPickupName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -110,20 +133,38 @@ export function LeaderTripDetailScreen() {
     if (!tripId || !accessToken) return;
     setError(null);
     try {
-      const [tripRes, slotsRes] = await Promise.all([
-        getLeaderPublicTripById(tripId, accessToken),
-        getTripDiscoverySlots(tripId),
-      ]);
+      const tripRes = await getLeaderPublicTripById(tripId, accessToken);
       setTrip(tripRes);
+
+      // Slots discovery query (bọc an toàn tránh throw khi chuyến mới tạo)
+      const slotsRes = await getTripDiscoverySlots(tripId).catch(() => null);
       setSlots(slotsRes);
 
-      // Tính số chỗ đã đặt
-      const totalCap = tripRes.capacity || slotsRes?.capacity || 15;
+      // Tra cứu tên Điểm đến và Điểm đón nếu API trả về ID
+      if (tripRes.destinationId) {
+        try {
+          const dests = await getDestinations(accessToken, 1, 50);
+          const matchedDest = dests.find((d) => d.id === tripRes.destinationId);
+          if (matchedDest) {
+            setResolvedDestinationName(matchedDest.name);
+          }
+          if (tripRes.pickupPointId) {
+            const pickups = await getPickupPoints(tripRes.destinationId, accessToken, 1, 50);
+            const matchedPickup = pickups.find((p) => p.id === tripRes.pickupPointId);
+            if (matchedPickup) {
+              setResolvedPickupName(matchedPickup.name);
+            }
+          }
+        } catch {
+          // ignore lookup error
+        }
+      }
+
+      // Khởi tạo thành viên nếu có đặt chỗ
       const booked = slotsRes
         ? Math.max(0, slotsRes.capacity - slotsRes.remainingSlots)
         : 0;
 
-      // Khởi tạo danh sách thành viên mô phỏng theo số lượng đã đặt chỗ
       if (booked > 0) {
         setMembers((prev) => {
           if (prev.length > 0) return prev;
@@ -131,7 +172,7 @@ export function LeaderTripDetailScreen() {
           for (let i = 1; i <= booked; i++) {
             initialMembers.push({
               id: `TK-${tripId.slice(-4).toUpperCase()}-${String(i).padStart(2, "0")}`,
-              name: `Trekker ${String(i).padStart(2, "0")} · ${tripRes.destination?.name || "Hội viên"}`,
+              name: `Trekker ${String(i).padStart(2, "0")}`,
               phone: `098***${String(100 + i * 11).slice(-3)}`,
               email: `trekker${i}@trekgo.vn`,
               emergencyContact: "Người thân (Đã xác minh qua CCCD/VNeID)",
@@ -143,6 +184,8 @@ export function LeaderTripDetailScreen() {
           }
           return initialMembers;
         });
+      } else {
+        setMembers([]);
       }
     } catch (err: any) {
       setError(err?.message || "Không thể tải thông tin chuyến đi.");
@@ -161,14 +204,38 @@ export function LeaderTripDetailScreen() {
     await loadData();
   }, [loadData]);
 
-  // Tính toán số liệu thống kê
+  const insets = useSafeAreaInsets();
+
+  // Tính toán số liệu thống kê: Bao gồm LEADER là thành viên số 1 trong đoàn
   const totalCapacity = trip?.capacity || slots?.capacity || 15;
-  const bookedCount = slots
+  const bookedTrekkersCount = slots
     ? Math.max(0, slots.capacity - slots.remainingSlots)
     : members.length;
-  const remainingSlots = slots ? slots.remainingSlots : Math.max(0, totalCapacity - bookedCount);
-  const fillRate = Math.min(100, Math.round((bookedCount / totalCapacity) * 100));
-  const checkedInCount = members.filter((m) => m.checkedIn).length;
+  // Leader luôn là thành viên #1 trong đoàn
+  const totalMembersCount = 1 + bookedTrekkersCount;
+  const remainingTrekkerSlots = Math.max(0, totalCapacity - totalMembersCount);
+  const fillRate = Math.min(100, Math.round((totalMembersCount / totalCapacity) * 100));
+
+  const leaderName = authUser?.name || user?.name || "Mountain Leader";
+  const leaderPhone = (authUser as any)?.phoneNumber || (user as any)?.phone || "0988 888 999";
+  const leaderEmail = authUser?.email || "leader@trekgo.vn";
+  const leaderIdCode = trip?.leaderId ? `LD-${trip.leaderId.slice(0, 8).toUpperCase()}` : "LD-TREKGO-01";
+
+  const leaderMemberItem: MemberItem = useMemo(
+    () => ({
+      id: leaderIdCode,
+      name: `${leaderName} (Bạn)`,
+      phone: leaderPhone,
+      email: leaderEmail,
+      emergencyContact: "Ban Chỉ Huy Cứu Hộ VFRS Trung Tâm: 1800 9988",
+      medicalNote: "Chứng chỉ Y tế Leo núi Quốc tế WFR / VFRS L2",
+      rentedGear: "Bộ đàm tần số VHF/UHF Kênh 04, GPS Garmin inReach, Túi sơ cứu VFRS Kit Pro",
+      paymentStatus: "PAID",
+      checkedIn: true,
+      isLeader: true,
+    }),
+    [leaderIdCode, leaderName, leaderPhone, leaderEmail],
+  );
 
   // Toggle Check-in
   const handleToggleCheckIn = (memberId: string) => {
@@ -208,7 +275,16 @@ export function LeaderTripDetailScreen() {
 
   if (loading && !refreshing) {
     return (
-      <SafeAreaView style={styles.safeArea}>
+      <SafeAreaView
+        style={[
+          styles.safeArea,
+          {
+            paddingLeft: Math.max(0, insets.left),
+            paddingRight: Math.max(0, insets.right),
+          },
+        ]}
+        edges={["top", "bottom", "left", "right"]}
+      >
         <View style={styles.centerLoading}>
           <ActivityIndicator size="large" color="#125238" />
           <Text style={styles.loadingText}>Đang tải chi tiết chuyến đi...</Text>
@@ -219,7 +295,16 @@ export function LeaderTripDetailScreen() {
 
   if (error || !trip) {
     return (
-      <SafeAreaView style={styles.safeArea}>
+      <SafeAreaView
+        style={[
+          styles.safeArea,
+          {
+            paddingLeft: Math.max(0, insets.left),
+            paddingRight: Math.max(0, insets.right),
+          },
+        ]}
+        edges={["top", "bottom", "left", "right"]}
+      >
         <View style={styles.centerLoading}>
           <Ionicons name="alert-circle-outline" size={48} color="#ba1a1a" />
           <Text style={styles.errorTitle}>Lỗi tải chuyến đi</Text>
@@ -232,15 +317,28 @@ export function LeaderTripDetailScreen() {
     );
   }
 
-  const shortCode = `#${trip.id.slice(0, 8).toUpperCase()}`;
+  const systemCode = `#TG-${trip.id.slice(-6).toUpperCase()}-VN`;
   const statusBadge = getStatusBadge(trip.status);
   const trailSnapshot = trip.trails?.[0];
-  const trailDifficulty = trailSnapshot?.snapshotDifficulty || "MEDIUM";
+  const trailDifficulty = trailSnapshot?.snapshotDifficulty || trailSnapshot?.difficulty || "MEDIUM";
   const trailName = trailSnapshot?.snapshotName || trailSnapshot?.name || trip.title;
-  const checkpointsList = (trip.checkpoints || []).slice().sort((a, b) => (a.sequence || 0) - (b.sequence || 0));
+  const checkpointsList = (trip.checkpoints || [])
+    .slice()
+    .sort((a, b) => (Number(a.sequence) || 0) - (Number(b.sequence) || 0));
+
+  const destinationDisplayName =
+    trip.destination?.name || resolvedDestinationName || "Khu vực trekking VFRS";
+  const pickupDisplayName =
+    trip.pickupPoint?.name || resolvedPickupName || "Điểm tập kết toàn đoàn";
+
+  const coordinatesCount =
+    trailSnapshot?.snapshotGeojson?.coordinates?.length ||
+    (Array.isArray(trailSnapshot?.snapshotGeojson?.features) &&
+      trailSnapshot.snapshotGeojson.features[0]?.geometry?.coordinates?.length) ||
+    0;
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={["top", "bottom", "left", "right"]}>
       {/* 1. Header & Actions */}
       <View style={styles.header}>
         <View style={styles.headerTop}>
@@ -251,24 +349,36 @@ export function LeaderTripDetailScreen() {
           >
             <Ionicons name="arrow-back" size={22} color={Colors.ink} />
           </TouchableOpacity>
-          <View style={{ flex: 1 }}>
+          <View style={{ flex: 1, minWidth: 0 }}>
             <View style={styles.badgeRow}>
               <View style={[styles.statusPill, { backgroundColor: statusBadge.bg }]}>
                 <Text style={[styles.statusPillText, { color: statusBadge.color }]}>
                   {statusBadge.label}
                 </Text>
               </View>
+              <View style={styles.publicTypePill}>
+                <Ionicons name="globe-outline" size={11} color="#002113" />
+                <Text style={styles.publicTypePillText}>{trip.tripType || "PUBLIC"}</Text>
+              </View>
               <View style={styles.trailPill}>
                 <Text style={styles.trailPillText}>
-                  Cấp {trailDifficulty} · {trailName}
+                  Cấp {trailDifficulty}
                 </Text>
+              </View>
+              <View style={styles.versionPill}>
+                <Text style={styles.versionPillText}>v{trip.version}</Text>
               </View>
             </View>
             <Text style={styles.tripTitle} numberOfLines={2}>
               {trip.title}
             </Text>
+            {trip.description ? (
+              <Text style={styles.tripDesc} numberOfLines={2}>
+                {trip.description}
+              </Text>
+            ) : null}
             <Text style={styles.tripMeta}>
-              {shortCode} · {formatVnDate(trip.startAt)} – {formatVnDate(trip.endAt)}
+              {systemCode} · Xuất bản: {formatVnDate(trip.publishedAt || trip.startAt)}
             </Text>
           </View>
         </View>
@@ -328,124 +438,343 @@ export function LeaderTripDetailScreen() {
       </View>
 
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: Math.max(40, insets.bottom + 28) },
+        ]}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#125238"]} />
         }
       >
-        {/* 2. Bốn Thẻ Thống kê Tổng quan (KPI Cards - Grid 2x2) */}
-        <View style={styles.kpiGrid}>
-          {/* Thẻ 1: Đặt chỗ & Lấp đầy */}
-          <View style={styles.kpiCard}>
-            <View style={styles.kpiHeader}>
-              <Text style={styles.kpiLabel}>THÀNH VIÊN ĐÃ DUYỆT</Text>
-              <Ionicons name="people-outline" size={16} color="#125238" />
+        {/* 2. Bốn Thẻ Thống kê Tổng quan (KPI Cards - 2x2 Grid) */}
+        <View style={styles.kpiContainer}>
+          <View style={styles.kpiRow}>
+            {/* Thẻ 1: Thành viên đoàn (Bao gồm Leader + Trekker) */}
+            <View style={styles.kpiCard}>
+              <View style={styles.kpiHeader}>
+                <Text style={styles.kpiLabel}>THÀNH VIÊN ĐOÀN</Text>
+                <Ionicons name="people-outline" size={16} color="#125238" />
+              </View>
+              <Text style={[styles.kpiValue, { color: "#125238" }]}>
+                {totalMembersCount} / {totalCapacity}
+              </Text>
+              <Text style={styles.kpiSub}>
+                1 Leader + {bookedTrekkersCount} khách ({remainingTrekkerSlots} chỗ trống)
+              </Text>
             </View>
-            <Text style={styles.kpiValue}>
-              {bookedCount} / {totalCapacity}
-            </Text>
-            <View style={styles.progressBarTrack}>
-              <View
-                style={[
-                  styles.progressBarFill,
-                  { width: `${fillRate}%`, backgroundColor: "#125238" },
-                ]}
-              />
+
+            {/* Thẻ 2: Giá vé / Người */}
+            <View style={styles.kpiCard}>
+              <View style={styles.kpiHeader}>
+                <Text style={styles.kpiLabel}>GIÁ VÉ / NGƯỜI</Text>
+                <Ionicons name="pricetag-outline" size={16} color="#0369a1" />
+              </View>
+              <Text style={[styles.kpiValue, { color: "#0369a1" }]}>
+                {Number(trip.price || 0).toLocaleString("vi-VN")} đ
+              </Text>
+              <Text style={styles.kpiSub}>Mở bán {totalCapacity} chỗ</Text>
             </View>
-            <Text style={styles.kpiSub}>Còn {remainingSlots} chỗ trống</Text>
           </View>
 
-          {/* Thẻ 2: Chờ duyệt */}
-          <View style={styles.kpiCard}>
-            <View style={styles.kpiHeader}>
-              <Text style={styles.kpiLabel}>CHỜ DUYỆT</Text>
-              <Ionicons name="time-outline" size={16} color="#d97706" />
+          <View style={styles.kpiRow}>
+            {/* Thẻ 3: Cự ly & Độ dốc */}
+            <View style={styles.kpiCard}>
+              <View style={styles.kpiHeader}>
+                <Text style={styles.kpiLabel}>CỰ LY & ĐỘ CAO</Text>
+                <Ionicons name="map-outline" size={16} color="#b45309" />
+              </View>
+              <Text style={[styles.kpiValue, { color: "#b45309" }]}>
+                {trailSnapshot?.snapshotDistanceKm || 5} km
+              </Text>
+              <Text style={styles.kpiSub}>
+                Độ dốc +{trailSnapshot?.snapshotElevationGainM || 500}m
+              </Text>
             </View>
-            <Text style={[styles.kpiValue, { color: "#d97706" }]}>0</Text>
-            <View style={styles.kpiTagOk}>
-              <Ionicons name="checkmark" size={12} color="#166534" />
-              <Text style={styles.kpiTagOkText}>Tất cả đã xử lý</Text>
-            </View>
-            <Text style={styles.kpiSub}>Không có yêu cầu tồn</Text>
-          </View>
 
-          {/* Thẻ 3: Tiến độ thanh toán */}
-          <View style={styles.kpiCard}>
-            <View style={styles.kpiHeader}>
-              <Text style={styles.kpiLabel}>TIẾN ĐỘ THANH TOÁN</Text>
-              <Ionicons name="card-outline" size={16} color="#2563eb" />
+            {/* Thẻ 4: Checkpoint kiểm soát */}
+            <View style={styles.kpiCard}>
+              <View style={styles.kpiHeader}>
+                <Text style={styles.kpiLabel}>TRẠM AN TOÀN</Text>
+                <Ionicons name="shield-checkmark-outline" size={16} color="#15803d" />
+              </View>
+              <Text style={[styles.kpiValue, { color: "#15803d" }]}>
+                {checkpointsList.length} mốc
+              </Text>
+              <Text style={styles.kpiSub}>Bắt buộc quét GPS</Text>
             </View>
-            <Text style={[styles.kpiValue, { color: "#2563eb" }]}>{bookedCount} vé</Text>
-            <Text style={styles.kpiSubBold}>100% hoàn tất cọc</Text>
-            <Text style={styles.kpiSub}>Bảo lãnh bởi TrekGo Escrow</Text>
-          </View>
-
-          {/* Thẻ 4: Check-in thực địa */}
-          <View style={styles.kpiCard}>
-            <View style={styles.kpiHeader}>
-              <Text style={styles.kpiLabel}>CHECK-IN THỰC ĐỊA</Text>
-              <Ionicons name="location-outline" size={16} color="#7c3aed" />
-            </View>
-            <Text style={[styles.kpiValue, { color: "#7c3aed" }]}>
-              {checkedInCount} / {bookedCount || 0}
-            </Text>
-            <Text style={styles.kpiSubBold}>
-              {bookedCount > 0 ? Math.round((checkedInCount / bookedCount) * 100) : 0}% tại điểm hẹn
-            </Text>
-            <Text style={styles.kpiSub}>Mở quét GPS trước 30p</Text>
           </View>
         </View>
 
-        {/* 3. Khối Quản lý Thành viên Đoàn */}
+        {/* 3. Khối Thông tin Lịch trình & Điểm đón / Đến */}
         <View style={styles.sectionCard}>
           <View style={styles.sectionCardHeader}>
             <View style={styles.sectionTitleRow}>
-              <Ionicons name="id-card-outline" size={18} color="#125238" />
-              <Text style={styles.sectionTitle}>DANH SÁCH THÀNH VIÊN CHÍNH THỨC</Text>
+              <Ionicons name="calendar-outline" size={18} color="#125238" />
+              <Text style={styles.sectionTitle}>LỊCH TRÌNH & ĐỊA ĐIỂM TẬP KẾT</Text>
             </View>
-            <View style={styles.memberCountBadge}>
-              <Text style={styles.memberCountBadgeText}>
-                {bookedCount} THÀNH VIÊN
+            <View style={styles.statusPillSmall}>
+              <Text style={styles.statusPillSmallText}>CHUYẾN ĐI ĐÃ MỞ</Text>
+            </View>
+          </View>
+
+          <View style={styles.scheduleInfoList}>
+            <View style={styles.scheduleInfoItem}>
+              <View style={styles.scheduleIconWrap}>
+                <Ionicons name="location" size={16} color="#125238" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.scheduleLabel}>Điểm đến (Destination)</Text>
+                <Text style={styles.scheduleValue}>{destinationDisplayName}</Text>
+              </View>
+            </View>
+
+            <View style={styles.scheduleInfoItem}>
+              <View style={styles.scheduleIconWrap}>
+                <Ionicons name="bus" size={16} color="#125238" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.scheduleLabel}>Điểm đón khách (Pickup Point)</Text>
+                <Text style={styles.scheduleValue}>{pickupDisplayName}</Text>
+              </View>
+            </View>
+
+            <View style={styles.scheduleInfoItem}>
+              <View style={styles.scheduleIconWrap}>
+                <Ionicons name="time" size={16} color="#125238" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.scheduleLabel}>Khởi hành</Text>
+                <Text style={styles.scheduleValue}>{formatVnDateTime(trip.startAt)}</Text>
+              </View>
+            </View>
+
+            <View style={styles.scheduleInfoItem}>
+              <View style={styles.scheduleIconWrap}>
+                <Ionicons name="flag" size={16} color="#125238" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.scheduleLabel}>Kết thúc dự kiến</Text>
+                <Text style={styles.scheduleValue}>{formatVnDateTime(trip.endAt)}</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+
+        {/* 4. Khối Cung đường thẩm định (System Trail) */}
+        <View style={styles.sectionCard}>
+          <View style={styles.sectionCardHeader}>
+            <View style={styles.sectionTitleRow}>
+              <Ionicons name="trail-sign-outline" size={18} color="#125238" />
+              <Text style={styles.sectionTitle}>CUNG ĐƯỜNG THẨM ĐỊNH (SYSTEM TRAIL)</Text>
+            </View>
+            <View style={styles.sectionHeaderBadge}>
+              <Text style={styles.sectionHeaderBadgeText}>CHUẨN VFRS</Text>
+            </View>
+          </View>
+
+          <View style={styles.trailCardDetail}>
+            <View style={styles.trailTitleRow}>
+              <View style={styles.trailIconCircle}>
+                <Ionicons name="trail-sign" size={20} color="#125238" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.trailDetailName}>{trailName}</Text>
+                <Text style={styles.trailDetailSub}>
+                  Hành trình {destinationDisplayName} · Chuẩn an toàn VFRS
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.trailSpecsGrid}>
+              <View style={styles.trailSpecItem}>
+                <Text style={styles.specLabel}>CỰ LY</Text>
+                <Text style={styles.specValue}>{trailSnapshot?.snapshotDistanceKm || 5} km</Text>
+              </View>
+              <View style={styles.trailSpecItem}>
+                <Text style={styles.specLabel}>ĐỘ DỐC / ĐỈNH</Text>
+                <Text style={styles.specValue}>+{trailSnapshot?.snapshotElevationGainM || 500}m</Text>
+              </View>
+              <View style={styles.trailSpecItem}>
+                <Text style={styles.specLabel}>ĐỘ KHÓ</Text>
+                <Text style={[styles.specValue, { color: "#b45309" }]}>{trailDifficulty}</Text>
+              </View>
+              <View style={styles.trailSpecItem}>
+                <Text style={styles.specLabel}>TỌA ĐỘ GPS</Text>
+                <Text style={styles.specValue}>{coordinatesCount > 0 ? `${coordinatesCount} điểm` : "Đã nạp"}</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+
+        {/* 5. Khối Checkpoints an toàn VFRS */}
+        <View style={styles.sectionCard}>
+          <View style={styles.sectionCardHeader}>
+            <View style={styles.sectionTitleRow}>
+              <Ionicons name="flag-outline" size={18} color="#125238" />
+              <Text style={styles.sectionTitle}>TRẠM DỪNG & CHECKPOINTS KIỂM SOÁT VFRS</Text>
+            </View>
+            <View style={styles.sectionHeaderBadge}>
+              <Text style={styles.sectionHeaderBadgeText}>
+                {checkpointsList.length} MỐC BẮT BUỘC
               </Text>
             </View>
           </View>
 
-          {/* Ô tìm kiếm thành viên */}
+          {checkpointsList.length === 0 ? (
+            <Text style={styles.emptyText}>Chưa có thông tin trạm dừng.</Text>
+          ) : (
+            <View style={styles.checkpointTimeline}>
+              {checkpointsList.map((cp, idx) => (
+                <View key={cp.id || cp.sourceCheckpointId || idx} style={styles.cpTimelineItem}>
+                  <View style={styles.cpDotCircle}>
+                    <Text style={styles.cpDotNum}>{cp.sequence || idx + 1}</Text>
+                  </View>
+                  <View style={styles.cpInfoBox}>
+                    <View style={styles.cpNameHeaderRow}>
+                      <Text style={styles.cpNameText}>{cp.name}</Text>
+                      <View style={styles.cpPillRow}>
+                        {cp.isRequired !== false && (
+                          <View style={styles.cpRequiredPill}>
+                            <Ionicons name="shield-checkmark" size={10} color="#125238" />
+                            <Text style={styles.cpRequiredPillText}>Bắt buộc</Text>
+                          </View>
+                        )}
+                        {cp.isEnabled !== false && (
+                          <View style={styles.cpEnabledPill}>
+                            <Text style={styles.cpEnabledPillText}>Hoạt động</Text>
+                          </View>
+                        )}
+                      </View>
+                    </View>
+                    <Text style={styles.cpDetailText}>
+                      Tọa độ: {Number(cp.latitude).toFixed(4)}, {Number(cp.longitude).toFixed(4)} · Bán kính quét: {cp.radiusMeters || 50}m
+                    </Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
+
+        {/* 6. Khối Cơ cấu giá vé (Price Explanation) */}
+        <View style={styles.sectionCard}>
+          <View style={styles.sectionCardHeader}>
+            <View style={styles.sectionTitleRow}>
+              <Ionicons name="receipt-outline" size={18} color="#125238" />
+              <Text style={styles.sectionTitle}>GIẢI THÍCH CƠ CẤU GIÁ VÉ (PRICE EXPLANATION)</Text>
+            </View>
+          </View>
+
+          <View style={styles.pricingCard}>
+            <View style={styles.pricingHeader}>
+              <Ionicons name="pricetag-outline" size={16} color="#125238" />
+              <Text style={styles.pricingTitle}>
+                Giá niêm yết: {Number(trip.price || trip.pricePerPax || 0).toLocaleString("vi-VN")} đ / người
+              </Text>
+            </View>
+            <Text style={styles.priceExplLabel}>Cơ sở tính giá & Giải trình cấu trúc chi phí:</Text>
+            <View style={styles.priceExplContentBox}>
+              <Text style={styles.priceExplText}>
+                {trip.priceExplanation || "Chưa có nội dung giải trình chi tiết."}
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        {/* 7. Khối Quản lý Thành viên Đoàn (Leader + Bookings) */}
+        <View style={styles.sectionCard}>
+          <View style={styles.sectionCardHeader}>
+            <View style={styles.sectionTitleRow}>
+              <Ionicons name="people-outline" size={18} color="#125238" />
+              <Text style={styles.sectionTitle}>DANH SÁCH THÀNH VIÊN ĐOÀN</Text>
+            </View>
+            <View style={styles.memberCountBadge}>
+              <Text style={styles.memberCountBadgeText}>
+                {totalMembersCount} / {totalCapacity} NGƯỜI
+              </Text>
+            </View>
+          </View>
+
+          {/* Banner thông tin Leader là thành viên #1 */}
+          <View style={styles.leaderNoticeBanner}>
+            <Ionicons name="shield-checkmark" size={16} color="#125238" />
+            <Text style={styles.leaderNoticeText}>
+              Đoàn gồm <Text style={styles.boldText}>1 Trưởng đoàn (Leader)</Text> +{" "}
+              <Text style={styles.boldText}>{bookedTrekkersCount} Trekker</Text> đã đặt chỗ (còn{" "}
+              <Text style={styles.boldText}>{remainingTrekkerSlots} chỗ mở nhận khách</Text>).
+            </Text>
+          </View>
+
+          {/* Thẻ Thành viên số 1: LEADER */}
+          <View style={styles.leaderMemberCard}>
+            <View style={styles.memberItemTop}>
+              <View style={styles.leaderAvatarCircle}>
+                <Ionicons name="star" size={18} color="#ffffff" />
+              </View>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <View style={styles.memberNameRow}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap", flexShrink: 1 }}>
+                    <Text style={styles.memberNameText}>{leaderMemberItem.name}</Text>
+                    <View style={styles.leaderBadge}>
+                      <Ionicons name="ribbon-outline" size={11} color="#002113" />
+                      <Text style={styles.leaderBadgeText}>LEADER</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.memberIdText} numberOfLines={1}>
+                    #{leaderMemberItem.id}
+                  </Text>
+                </View>
+                <Text style={styles.memberContactText} numberOfLines={1}>
+                  📞 {leaderMemberItem.phone} · ✉️ {leaderMemberItem.email}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.memberMetaRow}>
+              <View style={styles.memberMetaCol}>
+                <Text style={styles.metaLabel}>VAI TRÒ VẬN HÀNH</Text>
+                <Text style={styles.metaValue}>Chỉ huy điều hướng GPS & An toàn VFRS</Text>
+              </View>
+              <View style={styles.memberMetaCol}>
+                <Text style={styles.metaLabel}>TRANG BỊ CỨU HỘ MANG THEO</Text>
+                <Text style={styles.metaValue} numberOfLines={2}>
+                  {leaderMemberItem.rentedGear}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.memberActionRow}>
+              <View style={[styles.checkInBtn, styles.checkInBtnActive]}>
+                <Ionicons name="checkmark-circle" size={16} color="#166534" />
+                <Text style={[styles.checkInBtnText, styles.checkInBtnTextActive]}>
+                  Trưởng đoàn sẵn sàng xuất phát
+                </Text>
+              </View>
+              <View style={styles.leaderVerifiedPill}>
+                <Ionicons name="checkmark-done-circle" size={14} color="#125238" />
+                <Text style={styles.leaderVerifiedText}>Xác thực VFRS</Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Thanh tìm kiếm Trekker */}
           <View style={styles.memberSearchBox}>
             <Ionicons name="search-outline" size={16} color="#707972" />
             <TextInput
               value={memberSearchQuery}
               onChangeText={setMemberSearchQuery}
-              placeholder="Tìm tên, SĐT, mã Trekker..."
+              placeholder="Tìm kiếm Trekker (tên, SĐT, mã đặt chỗ)..."
               placeholderTextColor="#8a938c"
               style={styles.memberSearchInput}
             />
           </View>
 
-          {/* Khi members.length === 0 nhưng bookedCount > 0 (từ Booking discovery) */}
-          {members.length === 0 && bookedCount > 0 && (
-            <View style={styles.tealNoticeBox}>
-              <View style={styles.tealBadgeCircle}>
-                <Text style={styles.tealBadgeNum}>{bookedCount}</Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.tealTitle}>
-                  Hệ thống đã ghi nhận {bookedCount} thành viên đặt chỗ thành công
-                </Text>
-                <Text style={styles.tealDesc}>
-                  Số lượng vé đã thanh toán được trừ trực tiếp vào số chỗ ({bookedCount}/{totalCapacity} chỗ đã đặt, còn {remainingSlots} chỗ trống).
-                </Text>
-              </View>
-            </View>
-          )}
-
-          {/* Danh sách thành viên */}
-          {filteredMembers.length === 0 && bookedCount === 0 ? (
+          {filteredMembers.length === 0 ? (
             <View style={styles.emptyMembersBox}>
-              <Ionicons name="people-outline" size={32} color="#a2aba3" />
-              <Text style={styles.emptyMembersTitle}>Chưa có thành viên đặt chỗ</Text>
+              <Ionicons name="person-add-outline" size={32} color="#a2aba3" />
+              <Text style={styles.emptyMembersTitle}>Chưa có Trekker đặt chỗ</Text>
               <Text style={styles.emptyMembersSub}>
-                Khi chuyến đi ở trạng thái Mở bán (OPEN), các đăng ký của Trekker sẽ tự động cập nhật vào đây.
+                Chuyến đi đang mở nhận khách ({remainingTrekkerSlots}/{totalCapacity - 1} chỗ trống). Khi Trekker đặt tour thành công, hệ thống sẽ tự động đồng bộ danh sách tại đây.
               </Text>
             </View>
           ) : (
@@ -469,19 +798,6 @@ export function LeaderTripDetailScreen() {
                     </View>
                   </View>
 
-                  {/* Thông tin y tế & thiết bị */}
-                  <View style={styles.memberMetaRow}>
-                    <View style={styles.memberMetaCol}>
-                      <Text style={styles.metaLabel}>HỒ SƠ Y TẾ</Text>
-                      <Text style={styles.metaValue}>{member.medicalNote}</Text>
-                    </View>
-                    <View style={styles.memberMetaCol}>
-                      <Text style={styles.metaLabel}>THIẾT BỊ THUÊ</Text>
-                      <Text style={styles.metaValue}>{member.rentedGear}</Text>
-                    </View>
-                  </View>
-
-                  {/* Action buttons cho thành viên */}
                   <View style={styles.memberActionRow}>
                     <TouchableOpacity
                       style={[
@@ -502,7 +818,7 @@ export function LeaderTripDetailScreen() {
                           member.checkedIn && styles.checkInBtnTextActive,
                         ]}
                       >
-                        {member.checkedIn ? "Đã check-in" : "Chưa check-in"}
+                        {member.checkedIn ? "Đã điểm danh" : "Chưa điểm danh"}
                       </Text>
                     </TouchableOpacity>
 
@@ -525,62 +841,17 @@ export function LeaderTripDetailScreen() {
           )}
         </View>
 
-        {/* 4. Khối Thông tin Lộ trình, Checkpoints & An toàn VFRS */}
+        {/* 8. Đội ngũ dẫn đường & An toàn VFRS */}
         <View style={styles.sectionCard}>
           <View style={styles.sectionCardHeader}>
             <View style={styles.sectionTitleRow}>
-              <Ionicons name="trail-sign-outline" size={18} color="#125238" />
-              <Text style={styles.sectionTitle}>LỘ TRÌNH & TRẠM DỪNG CHECKPOINTS (VFRS)</Text>
-            </View>
-            <View style={styles.memberCountBadge}>
-              <Text style={styles.memberCountBadgeText}>
-                {checkpointsList.length} MỐC
-              </Text>
+              <Ionicons name="shield-checkmark-outline" size={18} color="#125238" />
+              <Text style={styles.sectionTitle}>ĐỘI NGŨ DẪN ĐƯỜNG & AN TOÀN VFRS</Text>
             </View>
           </View>
-
-          {checkpointsList.length === 0 ? (
-            <Text style={styles.emptyText}>Chưa có thông tin trạm dừng.</Text>
-          ) : (
-            <View style={styles.checkpointTimeline}>
-              {checkpointsList.map((cp, idx) => (
-                <View key={cp.id || idx} style={styles.cpTimelineItem}>
-                  <View style={styles.cpDotCircle}>
-                    <Text style={styles.cpDotNum}>{cp.sequence || idx + 1}</Text>
-                  </View>
-                  <View style={styles.cpInfoBox}>
-                    <Text style={styles.cpNameText}>{cp.name}</Text>
-                    <Text style={styles.cpDetailText}>
-                      Tọa độ: {Number(cp.latitude).toFixed(4)}, {Number(cp.longitude).toFixed(4)} · Bán kính quét: {cp.radiusMeters || 50}m
-                    </Text>
-                  </View>
-                </View>
-              ))}
-            </View>
-          )}
-
-          {/* Cơ cấu giá vé nội bộ */}
-          <View style={styles.pricingCard}>
-            <View style={styles.pricingHeader}>
-              <Ionicons name="pricetag-outline" size={16} color="#125238" />
-              <Text style={styles.pricingTitle}>
-                Giá tour: {Number(trip.price || trip.pricePerPax || 0).toLocaleString("vi-VN")} VND / người
-              </Text>
-            </View>
-            <Text style={styles.priceExplLabel}>Cơ sở tính giá & Giải trình chi phí nội bộ:</Text>
-            <Text style={styles.priceExplText}>
-              {trip.priceExplanation || "Chưa có nội dung giải trình chi tiết."}
-            </Text>
-          </View>
-
-          {/* Đội ngũ dẫn đường & Cứu hộ */}
           <View style={styles.rescueCard}>
-            <View style={styles.rescueHeader}>
-              <Ionicons name="shield-checkmark" size={16} color="#125238" />
-              <Text style={styles.rescueTitle}>Đội ngũ dẫn đường & Kế hoạch cứu hộ sơ bộ</Text>
-            </View>
             <Text style={styles.rescueItem}>
-              • Phụ trách chính: Mountain Leader {authUser?.name || user?.name || "TrekGo Leader"} (Chứng chỉ VFRS Cấp 2).
+              • Phụ trách chính: Mountain Leader {authUser?.name || user?.name || "TrekGo Leader"} (ID: {trip.leaderId?.slice(0, 8) || "LEADER"}).
             </Text>
             <Text style={styles.rescueItem}>
               • Kênh liên lạc vô tuyến: Bộ đàm tần số VHF/UHF Kênh 04 (433.175 MHz).
@@ -747,31 +1018,61 @@ const styles = StyleSheet.create({
   badgeRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 5,
     marginBottom: 4,
     flexWrap: "wrap",
+    paddingRight: 4,
   },
   statusPill: {
-    paddingHorizontal: 8,
+    paddingHorizontal: 7,
     paddingVertical: 2,
     borderRadius: 6,
+    flexShrink: 0,
   },
   statusPillText: {
-    fontSize: 10.5,
+    fontSize: 10,
     fontWeight: "800",
   },
   trailPill: {
     backgroundColor: "#f4fbf4",
     borderWidth: 1,
     borderColor: "#d1e8d5",
-    paddingHorizontal: 8,
+    paddingHorizontal: 7,
     paddingVertical: 2,
     borderRadius: 6,
+    flexShrink: 0,
   },
   trailPillText: {
-    fontSize: 10.5,
+    fontSize: 10,
     fontWeight: "700",
     color: "#125238",
+  },
+  publicTypePill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    backgroundColor: "#b1f0cd",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    flexShrink: 0,
+  },
+  publicTypePillText: {
+    fontSize: 9.5,
+    fontWeight: "800",
+    color: "#002113",
+  },
+  versionPill: {
+    backgroundColor: "#f1f5f9",
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 6,
+    flexShrink: 0,
+  },
+  versionPillText: {
+    fontSize: 9.5,
+    fontWeight: "800",
+    color: "#475569",
   },
   tripTitle: {
     fontSize: 16,
@@ -779,10 +1080,159 @@ const styles = StyleSheet.create({
     color: "#121c2a",
     lineHeight: 22,
   },
+  tripDesc: {
+    fontSize: 12,
+    color: "#414942",
+    lineHeight: 16,
+    marginTop: 2,
+  },
   tripMeta: {
     fontSize: 11.5,
     color: "#707972",
     marginTop: 2,
+  },
+  statusPillSmall: {
+    backgroundColor: "#dcfce7",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  statusPillSmallText: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#166534",
+  },
+  scheduleInfoList: {
+    gap: 10,
+  },
+  scheduleInfoItem: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    backgroundColor: "#f8faf7",
+    padding: 10,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: "#eef2ef",
+  },
+  scheduleIconWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "#d1e8d5",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 2,
+  },
+  scheduleLabel: {
+    fontSize: 10.5,
+    color: "#707972",
+    fontWeight: "600",
+  },
+  scheduleValue: {
+    fontSize: 12.5,
+    fontWeight: "800",
+    color: "#121c2a",
+    marginTop: 2,
+  },
+  trailCardDetail: {
+    backgroundColor: "#fbfcfb",
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: "#e1e9e2",
+    padding: 12,
+    gap: 10,
+  },
+  trailTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  trailIconCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#d1e8d5",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  trailDetailName: {
+    fontSize: 13,
+    fontWeight: "900",
+    color: "#121c2a",
+  },
+  trailDetailSub: {
+    fontSize: 11,
+    color: "#707972",
+    marginTop: 1,
+  },
+  trailSpecsGrid: {
+    flexDirection: "row",
+    backgroundColor: "#f4f6f4",
+    borderRadius: Radius.sm,
+    padding: 8,
+    gap: 6,
+  },
+  trailSpecItem: {
+    flex: 1,
+    alignItems: "center",
+  },
+  specLabel: {
+    fontSize: 8.5,
+    fontWeight: "800",
+    color: "#707972",
+    letterSpacing: 0.3,
+  },
+  specValue: {
+    fontSize: 11,
+    fontWeight: "900",
+    color: "#121c2a",
+    marginTop: 2,
+  },
+  cpNameHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 6,
+    flexWrap: "wrap",
+  },
+  cpPillRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  cpRequiredPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    backgroundColor: "#d1e8d5",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  cpRequiredPillText: {
+    fontSize: 9.5,
+    fontWeight: "800",
+    color: "#125238",
+  },
+  cpEnabledPill: {
+    backgroundColor: "#e0f2fe",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  cpEnabledPillText: {
+    fontSize: 9.5,
+    fontWeight: "800",
+    color: "#0369a1",
+  },
+  priceExplContentBox: {
+    backgroundColor: "#ffffff",
+    borderRadius: Radius.sm,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: "#e1e9e2",
+    marginTop: 4,
   },
   actionsBar: {
     flexDirection: "row",
@@ -829,13 +1279,15 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
     gap: 16,
   },
-  kpiGrid: {
+  kpiContainer: {
+    gap: 10,
+  },
+  kpiRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 12,
+    gap: 10,
   },
   kpiCard: {
-    width: "48%",
+    flex: 1,
     backgroundColor: "#ffffff",
     borderRadius: Radius.md,
     padding: 12,
@@ -913,26 +1365,43 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
     borderBottomWidth: 1,
     borderBottomColor: "#f1f5f9",
+    gap: 8,
   },
   sectionTitleRow: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
+    minWidth: 0,
   },
   sectionTitle: {
-    fontSize: 12.5,
+    flex: 1,
+    fontSize: 12,
     fontWeight: "900",
     color: "#121c2a",
-    letterSpacing: 0.5,
+    letterSpacing: 0.3,
   },
   memberCountBadge: {
     backgroundColor: "#f1f5f9",
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 6,
+    flexShrink: 0,
   },
   memberCountBadgeText: {
     fontSize: 10,
+    fontWeight: "800",
+    color: "#334155",
+  },
+  sectionHeaderBadge: {
+    backgroundColor: "#f1f5f9",
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
+    flexShrink: 0,
+  },
+  sectionHeaderBadgeText: {
+    fontSize: 9.5,
     fontWeight: "800",
     color: "#334155",
   },
@@ -946,6 +1415,68 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderWidth: 1,
     borderColor: "#e1e9e2",
+  },
+  leaderNoticeBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#f0fdf4",
+    borderWidth: 1,
+    borderColor: "#d1e8d5",
+    padding: 10,
+    borderRadius: Radius.sm,
+  },
+  leaderNoticeText: {
+    flex: 1,
+    fontSize: 11.5,
+    color: "#166534",
+    lineHeight: 16,
+  },
+  leaderMemberCard: {
+    backgroundColor: "#f4fbf7",
+    borderRadius: Radius.md,
+    borderWidth: 1.5,
+    borderColor: "#b1f0cd",
+    padding: 12,
+    gap: 8,
+    ...Shadows.card,
+  },
+  leaderAvatarCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "#125238",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  leaderBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    backgroundColor: "#b1f0cd",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  leaderBadgeText: {
+    fontSize: 9.5,
+    fontWeight: "900",
+    color: "#002113",
+    letterSpacing: 0.3,
+  },
+  leaderVerifiedPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#e8f5e9",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  leaderVerifiedText: {
+    fontSize: 10.5,
+    fontWeight: "800",
+    color: "#125238",
   },
   memberSearchInput: {
     flex: 1,

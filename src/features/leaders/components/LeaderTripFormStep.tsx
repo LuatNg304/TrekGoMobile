@@ -8,10 +8,12 @@ import type {
 import type { SystemTrailDetail } from "@/features/leaders/services/leader-public-trips.api";
 import {
   calculateTripDuration,
+  formatVnDate,
   getDayOfWeekName,
   getQuickDatePresets,
   parseVnDate,
 } from "@/features/leaders/utils/tripDateUtils";
+import { WheelDatePickerModal } from "./WheelDatePickerModal";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useMemo, useState } from "react";
 import {
@@ -67,6 +69,14 @@ export function LeaderTripFormStep({
 }: LeaderTripFormStepProps) {
   const [destDropdownOpen, setDestDropdownOpen] = useState(false);
   const [pickupDropdownOpen, setPickupDropdownOpen] = useState(false);
+  const [datePickerTarget, setDatePickerTarget] = useState<"start" | "end" | null>(null);
+
+  const tomorrow = useMemo(() => {
+    const t = new Date();
+    t.setDate(t.getDate() + 1);
+    t.setHours(0, 0, 0, 0);
+    return t;
+  }, []);
 
   // Compute duration in real-time
   const durationInfo = useMemo(() => {
@@ -316,20 +326,39 @@ export function LeaderTripFormStep({
             {/* Start Date */}
             <View style={styles.dateCol}>
               <Text style={styles.dateSubLabel}>Ngày khởi hành *</Text>
-              <View style={[styles.dateCard, errors.startDate && styles.dateCardError]}>
+              <TouchableOpacity
+                style={[
+                  styles.dateCard,
+                  datePickerTarget === "start" && styles.dateCardActive,
+                  errors.startDate && styles.dateCardError,
+                ]}
+                onPress={() => setDatePickerTarget("start")}
+                activeOpacity={0.75}
+              >
                 <View style={styles.dateCardInputRow}>
                   <Ionicons name="calendar-outline" size={18} color="#125238" />
-                  <TextInput
-                    value={form.startDate}
-                    onChangeText={(val) => onUpdateField("startDate", val)}
-                    placeholder="DD/MM/YYYY"
-                    placeholderTextColor="#707972"
-                    keyboardType="numbers-and-punctuation"
-                    style={styles.dateInput}
+                  <Text
+                    style={[
+                      styles.dateValueText,
+                      !form.startDate && styles.datePlaceholderText,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {form.startDate || "DD/MM/YYYY"}
+                  </Text>
+                  <Ionicons
+                    name="chevron-down"
+                    size={14}
+                    color="#707972"
+                    style={{ marginLeft: "auto" }}
                   />
                 </View>
-                {startDay && <Text style={styles.dayOfWeekText}>{startDay} • Xuất phát 05:30</Text>}
-              </View>
+                {startDay ? (
+                  <Text style={styles.dayOfWeekText}>{startDay} • Xuất phát 05:30</Text>
+                ) : (
+                  <Text style={styles.dayOfWeekSubHint}>Chạm để cuộn chọn ngày</Text>
+                )}
+              </TouchableOpacity>
               {errors.startDate && (
                 <Text style={styles.fieldError}>{errors.startDate}</Text>
               )}
@@ -338,20 +367,39 @@ export function LeaderTripFormStep({
             {/* End Date */}
             <View style={styles.dateCol}>
               <Text style={styles.dateSubLabel}>Dự kiến kết thúc *</Text>
-              <View style={[styles.dateCard, errors.endDate && styles.dateCardError]}>
+              <TouchableOpacity
+                style={[
+                  styles.dateCard,
+                  datePickerTarget === "end" && styles.dateCardActive,
+                  errors.endDate && styles.dateCardError,
+                ]}
+                onPress={() => setDatePickerTarget("end")}
+                activeOpacity={0.75}
+              >
                 <View style={styles.dateCardInputRow}>
                   <Ionicons name="flag-outline" size={18} color="#125238" />
-                  <TextInput
-                    value={form.endDate}
-                    onChangeText={(val) => onUpdateField("endDate", val)}
-                    placeholder="DD/MM/YYYY"
-                    placeholderTextColor="#707972"
-                    keyboardType="numbers-and-punctuation"
-                    style={styles.dateInput}
+                  <Text
+                    style={[
+                      styles.dateValueText,
+                      !form.endDate && styles.datePlaceholderText,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {form.endDate || "DD/MM/YYYY"}
+                  </Text>
+                  <Ionicons
+                    name="chevron-down"
+                    size={14}
+                    color="#707972"
+                    style={{ marginLeft: "auto" }}
                   />
                 </View>
-                {endDay && <Text style={styles.dayOfWeekText}>{endDay} • Kết thúc 18:00</Text>}
-              </View>
+                {endDay ? (
+                  <Text style={styles.dayOfWeekText}>{endDay} • Kết thúc 18:00</Text>
+                ) : (
+                  <Text style={styles.dayOfWeekSubHint}>Chạm để cuộn chọn ngày</Text>
+                )}
+              </TouchableOpacity>
               {errors.endDate && <Text style={styles.fieldError}>{errors.endDate}</Text>}
             </View>
           </View>
@@ -684,6 +732,37 @@ export function LeaderTripFormStep({
         <Text style={styles.primaryBtnText}>TIẾP TỤC: THIẾT LẬP LỘ TRÌNH</Text>
         <Ionicons name="arrow-forward" size={18} color="#fff" />
       </TouchableOpacity>
+
+      {/* Wheel Date Picker Modals */}
+      <WheelDatePickerModal
+        visible={datePickerTarget === "start"}
+        title="Chọn ngày khởi hành"
+        initialDate={form.startDate}
+        minDate={tomorrow}
+        onClose={() => setDatePickerTarget(null)}
+        onConfirm={(val) => {
+          onUpdateField("startDate", val);
+          // Tự động gợi ý ngày kết thúc nếu ngày kết thúc trống hoặc nhỏ hơn ngày khởi hành
+          const s = parseVnDate(val);
+          const e = parseVnDate(form.endDate);
+          if (s && (!e || e.getTime() < s.getTime())) {
+            const next = new Date(s);
+            next.setDate(next.getDate() + 2); // Mặc định chuyến 3N2Đ
+            onUpdateField("endDate", formatVnDate(next));
+          }
+        }}
+      />
+
+      <WheelDatePickerModal
+        visible={datePickerTarget === "end"}
+        title="Chọn dự kiến kết thúc"
+        initialDate={form.endDate || form.startDate}
+        minDate={parseVnDate(form.startDate) || tomorrow}
+        onClose={() => setDatePickerTarget(null)}
+        onConfirm={(val) => {
+          onUpdateField("endDate", val);
+        }}
+      />
     </View>
   );
 }
@@ -1336,9 +1415,15 @@ const styles = StyleSheet.create({
   dateCard: {
     backgroundColor: "#ffffff",
     borderRadius: Radius.sm,
-    padding: 10,
+    padding: 11,
     borderWidth: 1,
     borderColor: "#dee9fc",
+    ...Shadows.card,
+    shadowOpacity: 0.04,
+  },
+  dateCardActive: {
+    borderColor: "#125238",
+    backgroundColor: "#f4f8f5",
   },
   dateCardError: {
     borderColor: "#ba1a1a",
@@ -1347,20 +1432,35 @@ const styles = StyleSheet.create({
   dateCardInputRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 8,
   },
-  dateInput: {
-    flex: 1,
-    fontSize: 13,
+  dateValueText: {
+    fontFamily: "Roboto",
+    fontSize: 14,
+    lineHeight: 14 * 1.5,
     fontWeight: "700",
     color: "#121c2a",
-    padding: 0,
+    flex: 1,
+  },
+  datePlaceholderText: {
+    color: "#707972",
+    fontWeight: "500",
   },
   dayOfWeekText: {
+    fontFamily: "Roboto",
     color: "#125238",
     fontSize: 10,
+    lineHeight: 10 * 1.5,
     fontWeight: "600",
     marginTop: 4,
+  },
+  dayOfWeekSubHint: {
+    fontFamily: "Roboto",
+    color: "#707972",
+    fontSize: 10,
+    lineHeight: 10 * 1.5,
+    marginTop: 4,
+    fontStyle: "italic",
   },
   dateRulesHint: {
     color: "#707972",

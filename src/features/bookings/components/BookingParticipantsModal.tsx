@@ -16,7 +16,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -30,18 +30,12 @@ export interface BookingParticipantsModalProps {
 interface ParticipantFormState {
   fullName: string;
   phone: string;
-  dateOfBirth: string;
-  emergencyContactName: string;
-  emergencyContactPhone: string;
 }
 
 function createEmptyParticipant(): ParticipantFormState {
   return {
     fullName: "",
     phone: "",
-    dateOfBirth: "",
-    emergencyContactName: "",
-    emergencyContactPhone: "",
   };
 }
 
@@ -59,16 +53,13 @@ export function BookingParticipantsModal({
     createEmptyParticipant(),
   ]);
 
-  // Pre-fill participant #1 with logged-in user profile
+  // Tự động điền thông tin người đại diện (thành viên #1) từ tài khoản đang đăng nhập
   useEffect(() => {
     if (visible && user) {
       setParticipants([
         {
           fullName: user.fullName || user.name || "",
           phone: user.phone || "",
-          dateOfBirth: "",
-          emergencyContactName: "",
-          emergencyContactPhone: "",
         },
       ]);
     } else if (visible) {
@@ -107,61 +98,50 @@ export function BookingParticipantsModal({
     });
   }
 
-  // Calculate pricing
+  // Tính toán tổng tiền
   const unitPrice = parseFloat(trip.pricePerPax || "0");
   const totalAmount = unitPrice * currentCount;
 
   async function handleSubmit() {
-    // 1. Validation
-    const todayStr = new Date().toISOString().split("T")[0];
-    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-
+    // 1. Kiểm tra tính hợp lệ của từng thành viên
     for (let i = 0; i < participants.length; i++) {
       const p = participants[i];
+      const memberLabel = i === 0 ? "Người đại diện" : `Thành viên #${i + 1}`;
+
       if (!p.fullName.trim()) {
         Alert.alert(
           "Thiếu thông tin",
-          `Vui lòng nhập họ và tên cho thành viên #${i + 1}.`,
+          `Vui lòng nhập họ và tên cho ${memberLabel}.`,
         );
         return;
       }
 
-      if (p.phone.trim() && p.phone.trim().length < 5) {
+      if (!p.phone.trim()) {
+        Alert.alert(
+          "Thiếu thông tin",
+          `Vui lòng nhập số điện thoại cho ${memberLabel}.`,
+        );
+        return;
+      }
+
+      const cleanPhone = p.phone.trim().replace(/\D/g, "");
+      if (cleanPhone.length < 9) {
         Alert.alert(
           "Số điện thoại không hợp lệ",
-          `Số điện thoại thành viên #${i + 1} phải có ít nhất 5 chữ số.`,
+          `Số điện thoại ${memberLabel} phải có ít nhất 9 chữ số.`,
         );
         return;
-      }
-
-      if (p.dateOfBirth.trim()) {
-        if (!dateRegex.test(p.dateOfBirth.trim())) {
-          Alert.alert(
-            "Ngày sinh sai định dạng",
-            `Ngày sinh thành viên #${i + 1} phải theo định dạng YYYY-MM-DD (ví dụ: 1998-05-20).`,
-          );
-          return;
-        }
-        if (p.dateOfBirth.trim() > todayStr) {
-          Alert.alert(
-            "Ngày sinh không hợp lệ",
-            `Ngày sinh thành viên #${i + 1} không được vượt quá ngày hiện tại.`,
-          );
-          return;
-        }
       }
     }
 
-    // 2. Format payload
+    // 2. Chuẩn hóa payload theo đúng schema API:
+    // { "participantCount": N, "participants": [{ "fullName": "...", "phone": "..." }] }
     const formatted: Participant[] = participants.map((p) => ({
       fullName: p.fullName.trim(),
-      phone: p.phone.trim() || undefined,
-      dateOfBirth: p.dateOfBirth.trim() || undefined,
-      emergencyContactName: p.emergencyContactName.trim() || undefined,
-      emergencyContactPhone: p.emergencyContactPhone.trim() || undefined,
+      phone: p.phone.trim(),
     }));
 
-    // 3. Submit
+    // 3. Gửi yêu cầu đặt chỗ
     try {
       const booking = await createBooking(trip.id, formatted);
       onClose();
@@ -221,7 +201,9 @@ export function BookingParticipantsModal({
             {/* Header */}
             <View style={styles.header}>
               <View style={styles.headerLeft}>
-                <Text style={styles.headerEyebrow}>CF02 • PUBLIC TRIP BOOKING</Text>
+                <View style={styles.tagWrap}>
+                  <Text style={styles.headerEyebrow}>PUBLIC TRIP BOOKING</Text>
+                </View>
                 <Text style={styles.headerTitle} numberOfLines={1}>
                   Đặt chỗ: {trip.title}
                 </Text>
@@ -230,8 +212,9 @@ export function BookingParticipantsModal({
                 style={styles.closeBtn}
                 onPress={onClose}
                 activeOpacity={0.7}
+                accessibilityLabel="Đóng modal"
               >
-                <Ionicons name="close" size={22} color={Colors.onSurface} />
+                <Ionicons name="close" size={20} color={Colors.onSurface} />
               </TouchableOpacity>
             </View>
 
@@ -240,7 +223,9 @@ export function BookingParticipantsModal({
               <View style={styles.metaItem}>
                 <Ionicons name="people-outline" size={15} color={Colors.primaryDark} />
                 <Text style={styles.metaText}>
-                  Còn trống: <Text style={styles.metaBold}>{trip.remainingSlots}</Text>/{trip.capacity} chỗ
+                  Còn trống:{" "}
+                  <Text style={styles.metaBold}>{trip.remainingSlots}</Text>/
+                  {trip.capacity} chỗ
                 </Text>
               </View>
               <View style={styles.metaItem}>
@@ -260,7 +245,7 @@ export function BookingParticipantsModal({
             >
               <View style={styles.sectionTitleRow}>
                 <Text style={styles.sectionTitle}>
-                  Danh sách thành viên tham gia ({currentCount})
+                  DANH SÁCH THÀNH VIÊN ({currentCount})
                 </Text>
                 {currentCount < maxSlots && (
                   <TouchableOpacity
@@ -268,7 +253,7 @@ export function BookingParticipantsModal({
                     onPress={handleAddParticipant}
                     activeOpacity={0.8}
                   >
-                    <Ionicons name="person-add-outline" size={14} color={Colors.primaryDark} />
+                    <Ionicons name="add" size={15} color={Colors.primaryDark} />
                     <Text style={styles.addBtnText}>Thêm người</Text>
                   </TouchableOpacity>
                 )}
@@ -282,15 +267,18 @@ export function BookingParticipantsModal({
                         <Text style={styles.badgeIndexText}>#{index + 1}</Text>
                       </View>
                       <Text style={styles.cardTitle}>
-                        {index === 0 ? "Người đại diện đặt chỗ" : `Thành viên #${index + 1}`}
+                        {index === 0
+                          ? "Người đại diện đặt chỗ"
+                          : `Thành viên #${index + 1}`}
                       </Text>
                     </View>
                     {index > 0 && (
                       <TouchableOpacity
                         onPress={() => handleRemoveParticipant(index)}
                         style={styles.removeBtn}
+                        accessibilityLabel="Xóa thành viên"
                       >
-                        <Ionicons name="trash-outline" size={16} color="#DC2626" />
+                        <Ionicons name="trash-outline" size={17} color="#DC2626" />
                       </TouchableOpacity>
                     )}
                   </View>
@@ -300,70 +288,66 @@ export function BookingParticipantsModal({
                     <Text style={styles.inputLabel}>
                       Họ và tên <Text style={styles.requiredMark}>*</Text>
                     </Text>
-                    <TextInput
-                      style={styles.textInput}
-                      placeholder="Nguyễn Văn A"
-                      placeholderTextColor={Colors.onSurfaceMuted}
-                      value={p.fullName}
-                      onChangeText={(val) => handleFieldChange(index, "fullName", val)}
-                    />
+                    <View style={styles.inputWithIcon}>
+                      <Ionicons
+                        name="person-outline"
+                        size={17}
+                        color={Colors.onSurfaceMuted}
+                        style={styles.fieldIcon}
+                      />
+                      <TextInput
+                        style={styles.textInputWithIcon}
+                        placeholder="Ví dụ: Nguyễn Văn A"
+                        placeholderTextColor={Colors.onSurfaceMuted}
+                        value={p.fullName}
+                        onChangeText={(val) =>
+                          handleFieldChange(index, "fullName", val)
+                        }
+                        autoCapitalize="words"
+                      />
+                    </View>
                   </View>
 
-                  {/* Số điện thoại & Ngày sinh */}
-                  <View style={styles.inputRow}>
-                    <View style={[styles.inputGroup, styles.flex1]}>
-                      <Text style={styles.inputLabel}>Số điện thoại</Text>
+                  {/* Số điện thoại */}
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>
+                      Số điện thoại <Text style={styles.requiredMark}>*</Text>
+                    </Text>
+                    <View style={styles.inputWithIcon}>
+                      <Ionicons
+                        name="call-outline"
+                        size={17}
+                        color={Colors.onSurfaceMuted}
+                        style={styles.fieldIcon}
+                      />
                       <TextInput
-                        style={styles.textInput}
-                        placeholder="0901234567"
+                        style={styles.textInputWithIcon}
+                        placeholder="Ví dụ: 0900000001"
                         placeholderTextColor={Colors.onSurfaceMuted}
                         keyboardType="phone-pad"
                         value={p.phone}
-                        onChangeText={(val) => handleFieldChange(index, "phone", val)}
-                      />
-                    </View>
-                    <View style={[styles.inputGroup, styles.flex1]}>
-                      <Text style={styles.inputLabel}>Ngày sinh (YYYY-MM-DD)</Text>
-                      <TextInput
-                        style={styles.textInput}
-                        placeholder="1998-05-20"
-                        placeholderTextColor={Colors.onSurfaceMuted}
-                        value={p.dateOfBirth}
-                        onChangeText={(val) => handleFieldChange(index, "dateOfBirth", val)}
-                      />
-                    </View>
-                  </View>
-
-                  {/* Thông tin liên hệ khẩn cấp */}
-                  <View style={styles.inputRow}>
-                    <View style={[styles.inputGroup, styles.flex1]}>
-                      <Text style={styles.inputLabel}>Người liên hệ khẩn cấp</Text>
-                      <TextInput
-                        style={styles.textInput}
-                        placeholder="Tên người thân"
-                        placeholderTextColor={Colors.onSurfaceMuted}
-                        value={p.emergencyContactName}
                         onChangeText={(val) =>
-                          handleFieldChange(index, "emergencyContactName", val)
-                        }
-                      />
-                    </View>
-                    <View style={[styles.inputGroup, styles.flex1]}>
-                      <Text style={styles.inputLabel}>SĐT khẩn cấp</Text>
-                      <TextInput
-                        style={styles.textInput}
-                        placeholder="0909876543"
-                        placeholderTextColor={Colors.onSurfaceMuted}
-                        keyboardType="phone-pad"
-                        value={p.emergencyContactPhone}
-                        onChangeText={(val) =>
-                          handleFieldChange(index, "emergencyContactPhone", val)
+                          handleFieldChange(index, "phone", val)
                         }
                       />
                     </View>
                   </View>
                 </View>
               ))}
+
+              {/* Quick Add Button if more slots available */}
+              {currentCount < maxSlots && (
+                <TouchableOpacity
+                  style={styles.addMoreCardBtn}
+                  onPress={handleAddParticipant}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="person-add-outline" size={18} color={Colors.primaryDark} />
+                  <Text style={styles.addMoreCardText}>
+                    + Thêm người đi cùng ({currentCount}/{maxSlots})
+                  </Text>
+                </TouchableOpacity>
+              )}
             </ScrollView>
 
             {/* Bottom Sticky Action Bar */}
@@ -378,7 +362,10 @@ export function BookingParticipantsModal({
                   </Text>
                 </View>
                 <TouchableOpacity
-                  style={[styles.submitButton, isSubmitting && styles.submitButtonDisabled]}
+                  style={[
+                    styles.submitButton,
+                    isSubmitting && styles.submitButtonDisabled,
+                  ]}
                   onPress={handleSubmit}
                   disabled={isSubmitting}
                   activeOpacity={0.88}
@@ -416,7 +403,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: Radius.xl,
     borderTopRightRadius: Radius.xl,
     maxHeight: "92%",
-    minHeight: "65%",
+    minHeight: "55%",
   },
   header: {
     flexDirection: "row",
@@ -432,21 +419,28 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingRight: 10,
   },
+  tagWrap: {
+    alignSelf: "flex-start",
+    backgroundColor: "#eaf5e1",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: Radius.full,
+    marginBottom: 4,
+  },
   headerEyebrow: {
     fontSize: 9,
     fontWeight: "800",
     color: Colors.primaryDark,
-    letterSpacing: 0.8,
+    letterSpacing: 0.6,
   },
   headerTitle: {
-    fontSize: 16,
-    fontWeight: "800",
+    fontSize: 17,
+    fontWeight: "900",
     color: Colors.onSurface,
-    marginTop: 2,
   },
   closeBtn: {
-    width: 36,
-    height: 36,
+    width: 34,
+    height: 34,
     borderRadius: Radius.full,
     backgroundColor: Colors.surfaceContainerLow,
     alignItems: "center",
@@ -457,7 +451,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 20,
     paddingVertical: 10,
-    backgroundColor: Colors.surfaceContainerLow,
+    backgroundColor: "#f4f8f2",
     borderBottomWidth: 1,
     borderBottomColor: Colors.surfaceContainer,
   },
@@ -468,10 +462,11 @@ const styles = StyleSheet.create({
   },
   metaText: {
     fontSize: 12,
-    color: Colors.onSurfaceVariant,
+    color: Colors.body,
+    fontWeight: "600",
   },
   metaBold: {
-    fontWeight: "700",
+    fontWeight: "900",
     color: Colors.primaryDark,
   },
   scroll: {
@@ -479,7 +474,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 18,
-    paddingBottom: 30,
+    paddingBottom: 24,
   },
   sectionTitleRow: {
     flexDirection: "row",
@@ -488,18 +483,19 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   sectionTitle: {
-    fontSize: 14,
+    fontSize: 11,
     fontWeight: "800",
-    color: Colors.onSurface,
+    color: Colors.onSurfaceMuted,
+    letterSpacing: 0.8,
   },
   addBtn: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
     paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingVertical: 5,
     borderRadius: Radius.full,
-    backgroundColor: Colors.primaryPale,
+    backgroundColor: "#eaf5e1",
   },
   addBtnText: {
     fontSize: 12,
@@ -507,12 +503,12 @@ const styles = StyleSheet.create({
     color: Colors.primaryDark,
   },
   participantCard: {
-    backgroundColor: Colors.surfaceContainerLowest,
-    borderRadius: Radius.lg,
+    backgroundColor: "#ffffff",
+    borderRadius: Radius.md,
     padding: 16,
-    marginBottom: 14,
+    marginBottom: 12,
     borderWidth: 1,
-    borderColor: Colors.surfaceContainer,
+    borderColor: "#e6ede2",
     ...Shadows.card,
   },
   cardHeader: {
@@ -522,7 +518,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     paddingBottom: 8,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.surfaceContainerLow,
+    borderBottomColor: "#f1f5ee",
   },
   cardHeaderLeft: {
     flexDirection: "row",
@@ -530,9 +526,9 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   badgeIndex: {
-    width: 24,
-    height: 24,
-    borderRadius: Radius.full,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     backgroundColor: Colors.primaryDark,
     alignItems: "center",
     justifyContent: "center",
@@ -545,7 +541,7 @@ const styles = StyleSheet.create({
   cardTitle: {
     fontSize: 13,
     fontWeight: "800",
-    color: Colors.onSurface,
+    color: Colors.ink,
   },
   removeBtn: {
     padding: 4,
@@ -553,38 +549,58 @@ const styles = StyleSheet.create({
   inputGroup: {
     marginBottom: 10,
   },
-  inputRow: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  flex1: {
-    flex: 1,
-  },
   inputLabel: {
     fontSize: 11,
     fontWeight: "700",
     color: Colors.onSurfaceVariant,
-    marginBottom: 4,
+    marginBottom: 5,
   },
   requiredMark: {
     color: "#DC2626",
   },
-  textInput: {
-    backgroundColor: Colors.surfaceContainerLow,
+  inputWithIcon: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f9fbf8",
     borderRadius: Radius.sm,
     borderWidth: 1,
-    borderColor: Colors.surfaceContainer,
+    borderColor: "#d9e4d4",
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    fontSize: 13,
+  },
+  fieldIcon: {
+    marginRight: 8,
+  },
+  textInputWithIcon: {
+    flex: 1,
+    paddingVertical: 10,
+    fontSize: 14,
     color: Colors.onSurface,
+  },
+  addMoreCardBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 13,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: Colors.primaryDark,
+    backgroundColor: "#f4f9ef",
+    marginTop: 4,
+    marginBottom: 10,
+  },
+  addMoreCardText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: Colors.primaryDark,
   },
   footer: {
     padding: 16,
     paddingBottom: Platform.OS === "ios" ? 24 : 16,
     borderTopWidth: 1,
     borderTopColor: Colors.surfaceContainer,
-    backgroundColor: Colors.surfaceContainerLowest,
+    backgroundColor: "#ffffff",
   },
   priceRow: {
     flexDirection: "row",
@@ -595,6 +611,7 @@ const styles = StyleSheet.create({
   priceLabel: {
     fontSize: 11,
     color: Colors.onSurfaceVariant,
+    fontWeight: "600",
   },
   priceValue: {
     fontSize: 18,
@@ -617,6 +634,6 @@ const styles = StyleSheet.create({
   submitButtonText: {
     color: "#FFFFFF",
     fontSize: 14,
-    fontWeight: "700",
+    fontWeight: "800",
   },
 });

@@ -205,7 +205,10 @@ export function LeaderTripReviewStep({
         <View style={styles.cardHeaderBetween}>
           <View style={styles.cardHeaderLeft}>
             <Ionicons name="receipt-outline" size={20} color="#125238" />
-            <Text style={styles.cardTitle}>GIẢI THÍCH CƠ CẤU GIÁ VÉ (PRICE EXPLANATION)</Text>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={styles.cardTitle}>GIẢI THÍCH CƠ CẤU GIÁ VÉ</Text>
+              <Text style={styles.cardSubtitle}>PRICE EXPLANATION</Text>
+            </View>
           </View>
           {!isEditingExplanation && onSavePriceExplanation && (
             <TouchableOpacity
@@ -685,21 +688,31 @@ const styles = StyleSheet.create({
     borderBottomColor: "#eff4ff",
     paddingBottom: 10,
     marginBottom: 12,
+    gap: 8,
   },
   cardHeaderLeft: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
     flex: 1,
+    minWidth: 0,
+  },
+  cardSubtitle: {
+    color: "#707972",
+    fontSize: 9.5,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+    marginTop: 1,
   },
   quickEditBtn: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
     backgroundColor: "#e6eeff",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
     borderRadius: 6,
+    flexShrink: 0,
   },
   quickEditBtnText: {
     color: "#125238",

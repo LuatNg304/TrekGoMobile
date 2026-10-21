@@ -53,7 +53,11 @@ function parseDateToIso(str: string, timeStr = "06:00:00"): string {
   return new Date(trimmed).toISOString();
 }
 
-export function LeaderCreateTripScreen() {
+interface LeaderCreateTripScreenProps {
+  onNavigateTab?: (tabKey: "dashboard" | "trips" | "profile") => void;
+}
+
+export function LeaderCreateTripScreen({ onNavigateTab }: LeaderCreateTripScreenProps = {}) {
   const router = useRouter();
   const searchParams = useLocalSearchParams<{ id?: string; tripId?: string }>();
   const initialTripId = searchParams.id || searchParams.tripId;
@@ -520,9 +524,21 @@ export function LeaderCreateTripScreen() {
           publishedTrip={publishedTrip}
           form={form}
           selectedDestination={selectedDestination}
-          onProceedPretrip={() =>
-            router.replace("/field-operations/leader-pretrip" as any)
+          onViewTripDetail={() =>
+            router.replace({
+              pathname: "/field-operations/leader-trip-detail" as any,
+              params: { id: publishedTrip.id, tripId: publishedTrip.id },
+            })
           }
+          onGoToDashboard={() => {
+            if (onNavigateTab) {
+              setPublishedTrip(null);
+              setStep("form");
+              onNavigateTab("dashboard");
+            } else {
+              router.replace("/field-operations" as any);
+            }
+          }}
         />
       </SafeAreaView>
     );

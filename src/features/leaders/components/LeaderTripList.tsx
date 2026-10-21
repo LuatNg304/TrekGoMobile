@@ -2,7 +2,7 @@ import { Colors, Radius, Shadows } from "@/constants/theme";
 import type { LeaderPublicTrip } from "@/features/leaders/services/leader-public-trips.api";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import React, { useState } from "react";
+import { useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -18,6 +18,7 @@ interface LeaderTripListProps {
   trips: LeaderPublicTrip[];
   onCancelTrip?: (tripId: string, version: number, reason: string) => Promise<void>;
   showViewAll?: boolean;
+  onViewAll?: () => void;
 }
 
 function formatTripDates(startAt?: string, endAt?: string) {
@@ -63,6 +64,7 @@ export function LeaderTripList({
   trips,
   onCancelTrip,
   showViewAll = true,
+  onViewAll,
 }: LeaderTripListProps) {
   const router = useRouter();
 
@@ -112,7 +114,10 @@ export function LeaderTripList({
         </View>
         {showViewAll && (
           <TouchableOpacity
-            onPress={() => router.push("/field-operations/leader-trips" as any)}
+            onPress={() => {
+              if (onViewAll) onViewAll();
+              else router.push("/field-operations/leader-trips" as any);
+            }}
             activeOpacity={0.7}
           >
             <Text style={styles.viewAllText}>Xem tất cả →</Text>
@@ -246,7 +251,7 @@ export function LeaderTripList({
                   }}
                   activeOpacity={0.8}
                 >
-                  <Text style={styles.manageBtnText}>Quản lý đoàn</Text>
+                  <Text style={styles.manageBtnText}>Chi tiết chuyến</Text>
                   <Ionicons name="arrow-forward" size={14} color="#ffffff" />
                 </TouchableOpacity>
               </View>
