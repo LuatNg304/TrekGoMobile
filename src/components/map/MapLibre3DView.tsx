@@ -1,3 +1,4 @@
+import { MAPTILER_STYLE_URL } from "@/constants/map";
 import { Colors, Radius, Shadows } from "@/constants/theme";
 import { Ionicons } from "@expo/vector-icons";
 import React, {
@@ -355,7 +356,6 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
     .maplibregl-popup-tip {
       border-top-color: #0c2000 !important;
     }
-    .maplibregl-ctrl-attrib { display: none !important; }
   </style>
 </head>
 <body>
@@ -368,28 +368,7 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
 
     const map = new maplibregl.Map({
       container: 'map',
-      style: {
-        version: 8,
-        sources: {
-          'satellite-tiles': {
-            type: 'raster',
-            tiles: [
-              'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
-            ],
-            tileSize: 256,
-            attribution: 'Esri Satellite'
-          }
-        },
-        layers: [
-          {
-            id: 'satellite-layer',
-            type: 'raster',
-            source: 'satellite-tiles',
-            minzoom: 0,
-            maxzoom: 19
-          }
-        ]
-      },
+      style: ${JSON.stringify(MAPTILER_STYLE_URL)},
       center: INITIAL_CENTER,
       zoom: INITIAL_ZOOM,
       minZoom: ${initialConfig.minZoom},
