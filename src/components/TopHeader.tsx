@@ -20,9 +20,9 @@ export const TopHeader: React.FC<TopHeaderProps> = ({ subtitle = 'Home', onNotif
     <View style={styles.headerContainer}>
       <View style={styles.leftGroup}>
         <TrekGoLogo size={26} showText={true} />
-        <View style={styles.badgeContainer}>
+        {/* <View style={styles.badgeContainer}>
           <Text style={styles.subtitleText}>{subtitle}</Text>
-        </View>
+        </View> */}
       </View>
 
       <View style={styles.rightGroup}>
