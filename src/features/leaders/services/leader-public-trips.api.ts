@@ -143,6 +143,7 @@ export interface LeaderPublicTrip {
   pickupPointId?: string;
   pickupPoint?: { id: string; name: string; address?: string | null };
   priceExplanation?: string | null;
+  minPax?: number;
   tripType?: "PUBLIC" | string;
   creatorId?: string;
   leaderId?: string;
@@ -167,6 +168,7 @@ export interface CreatePublicTripInput {
   endAt: string;
   pickupPointId: string;
   capacity: number;
+  minPax?: number;
   price: string;
   priceExplanation?: string | null;
 }
@@ -180,6 +182,7 @@ export interface UpdatePublicTripInput {
   endAt?: string;
   pickupPointId?: string;
   capacity?: number;
+  minPax?: number;
   price?: string;
   destinationId?: string;
 }

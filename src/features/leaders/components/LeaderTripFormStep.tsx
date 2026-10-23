@@ -33,8 +33,9 @@ export interface LeaderTripFormData {
   startDate: string;
   endDate: string;
   slots: string;
+  minPax?: string;
   price: string;
-  priceExplanation: string;
+  priceExplanation?: string;
   checkpointIds: string[];
 }
 
@@ -100,10 +101,19 @@ export function LeaderTripFormStep({
 
   const quickPresets = useMemo(() => getQuickDatePresets(), []);
 
-  const slotNum = parseInt(form.slots, 10) || 12;
+  const slotNum = parseInt(form.slots, 10) || 15;
+  const minPaxNum = parseInt(form.minPax || "5", 10) || 5;
+
+  const handleMinPaxChange = (delta: number) => {
+    const next = Math.max(3, Math.min(10, minPaxNum + delta));
+    onUpdateField("minPax", String(next));
+    if (slotNum < next) {
+      onUpdateField("slots", String(next));
+    }
+  };
 
   const handleSlotChange = (delta: number) => {
-    const next = Math.max(1, Math.min(30, slotNum + delta));
+    const next = Math.max(minPaxNum, Math.min(30, slotNum + delta));
     onUpdateField("slots", String(next));
   };
 
@@ -635,18 +645,55 @@ export function LeaderTripFormStep({
         </View>
       </View>
 
-      {/* 3. CARD: QUY MÔ ĐOÀN, GIÁ VÉ & CƠ CẤU CHI PHÍ */}
+      {/* 3. CARD: QUY MÔ ĐOÀN & GIÁ VÉ ƯỚC TÍNH */}
       <View style={styles.card}>
         <View style={styles.cardHeader}>
           <Ionicons name="cash" size={20} color="#125238" />
-          <Text style={styles.cardTitle}>3. QUY MÔ ĐOÀN, GIÁ VÉ & CẤP ĐỘ THỬ THÁCH</Text>
+          <Text style={styles.cardTitle}>3. QUY MÔ ĐOÀN & GIÁ VÉ ƯỚC TÍNH</Text>
         </View>
 
-        {/* Member Slots Stepper */}
+        {/* Min Pax Stepper (Quy mô đoàn tối thiểu) */}
         <View style={styles.inputGroup}>
           <View style={styles.slotHeader}>
-            <Text style={styles.inputLabel}>Số thành viên tối đa *</Text>
-            <Text style={styles.slotCapTag}>{slotNum} / 15 Thành viên</Text>
+            <Text style={styles.inputLabel}>Quy mô đoàn tối thiểu (minPax) *</Text>
+            <Text style={[styles.slotCapTag, { backgroundColor: "#e2f6d5", color: "#163300" }]}>
+              {minPaxNum} khách tối thiểu
+            </Text>
+          </View>
+
+          <View style={styles.stepperContainer}>
+            <TouchableOpacity
+              style={styles.stepperBtn}
+              onPress={() => handleMinPaxChange(-1)}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="remove" size={20} color="#121c2a" />
+            </TouchableOpacity>
+
+            <View style={styles.stepperDisplay}>
+              <Text style={styles.stepperValue}>{minPaxNum}</Text>
+              <Text style={styles.stepperSub}>Khách tối thiểu</Text>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.stepperBtn, styles.stepperBtnPlus]}
+              onPress={() => handleMinPaxChange(1)}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="add" size={20} color="#fff" />
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.slotRuleHint}>
+            Quy định VFRS: Tối thiểu từ 3 đến 10 khách để chuyến đi đủ điều kiện khởi hành.
+          </Text>
+          {errors.minPax && <Text style={styles.fieldError}>{errors.minPax}</Text>}
+        </View>
+
+        {/* Member Slots Stepper (Quy mô đoàn tối đa / Capacity) */}
+        <View style={styles.inputGroup}>
+          <View style={styles.slotHeader}>
+            <Text style={styles.inputLabel}>Quy mô đoàn tối đa (maxPax / capacity) *</Text>
+            <Text style={styles.slotCapTag}>{slotNum} / 30 Thành viên</Text>
           </View>
 
           <View style={styles.stepperContainer}>
@@ -660,7 +707,7 @@ export function LeaderTripFormStep({
 
             <View style={styles.stepperDisplay}>
               <Text style={styles.stepperValue}>{slotNum}</Text>
-              <Text style={styles.stepperSub}>Thành viên</Text>
+              <Text style={styles.stepperSub}>Thành viên tối đa</Text>
             </View>
 
             <TouchableOpacity
@@ -672,14 +719,14 @@ export function LeaderTripFormStep({
             </TouchableOpacity>
           </View>
           <Text style={styles.slotRuleHint}>
-            Hạn ngạch Leader hiện tại: Tối đa 15 người / đoàn theo chuẩn an toàn VFRS.
+            Hạn ngạch an toàn VFRS: Tối đa 30 người / đoàn.
           </Text>
           {errors.slots && <Text style={styles.fieldError}>{errors.slots}</Text>}
         </View>
 
-        {/* Price Input */}
+        {/* Estimated Price Input */}
         <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Giá tour trọn gói / người *</Text>
+          <Text style={styles.inputLabel}>Giá vé ước tính ban đầu / người *</Text>
           <View style={styles.priceInputWrapper}>
             <TextInput
               value={form.price}
@@ -692,38 +739,14 @@ export function LeaderTripFormStep({
             <Text style={styles.priceSuffix}>VNĐ</Text>
           </View>
           <Text style={styles.priceFormatted}>
-            {Number(form.price || 0).toLocaleString("vi-VN")} VNĐ / người · Đã gồm bảo hiểm VFRS 500 trđ/người.
+            {Number(form.price || 0).toLocaleString("vi-VN")} VNĐ / người (ước tính ban đầu).
           </Text>
-        </View>
-
-        {/* Price Explanation — Bắt buộc trước khi publish */}
-        <View style={styles.inputGroup}>
-          <View style={styles.explanationHeaderRow}>
-            <Text style={styles.inputLabel}>Cơ sở tính giá & Giải trình chi phí (Nội bộ) *</Text>
-            <Text style={styles.charCountText}>
-              {(form.priceExplanation || "").length}/5000
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6, backgroundColor: "#f5f4ee", padding: 10, borderRadius: 10 }}>
+            <Ionicons name="information-circle-outline" size={16} color="#47672d" />
+            <Text style={{ fontSize: 12, color: "#454745", flex: 1, lineHeight: 17 }}>
+              Ở Bước 3, bạn sẽ dùng Bảng kê chi phí thực tế & Bộ mô phỏng tài chính để tính điểm hòa vốn và chốt giá chính thức.
             </Text>
           </View>
-          <TextInput
-            value={form.priceExplanation}
-            onChangeText={(val) => onUpdateField("priceExplanation", val)}
-            placeholder="Ví dụ: Chi phí ăn uống 3 bữa/ngày, phí lán trại nghỉ đêm, đội porter hỗ trợ mang đồ 5kg/khách, bảo hiểm du lịch mạo hiểm VFRS và thù lao Mountain Leader..."
-            placeholderTextColor="#707972"
-            multiline
-            numberOfLines={4}
-            maxLength={5000}
-            style={[
-              styles.inputBox,
-              styles.inputMultiline,
-              errors.priceExplanation && styles.inputError,
-            ]}
-          />
-          <Text style={styles.inputHint}>
-            Cơ sở tính giá nội bộ phục vụ kiểm duyệt trước khi xuất bản. Bắt buộc để mở khóa xuất bản chuyến đi.
-          </Text>
-          {errors.priceExplanation && (
-            <Text style={styles.fieldError}>{errors.priceExplanation}</Text>
-          )}
         </View>
       </View>
 

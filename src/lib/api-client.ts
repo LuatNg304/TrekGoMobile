@@ -74,17 +74,24 @@ const defaultMessages: Record<number, string> = {
 };
 
 function getErrorMessage(
-  payload: ApiErrorEnvelope | null,
+  payload: any,
   status: number,
   fallbackMessages?: Partial<Record<number, string>>,
 ) {
   const rawMessage = payload?.error?.message ?? payload?.message;
 
   if (Array.isArray(rawMessage)) {
-    return rawMessage[0] || "Dữ liệu không hợp lệ.";
+    return rawMessage.join(", ") || "Dữ liệu không hợp lệ.";
   }
 
-  if (rawMessage) return rawMessage;
+  if (Array.isArray(payload?.details)) {
+    const detailMsgs = payload.details
+      .map((d: any) => (typeof d === "string" ? d : d?.message))
+      .filter(Boolean);
+    if (detailMsgs.length > 0) return detailMsgs.join(", ");
+  }
+
+  if (rawMessage && typeof rawMessage === "string") return rawMessage;
 
   return (
     fallbackMessages?.[status] ??
@@ -112,12 +119,21 @@ async function parseResponse<T>(
   }
 
   if (!response.ok) {
-    const errorPayload = payload as ApiErrorEnvelope | null;
+    const errorPayload = payload as any;
+    const errorCode =
+      errorPayload?.error?.code ??
+      errorPayload?.code ??
+      errorPayload?.details?.code ??
+      (typeof errorPayload?.error === "string" && errorPayload?.error !== "Bad Request"
+        ? errorPayload?.error
+        : undefined);
+    const errorDetails = errorPayload?.error?.details ?? errorPayload?.details;
+
     throw new ApiError(
       getErrorMessage(errorPayload, response.status, fallbackMessages),
       response.status,
-      errorPayload?.error?.code,
-      errorPayload?.error?.details,
+      errorCode,
+      errorDetails,
     );
   }
 

@@ -16,6 +16,10 @@ import {
   type TripOptionPickupPoint,
 } from "@/features/leaders/hooks";
 import type { LeaderTrailSuggestion } from "@/features/leaders/services/leader-public-trips.api";
+import {
+  STANDARD_COST_TEMPLATE,
+  type CostItem,
+} from "@/features/leaders/services/leader-pricing.api";
 import { validateTripDates } from "@/features/leaders/utils/tripDateUtils";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -98,7 +102,12 @@ export function LeaderCreateTripScreen({ onNavigateTab }: LeaderCreateTripScreen
   const [draftTripId, setDraftTripId] = useState<string | null>(initialTripId || null);
   const [draftTripVersion, setDraftTripVersion] = useState<number>(1);
   const [readinessIssues, setReadinessIssues] = useState<string[]>([]);
-  const [isSavingExplanation, setIsSavingExplanation] = useState(false);
+  const [canPublish, setCanPublish] = useState<boolean>(false);
+
+  // Module định giá & minh bạch tài chính (TG-PTR-PRICING-01)
+  const [costItems, setCostItems] = useState<CostItem[]>([...STANDARD_COST_TEMPLATE]);
+  const [isPriceConfirmed, setIsPriceConfirmed] = useState(false);
+  const [confirmedPriceExplanation, setConfirmedPriceExplanation] = useState<string | null>(null);
 
   const [form, setForm] = useState<LeaderTripFormData>({
     name: "",
@@ -108,6 +117,7 @@ export function LeaderCreateTripScreen({ onNavigateTab }: LeaderCreateTripScreen
     startDate: "",
     endDate: "",
     slots: "15",
+    minPax: "5",
     price: "2850000",
     priceExplanation: "",
     checkpointIds: [],
@@ -129,6 +139,10 @@ export function LeaderCreateTripScreen({ onNavigateTab }: LeaderCreateTripScreen
       .then((existing: any) => {
         setDraftTripId(existing.id);
         setDraftTripVersion(existing.version);
+        if (existing.priceExplanation) {
+          setIsPriceConfirmed(true);
+          setConfirmedPriceExplanation(existing.priceExplanation);
+        }
         setForm((prev) => ({
           ...prev,
           name: existing.title || prev.name,
@@ -138,6 +152,7 @@ export function LeaderCreateTripScreen({ onNavigateTab }: LeaderCreateTripScreen
           startDate: formatIsoToVnDate(existing.startAt) || prev.startDate,
           endDate: formatIsoToVnDate(existing.endAt) || prev.endDate,
           slots: String(existing.capacity || prev.slots),
+          minPax: String(existing.minPax || prev.minPax || "5"),
           price: existing.pricePerPax || existing.price || prev.price,
           priceExplanation: existing.priceExplanation || "",
         }));
@@ -247,19 +262,17 @@ export function LeaderCreateTripScreen({ onNavigateTab }: LeaderCreateTripScreen
       if (dateCheck.endError) nextErrors.endDate = dateCheck.endError;
     }
 
-    const slots = Number(form.slots);
-    if (!form.slots.trim() || !Number.isInteger(slots) || slots < 1) {
-      nextErrors.slots = "Số slot phải là số nguyên từ 1 đến 30.";
-    } else if (slots > 30) {
-      nextErrors.slots = "Quy định an toàn VFRS: Tối đa 30 slot / đoàn.";
+    // Validate minPax and slots
+    const minPax = Number(form.minPax || 5);
+    if (isNaN(minPax) || minPax < 3 || minPax > 10) {
+      nextErrors.minPax = "Quy mô tối thiểu (minPax) phải từ 3 đến 10 khách theo quy định VFRS.";
     }
 
-    if (!form.priceExplanation.trim()) {
-      nextErrors.priceExplanation =
-        "Vui lòng nhập giải thích cơ cấu giá vé (bắt buộc trước khi publish).";
-    } else if (form.priceExplanation.trim().length > 5000) {
-      nextErrors.priceExplanation =
-        "Giải thích cơ cấu giá vé không được vượt quá 5000 ký tự.";
+    const slots = Number(form.slots);
+    if (!form.slots.trim() || !Number.isInteger(slots) || slots < minPax) {
+      nextErrors.slots = `Số slot tối đa phải là số nguyên và lớn hơn hoặc bằng ${minPax}.`;
+    } else if (slots > 30) {
+      nextErrors.slots = "Quy định an toàn VFRS: Tối đa 30 slot / đoàn.";
     }
 
     setErrors(nextErrors);
@@ -308,8 +321,8 @@ export function LeaderCreateTripScreen({ onNavigateTab }: LeaderCreateTripScreen
           endAt: endIso,
           pickupPointId: form.pickupPointId || (pickupPoints[0]?.id ?? ""),
           capacity: Number(form.slots),
+          minPax: Number(form.minPax || 5),
           price: form.price.trim() || "2850000",
-          priceExplanation: form.priceExplanation.trim(),
         });
         activeDraftId = draft.id;
         activeVersion = draft.version;
@@ -324,8 +337,8 @@ export function LeaderCreateTripScreen({ onNavigateTab }: LeaderCreateTripScreen
           endAt: endIso,
           pickupPointId: form.pickupPointId || (pickupPoints[0]?.id ?? ""),
           capacity: Number(form.slots),
+          minPax: Number(form.minPax || 5),
           price: form.price.trim() || "2850000",
-          priceExplanation: form.priceExplanation.trim(),
           destinationId: form.destinationId,
         });
         activeVersion = updated.version;
@@ -433,6 +446,7 @@ export function LeaderCreateTripScreen({ onNavigateTab }: LeaderCreateTripScreen
       if (typeof readiness.version === "number") {
         setDraftTripVersion(readiness.version);
       }
+      setCanPublish(readiness.canPublish);
       const formatted = formatIssues(readiness.issues);
       setReadinessIssues(formatted);
 
@@ -444,30 +458,33 @@ export function LeaderCreateTripScreen({ onNavigateTab }: LeaderCreateTripScreen
     }
   };
 
-  const handleSavePriceExplanation = async (newExplanation: string) => {
-    if (!draftTripId) return;
-    setIsSavingExplanation(true);
-    setSubmitError(null);
-    try {
-      const updated = await updateTrip(draftTripId, {
-        expectedVersion: draftTripVersion,
-        priceExplanation: newExplanation.trim(),
-      });
-      setDraftTripVersion(updated.version);
-      setForm((prev) => ({ ...prev, priceExplanation: newExplanation }));
+  const handlePriceConfirmed = async (
+    confirmedPrice: number,
+    minPax: number,
+    explanation: string,
+    newVersion: number,
+  ) => {
+    setDraftTripVersion(newVersion);
+    setForm((prev) => ({
+      ...prev,
+      price: String(confirmedPrice),
+      minPax: String(minPax),
+      priceExplanation: explanation,
+    }));
+    setConfirmedPriceExplanation(explanation);
+    setIsPriceConfirmed(true);
 
-      // Re-run readiness check to verify if priceExplanation issue is resolved
-      const readiness = await checkReadiness(draftTripId);
-      if (typeof readiness.version === "number") {
-        setDraftTripVersion(readiness.version);
+    if (draftTripId) {
+      try {
+        const readiness = await checkReadiness(draftTripId);
+        if (typeof readiness.version === "number") {
+          setDraftTripVersion(readiness.version);
+        }
+        setCanPublish(readiness.canPublish);
+        setReadinessIssues(formatIssues(readiness.issues));
+      } catch {
+        // non-blocking
       }
-      const formatted = formatIssues(readiness.issues);
-      setReadinessIssues(formatted);
-    } catch (err: any) {
-      setSubmitError(err?.message || "Không thể cập nhật cơ cấu giá vé.");
-      throw err;
-    } finally {
-      setIsSavingExplanation(false);
     }
   };
 
@@ -484,6 +501,7 @@ export function LeaderCreateTripScreen({ onNavigateTab }: LeaderCreateTripScreen
       // Re-check readiness right before publishing
       const readiness = await checkReadiness(draftTripId);
       const currentVer = typeof readiness.version === "number" ? readiness.version : draftTripVersion;
+      setCanPublish(readiness.canPublish);
 
       if (!readiness.canPublish) {
         const formatted = formatIssues(readiness.issues);
@@ -509,10 +527,20 @@ export function LeaderCreateTripScreen({ onNavigateTab }: LeaderCreateTripScreen
     }
   };
 
+  const handleSafeGoBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+    } else if (onNavigateTab) {
+      onNavigateTab("dashboard");
+    } else {
+      router.replace("/(tabs)" as any);
+    }
+  };
+
   if (!canCreatePublicTrip) {
     return (
       <SafeAreaView style={styles.safe}>
-        <LeaderPermissionDenied onBack={() => router.back()} />
+        <LeaderPermissionDenied onBack={handleSafeGoBack} />
       </SafeAreaView>
     );
   }
@@ -551,6 +579,11 @@ export function LeaderCreateTripScreen({ onNavigateTab }: LeaderCreateTripScreen
         <ScrollView contentContainerStyle={styles.content}>
           <LeaderTripReviewStep
             form={form}
+            tripId={draftTripId || ""}
+            expectedVersion={draftTripVersion}
+            accessToken={accessToken || ""}
+            costItems={costItems}
+            onChangeCostItems={setCostItems}
             selectedDestination={selectedDestination}
             selectedPickup={selectedPickup}
             selectedCheckpoints={selectedCheckpoints}
@@ -558,12 +591,15 @@ export function LeaderCreateTripScreen({ onNavigateTab }: LeaderCreateTripScreen
             conflictWarning={conflictWarning}
             submitError={submitError}
             readinessIssues={readinessIssues}
+            canPublish={canPublish}
             isSubmitting={isSubmitting}
             apiLoading={apiLoading}
             onPublish={() => void handlePublish()}
             onBackToForm={() => setStep("route")}
-            onSavePriceExplanation={handleSavePriceExplanation}
-            isSavingExplanation={isSavingExplanation}
+            onPriceConfirmed={handlePriceConfirmed}
+            isPriceConfirmed={isPriceConfirmed}
+            confirmedPriceExplanation={confirmedPriceExplanation}
+            onVersionUpdated={(newVer) => setDraftTripVersion(newVer)}
           />
         </ScrollView>
       </SafeAreaView>
@@ -617,7 +653,7 @@ export function LeaderCreateTripScreen({ onNavigateTab }: LeaderCreateTripScreen
           submitError={submitError}
           onUpdateField={updateField}
           onProceed={() => void handleProceedToRoute()}
-          onBack={() => router.back()}
+          onBack={handleSafeGoBack}
           onRetryLoadMeta={fetchDestinations}
         />
       </ScrollView>

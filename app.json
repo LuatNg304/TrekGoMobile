@@ -49,7 +49,11 @@
         {
           "cameraPermission": "Cho phép TrekGo sử dụng máy ảnh để quét mã QR tham gia Private Trip và kiểm tra trang thiết bị."
         }
-      ]
+      ],
+      "expo-font",
+      "expo-image",
+      "expo-status-bar",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,
