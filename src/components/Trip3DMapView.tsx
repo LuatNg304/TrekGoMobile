@@ -1,3 +1,4 @@
+import { MAPTILER_STYLE_URL } from "@/constants/map";
 import React, { useCallback, useMemo, useRef } from "react";
 import {
   ActivityIndicator,
@@ -93,7 +94,6 @@ function buildMapHtml(trail: SystemTrailDetail): string {
   }
   .cp-marker:hover .cp-tooltip { display: block; }
 
-  .maplibregl-ctrl-logo, .maplibregl-ctrl-attrib { display: none !important; }
 </style>
 </head>
 <body>
@@ -112,28 +112,8 @@ function buildMapHtml(trail: SystemTrailDetail): string {
 
   var map = new maplibregl.Map({
     container: 'map',
-    style: {
-      version: 8,
-      sources: {
-        'satellite': {
-          type: 'raster',
-          tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
-          tileSize: 256,
-          attribution: '© Esri'
-        },
-        'terrain-dem': {
-          type: 'raster-dem',
-          tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
-          tileSize: 256,
-          encoding: 'terrarium'
-        }
-      },
-      layers: [
-        { id: 'satellite-layer', type: 'raster', source: 'satellite' }
-      ],
-      terrain: { source: 'terrain-dem', exaggeration: 2.0 }
-    },
-    center: ${JSON.stringify(center)},
+      style: ${JSON.stringify(MAPTILER_STYLE_URL)},
+      center: ${JSON.stringify(center)},
     zoom: ${zoom},
     pitch: ${pitch},
     bearing: ${bearing},
@@ -144,6 +124,13 @@ function buildMapHtml(trail: SystemTrailDetail): string {
   map.addControl(new maplibregl.NavigationControl({ showCompass: true }), 'top-right');
 
   map.on('load', function() {
+    map.addSource('terrain-dem', {
+      type: 'raster-dem',
+      tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
+      tileSize: 256,
+      encoding: 'terrarium',
+      maxzoom: 15
+    });
     map.setTerrain({ source: 'terrain-dem', exaggeration: 2.0 });
 
     if (routeCoords.length > 0) {
