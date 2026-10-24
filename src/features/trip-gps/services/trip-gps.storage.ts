@@ -87,9 +87,12 @@ export async function saveLocalTripSession(session: SessionDto, policy: GpsPolic
   const db = await getDatabase();
   const now = new Date().toISOString();
   await db.runAsync(
-    `INSERT OR REPLACE INTO trip_gps_sessions (
+    `INSERT INTO trip_gps_sessions (
       session_id, trip_id, client_session_id, device_id, status, version, started_at, ended_at, policy_json, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(session_id) DO UPDATE SET
+      status = excluded.status, version = excluded.version,
+      ended_at = excluded.ended_at, policy_json = excluded.policy_json`,
     [
       session.id,
       session.tripId,
@@ -119,7 +122,7 @@ export async function getActiveTripSession(tripId: string): Promise<{ session: S
     ended_at: string | null;
     policy_json: string;
   }>(
-    `SELECT * FROM trip_gps_sessions WHERE trip_id = ? AND status IN ('ACTIVE', 'PAUSED') ORDER BY created_at DESC LIMIT 1`,
+    `SELECT * FROM trip_gps_sessions WHERE trip_id = ? ORDER BY started_at DESC LIMIT 1`,
     [tripId]
   );
 
@@ -146,6 +149,17 @@ export async function getActiveTripSession(tripId: string): Promise<{ session: S
   } catch {
     return null;
   }
+}
+
+/** Include stopped sessions so starting another session never strands their outbox. */
+export async function getTripSessionsWithPendingSamples(tripId: string): Promise<string[]> {
+  await initTripGpsTables();
+  const db = await getDatabase();
+  const rows = await db.getAllAsync<{ session_id: string }>(
+    `SELECT DISTINCT s.session_id FROM trip_gps_sessions s
+     JOIN trip_gps_samples p ON p.session_id = s.session_id
+     WHERE s.trip_id = ? AND p.synced = 0`, [tripId]);
+  return rows.map(row => row.session_id);
 }
 
 export async function updateLocalSessionStatus(

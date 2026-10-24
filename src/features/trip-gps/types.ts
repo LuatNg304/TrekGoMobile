@@ -133,6 +133,7 @@ export interface CheckpointProgressDto {
 }
 
 export interface SessionDto {
+  recordingIntervals?: { start: ISODateTime; end: ISODateTime | null }[];
   id: UUID;
   tripId: UUID;
   userId: UUID;

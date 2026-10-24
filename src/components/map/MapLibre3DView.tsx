@@ -223,6 +223,29 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
       `);
     }, [plannedRoute, isLoaded]);
 
+    // Khi showEndpoints thay đổi
+    useEffect(() => {
+      if (!isLoaded) return;
+      if (!showEndpoints) {
+        runInMap(`
+          try {
+            if (typeof showEndpointsEnabled !== 'undefined') showEndpointsEnabled = false;
+            if (typeof startMarker !== 'undefined' && startMarker) { startMarker.remove(); startMarker = null; }
+            if (typeof endMarker !== 'undefined' && endMarker) { endMarker.remove(); endMarker = null; }
+            var eps = document.querySelectorAll('.endpoint-marker');
+            for (var i = 0; i < eps.length; i++) { eps[i].remove(); }
+            window.updateEndpoints = function() {};
+          } catch(e) {}
+        `);
+      } else {
+        runInMap(`
+          if (window.setShowEndpoints) {
+            window.setShowEndpoints(true);
+          }
+        `);
+      }
+    }, [showEndpoints, isLoaded]);
+
     // Khi checkpoints thay đổi
     useEffect(() => {
       if (!isLoaded) return;
@@ -347,33 +370,34 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
       background: #ef4444;
     }
     .user-marker {
-      width: 28px;
-      height: 28px;
+      width: 32px;
+      height: 32px;
       position: relative;
       display: flex;
       align-items: center;
       justify-content: center;
       cursor: pointer;
+      z-index: 9999 !important;
     }
     .user-marker-core {
-      width: 14px;
-      height: 14px;
+      width: 16px;
+      height: 16px;
       border-radius: 50%;
-      background: #38ef7d;
-      border: 2.5px solid #ffffff;
-      box-shadow: 0 0 10px rgba(56, 239, 125, 0.95);
+      background: #10b981;
+      border: 3px solid #ffffff;
+      box-shadow: 0 0 14px rgba(16, 185, 129, 0.95);
       position: relative;
-      z-index: 2;
+      z-index: 9999;
     }
     .user-marker-pulse {
       position: absolute;
-      width: 32px;
-      height: 32px;
+      width: 36px;
+      height: 36px;
       border-radius: 50%;
-      background: rgba(56, 239, 125, 0.35);
-      border: 1.5px solid rgba(56, 239, 125, 0.7);
+      background: rgba(16, 185, 129, 0.35);
+      border: 1.5px solid rgba(16, 185, 129, 0.7);
       animation: userMarkerPulse 1.8s infinite ease-out;
-      z-index: 1;
+      z-index: 9998;
     }
     @keyframes userMarkerPulse {
       0% { transform: scale(0.4); opacity: 1; }
@@ -516,8 +540,40 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
       };
     }
 
+    var showEndpointsEnabled = ${Boolean(initialConfig.showEndpoints)};
+    var currentPlannedCoords = null;
+
+    window.setShowEndpoints = function(enabled) {
+      showEndpointsEnabled = Boolean(enabled);
+      if (!showEndpointsEnabled) {
+        if (startMarker) {
+          startMarker.remove();
+          startMarker = null;
+        }
+        if (endMarker) {
+          endMarker.remove();
+          endMarker = null;
+        }
+      } else if (currentPlannedCoords && currentPlannedCoords.length > 0) {
+        var ep = extractEndpoints(currentPlannedCoords);
+        if (ep) {
+          window.updateEndpoints(ep);
+        }
+      }
+    };
+
     window.updateEndpoints = function(endpoints) {
-      if (!${Boolean(initialConfig.showEndpoints)}) return;
+      if (!showEndpointsEnabled) {
+        if (startMarker) {
+          startMarker.remove();
+          startMarker = null;
+        }
+        if (endMarker) {
+          endMarker.remove();
+          endMarker = null;
+        }
+        return;
+      }
       if (startMarker) {
         startMarker.remove();
         startMarker = null;
@@ -611,6 +667,7 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
     }
 
     window.updatePlannedRoute = function(coords) {
+      currentPlannedCoords = coords;
       if (map && map.getSource('planned-route-src')) {
         var geom = getGeoJsonGeometry(coords);
         map.getSource('planned-route-src').setData({
@@ -624,7 +681,7 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
           }
         }
       }
-      if (${Boolean(initialConfig.showEndpoints)}) {
+      if (showEndpointsEnabled) {
         var ep = extractEndpoints(coords);
         window.updateEndpoints(ep);
       }
@@ -637,9 +694,15 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
           geometry: getGeoJsonGeometry(coords)
         });
       }
-      if (${Boolean(initialConfig.showEndpoints)} && (!${Boolean(plannedRoute && plannedRoute.length > 0)})) {
-        var ep = extractEndpoints(coords);
-        window.updateEndpoints(ep);
+      if (!showEndpointsEnabled) {
+        if (typeof endMarker !== 'undefined' && endMarker) {
+          endMarker.remove();
+          endMarker = null;
+        }
+        if (typeof startMarker !== 'undefined' && startMarker) {
+          startMarker.remove();
+          startMarker = null;
+        }
       }
     };
 
@@ -659,8 +722,15 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
           userMarker = new maplibregl.Marker({ element: el })
             .setLngLat([lng, lat])
             .addTo(map);
+
+          if (userMarker.getElement()) {
+            userMarker.getElement().style.zIndex = '9999';
+          }
         } else {
           userMarker.setLngLat([lng, lat]);
+          if (userMarker.getElement()) {
+            userMarker.getElement().style.zIndex = '9999';
+          }
         }
 
         if (follow && map) {
@@ -924,16 +994,17 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
           }
         });
 
-        // Khởi tạo Start / End endpoint markers dựa trên tọa độ đầu & cuối của route vẽ
-        const initialRoute = ${JSON.stringify(plannedRoute && plannedRoute.length > 0 ? plannedRoute : traveledRoute)};
-        if (${Boolean(initialConfig.showEndpoints)}) {
-          const ep = extractEndpoints(initialRoute);
+        // Khởi tạo Start / End endpoint markers dựa trên plannedRoute nếu bật showEndpoints
+        const initialPlanned = ${JSON.stringify(plannedRoute && plannedRoute.length > 0 ? plannedRoute : [])};
+        const initialFitRoute = initialPlanned.length > 0 ? initialPlanned : ${JSON.stringify(traveledRoute || [])};
+        if (showEndpointsEnabled && initialPlanned.length > 0) {
+          const ep = extractEndpoints(initialPlanned);
           if (ep) {
             window.updateEndpoints(ep);
           }
         }
-        if (initialRoute && initialRoute.length > 0) {
-          const initBounds = getBoundsFromCoords(initialRoute);
+        if (initialFitRoute && initialFitRoute.length > 0) {
+          const initBounds = getBoundsFromCoords(initialFitRoute);
           if (initBounds) {
             map.fitBounds(initBounds, { padding: 45, duration: 0 });
           }

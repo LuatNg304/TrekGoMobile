@@ -293,6 +293,7 @@ export function PrivateTripRoomScreen({
         {tripId && roomData.trip.status !== "CANCELLED" && (
           <View style={{ marginVertical: 16 }}>
             <TripGpsButton
+              tripStatus={roomData.trip.status}
               tripId={tripId}
               tripType="PRIVATE"
               tripTitle={roomData.trip.title}

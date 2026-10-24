@@ -56,6 +56,10 @@ export default function NavigationScreen() {
     syncing,
     error,
     socketConnected,
+    isSimulated,
+    toggleSimulation,
+    isMapMatchingEnabled,
+    toggleMapMatching,
     startRecording,
     pauseRecording,
     resumeRecording,
@@ -108,24 +112,30 @@ export default function NavigationScreen() {
       }));
   }, [gpsState]);
 
-  // Map Current Position
+  // Map Current Position (Ưu tiên: GPS thực tế -> Server State -> Điểm đầu cung đường kế hoạch)
   const mapCurrentPosition = useMemo<MapCoordinate | null>(() => {
     if (currentLocation) {
       return {
         latitude: currentLocation.latitude,
         longitude: currentLocation.longitude,
-        elevation: currentLocation.altitudeM,
+        elevation: currentLocation.altitudeM ?? undefined,
       };
     }
     if (myMemberState?.lastLocation) {
       return {
         latitude: myMemberState.lastLocation.latitude,
         longitude: myMemberState.lastLocation.longitude,
-        elevation: myMemberState.lastLocation.altitudeM,
+        elevation: myMemberState.lastLocation.altitudeM ?? undefined,
+      };
+    }
+    if (plannedRouteCoords && plannedRouteCoords.length > 0) {
+      return {
+        longitude: plannedRouteCoords[0][0],
+        latitude: plannedRouteCoords[0][1],
       };
     }
     return null;
-  }, [currentLocation, myMemberState]);
+  }, [currentLocation, myMemberState, plannedRouteCoords]);
 
   // Helper tính khoảng cách từ vị trí người dùng tới toạ độ đích
   const getDistanceToUser = useCallback(
@@ -278,15 +288,14 @@ export default function NavigationScreen() {
   const handleFinish = useCallback(async () => {
     Alert.alert(
       'Kết thúc phiên ghi GPS?',
-      'Sau khi kết thúc, hệ thống sẽ tổng hợp toàn bộ toạ độ thành một đường LineString chính thức trong TripActualRoute.',
+      'Dữ liệu đã ghi sẽ được lưu. Bạn có thể ghi tiếp bằng phiên mới khi chuyến còn cho phép ghi. Thao tác này không kết thúc chuyến đi.',
       [
         { text: 'Hủy', style: 'cancel' },
         {
           text: 'Kết thúc & Lưu',
           style: 'destructive',
           onPress: async () => {
-            await finishRecording();
-            setResultModalVisible(true);
+            if (await finishRecording()) setResultModalVisible(true);
           },
         },
       ]
@@ -336,6 +345,13 @@ export default function NavigationScreen() {
             </Text>
           </View>
 
+          {/* Fake GPS Pill if active */}
+          {isSimulated && (
+            <View style={styles.simPill}>
+              <Text style={styles.simPillText}>FAKE GPS</Text>
+            </View>
+          )}
+
           {/* GPS Accuracy */}
           <View style={styles.accuracyBadge}>
             <Ionicons name="navigate" size={11} color={Colors.positiveDeep} />
@@ -360,6 +376,7 @@ export default function NavigationScreen() {
           pitch={is3DMode ? 60 : 0}
           dragRotate={true}
           showControls={false}
+          showEndpoints={false}
           autoCenterOnUser={true}
           followUser={isFollowingUser && isSessionActive && !isSessionPaused}
           onUserInteraction={handleUserMapInteraction}
@@ -393,6 +410,32 @@ export default function NavigationScreen() {
                 color={currentBearing !== 0 ? Colors.primaryDark : Colors.ink}
               />
             </View>
+          </TouchableOpacity>
+
+          {/* Nút bật/tắt Fake GPS (Mô phỏng bám cung đường) */}
+          <TouchableOpacity
+            style={[styles.mapIconBtn, isSimulated && styles.mapIconBtnSimActive]}
+            onPress={() => toggleSimulation()}
+            activeOpacity={0.85}
+          >
+            <Ionicons
+              name={isSimulated ? 'walk' : 'navigate-circle-outline'}
+              size={20}
+              color={isSimulated ? '#ffffff' : Colors.ink}
+            />
+          </TouchableOpacity>
+
+          {/* Nút bật/tắt Map Matching (Snap vào tim đường) */}
+          <TouchableOpacity
+            style={[styles.mapIconBtn, isMapMatchingEnabled && styles.mapIconBtnMatchActive]}
+            onPress={() => toggleMapMatching()}
+            activeOpacity={0.85}
+          >
+            <Ionicons
+              name="git-commit-outline"
+              size={20}
+              color={isMapMatchingEnabled ? '#ffffff' : Colors.ink}
+            />
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -573,10 +616,9 @@ export default function NavigationScreen() {
             <View style={styles.compactDivider} />
 
             <View style={styles.compactStatCol}>
-              <Text style={styles.compactStatLabel}>ĐỘ CAO</Text>
+              <Text style={styles.compactStatLabel}>THỜI GIAN GHI</Text>
               <View style={styles.compactStatValRow}>
-                <Text style={styles.compactStatVal}>{stats.altitudeM}</Text>
-                <Text style={styles.compactStatUnit}>m</Text>
+                <Text style={styles.compactStatVal}>{stats.recordingTime}</Text>
               </View>
             </View>
           </View>
@@ -617,14 +659,16 @@ export default function NavigationScreen() {
             style={styles.primaryPillBtn}
             activeOpacity={0.88}
             onPress={handleStart}
-            disabled={loading}
+            disabled={loading || !context?.permissions.canRecord}
           >
             {loading ? (
               <ActivityIndicator size="small" color={Colors.onPrimary} />
             ) : (
               <>
                 <Ionicons name="play" size={20} color={Colors.onPrimary} />
-                <Text style={styles.primaryPillText}>Bắt đầu ghi GPS</Text>
+                <Text style={styles.primaryPillText}>{!context?.permissions.canRecord
+                  ? (context?.tripStatus === 'COMPLETED' ? 'Chuyến đi đã kết thúc' : 'Chưa được phép ghi GPS')
+                  : session?.status === 'STOPPED' ? 'Ghi tiếp hành trình' : 'Bắt đầu ghi GPS'}</Text>
               </>
             )}
           </TouchableOpacity>
@@ -855,6 +899,30 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.primary, // Wise Lime Green (#9fe870)
     borderWidth: 1.5,
     borderColor: Colors.primaryDark,
+  },
+  mapIconBtnSimActive: {
+    backgroundColor: '#ff9800',
+    borderWidth: 1.5,
+    borderColor: '#e65100',
+  },
+  mapIconBtnMatchActive: {
+    backgroundColor: Colors.primaryDark,
+    borderWidth: 1.5,
+    borderColor: Colors.ink,
+  },
+  simPill: {
+    backgroundColor: '#fff3e0',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: Radius.pill,
+    borderWidth: 1,
+    borderColor: '#ffe0b2',
+  },
+  simPillText: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: '#e65100',
+    letterSpacing: 0.5,
   },
   mapFollowBadge: {
     position: 'absolute',

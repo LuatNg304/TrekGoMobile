@@ -351,6 +351,7 @@ export function BookingCheckoutScreen({
         {isConfirmed && booking.trip?.id && (
           <View style={{ marginBottom: 16 }}>
             <TripGpsButton
+              tripStatus={booking.trip.status}
               tripId={booking.trip.id}
               tripType="PUBLIC"
               tripTitle={booking.trip.title}

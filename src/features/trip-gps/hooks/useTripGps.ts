@@ -3,9 +3,13 @@ import * as Location from 'expo-location';
 import { useAuth } from '@/features/auth/AuthContext';
 import { ApiError } from '@/lib/api-client';
 import { generateUUID } from '@/services/storage/recordingDatabase';
+import { GpsProcessor } from '@/utils/gpsProcessor';
+import { snapToRoute } from '@/utils/mapMatching';
+import { TripGpsSimulator } from '@/services/location/tripGpsSimulator';
 import {
   finishGpsSession,
   getGpsContext,
+  getGpsSession,
   getGpsState,
   getMyActualRoute,
   getMyLiveRoute,
@@ -20,6 +24,7 @@ import {
   getOrCreateDeviceId,
   getPendingCommands,
   getPendingSamples,
+  getTripSessionsWithPendingSamples,
   getSessionCoordinates,
   insertGpsSample,
   markCommandSynced,
@@ -37,6 +42,7 @@ import type {
   GpsSample,
   GpsStateResponse,
   MemberStateDto,
+  SamplesRequest,
   SessionDto,
   TripCheckpointDto,
 } from '../types';
@@ -59,16 +65,46 @@ export function useTripGps(tripId?: string) {
     headingDeg: number | null;
   } | null>(null);
 
+  // Chế độ mô phỏng Fake GPS & Map matching
+  const [isSimulated, setIsSimulated] = useState(false);
+  const [isMapMatchingEnabled, setIsMapMatchingEnabled] = useState(true);
+
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [socketConnected, setSocketConnected] = useState(false);
 
-  const locationSubscriptionRef = useRef<Location.LocationSubscription | null>(null);
+  const locationSubscriptionRef = useRef<Location.LocationSubscription | { remove: () => void } | null>(null);
   const syncTimerRef = useRef<any>(null);
   const pollTimerRef = useRef<any>(null);
   const isSyncingRef = useRef(false);
+  const gpsProcessorRef = useRef<GpsProcessor>(new GpsProcessor());
+  const simulatorRef = useRef<TripGpsSimulator | null>(null);
+
   const canViewGps = Boolean(accessToken && context?.tripId === tripId && context?.permissions.canViewGroupLocations);
+
+  // Tuyến kế hoạch (Planned Route Geometry)
+  const plannedRouteCoords = useMemo<[number, number][]>(() => {
+    if (!context || !context.routePlans || context.routePlans.length === 0) return [];
+    const activePlan =
+      context.routePlans.find((p) => p.trailPlanId === context.activeTrailPlanId) ||
+      context.routePlans[0];
+    if (!activePlan?.geometry) return [];
+    if (activePlan.geometry.type === 'LineString') {
+      return activePlan.geometry.coordinates as [number, number][];
+    }
+    if (activePlan.geometry.type === 'MultiLineString') {
+      return (activePlan.geometry.coordinates as [number, number][][]).flat() as [number, number][];
+    }
+    return [];
+  }, [context]);
+
+  // Cập nhật route cho Simulator khi plannedRouteCoords thay đổi
+  useEffect(() => {
+    if (simulatorRef.current && plannedRouteCoords.length > 0) {
+      simulatorRef.current.updateRoute(plannedRouteCoords);
+    }
+  }, [plannedRouteCoords]);
 
   // 1. Tải Context và Khôi phục Session từ SQLite
   const loadContextAndActiveSession = useCallback(async () => {
@@ -97,8 +133,13 @@ export function useTripGps(tripId?: string) {
       // Khôi phục Session đang hoạt động từ SQLite
       const localActive = await getActiveTripSession(tripId);
       if (localActive) {
+        const remote = await getGpsSession(tripId, localActive.session.id, await getOrCreateDeviceId());
+        localActive.session = remote.session;
+        localActive.policy = remote.policy;
+        await saveLocalTripSession(remote.session, remote.policy);
         setSession(localActive.session);
         setPolicy(localActive.policy);
+        gpsProcessorRef.current.reset(Date.parse(localActive.session.startedAt));
         const coords = await getSessionCoordinates(localActive.session.id);
         setLiveRouteCoords(coords);
       }
@@ -110,25 +151,14 @@ export function useTripGps(tripId?: string) {
       // Tìm session của bản thân trong state nếu local chưa có
       if (!localActive && st.selfUserId) {
         const selfMember = st.members.find((m) => m.userId === st.selfUserId);
-        if (selfMember?.session && ['ACTIVE', 'PAUSED'].includes(selfMember.session.status)) {
+        if (selfMember?.session) {
           const deviceId = await getOrCreateDeviceId();
-          const reconstructedSession: SessionDto = {
-            id: selfMember.session.id,
-            tripId,
-            userId: st.selfUserId,
-            clientSessionId: generateUUID(),
-            deviceId,
-            gpsPolicyId: ctx.policy.id,
-            status: selfMember.session.status,
-            version: 1,
-            startedAt: selfMember.session.startedAt,
-            endedAt: selfMember.session.endedAt,
-            uploadDeadline: null,
-            sampleCount: selfMember.session.sampleCount,
-            totalDistanceMeters: selfMember.session.totalDistanceMeters,
-          };
+          const restored = await getGpsSession(tripId, selfMember.session.id, deviceId);
+          if (restored.session.deviceId !== deviceId) throw new Error('GPS session belongs to another device.');
+          const reconstructedSession = restored.session;
           setSession(reconstructedSession);
-          await saveLocalTripSession(reconstructedSession, ctx.policy);
+          gpsProcessorRef.current.reset(Date.parse(reconstructedSession.startedAt));
+          await saveLocalTripSession(reconstructedSession, restored.policy);
         }
       }
     } catch (err: any) {
@@ -156,6 +186,21 @@ export function useTripGps(tripId?: string) {
     loadContextAndActiveSession();
   }, [loadContextAndActiveSession]);
 
+  // Khởi tạo vị trí ban đầu tại điểm đầu cung đường (vạch xuất phát) khi tải xong context
+  useEffect(() => {
+    if (!currentLocation && plannedRouteCoords.length > 0) {
+      const [startLng, startLat] = plannedRouteCoords[0];
+      setCurrentLocation({
+        latitude: startLat,
+        longitude: startLng,
+        accuracyM: 5,
+        altitudeM: 1200,
+        speedMps: 0,
+        headingDeg: 0,
+      });
+    }
+  }, [plannedRouteCoords, currentLocation]);
+
   // 2. Kết nối Socket.IO Realtime
   useEffect(() => {
     if (!tripId || !accessToken || !canViewGps) return;
@@ -180,7 +225,6 @@ export function useTripGps(tripId?: string) {
         });
       },
       onTripChanged: () => {
-        // Tải lại state & context khi chuyến đi có thay đổi
         if (tripId) {
           getGpsState(tripId).then(setGpsState).catch(() => {});
           getGpsContext(tripId).then(setContext).catch(() => {});
@@ -202,11 +246,22 @@ export function useTripGps(tripId?: string) {
     };
   }, [tripId, accessToken, canViewGps, gpsState?.selfUserId]);
 
+  useEffect(() => {
+    if (!tripId || !context || ['OPEN', 'FULL', 'CLOSED', 'IN_PROGRESS'].includes(context.tripStatus)) return;
+    if (session && session.status !== 'STOPPED') {
+      getGpsSession(tripId, session.id, session.deviceId).then(async (res) => {
+        setSession(res.session);
+        await saveLocalTripSession(res.session, res.policy);
+      }).catch(() => {});
+    }
+  }, [tripId, context?.tripStatus, session?.id]);
+
   // 3. Polling Fallback (Mỗi 20s đối soát lại State cả đoàn khi ở màn hình)
   useEffect(() => {
     if (!tripId || !canViewGps) return;
     pollTimerRef.current = setInterval(async () => {
       try {
+        setContext(await getGpsContext(tripId));
         const freshState = await getGpsState(tripId);
         setGpsState(freshState);
       } catch {
@@ -219,68 +274,127 @@ export function useTripGps(tripId?: string) {
     };
   }, [tripId, canViewGps]);
 
-  // 4. Lấy GPS thiết bị thực tế khi Session đang ACTIVE
+  // 4. Theo dõi GPS Thiết bị hoặc Fake GPS khi Session đang ACTIVE
   useEffect(() => {
     let isCancelled = false;
 
     async function startLocationTracking() {
-      if (session?.status !== 'ACTIVE') {
+      if (session?.status !== 'ACTIVE' || !context?.permissions.canRecord) {
         if (locationSubscriptionRef.current) {
           locationSubscriptionRef.current.remove();
           locationSubscriptionRef.current = null;
         }
+        if (simulatorRef.current) {
+          simulatorRef.current.stop();
+        }
         return;
       }
 
-      try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== 'granted') {
-          setError('Cần cấp quyền truy cập vị trí để ghi lộ trình trekking.');
-          return;
+      // Handler xử lý mẫu tọa độ (áp dụng Map Matching và GpsProcessor)
+      const handleLocationSample = async (loc: Location.LocationObject) => {
+        if (isCancelled || !session) return;
+
+        const accuracy = loc.coords.accuracy ?? 10;
+        const maxAcc = policy?.maxAcceptedAccuracyM || 50;
+        if (accuracy > maxAcc && !isSimulated) return;
+
+        let lat = loc.coords.latitude;
+        let lng = loc.coords.longitude;
+        let alt = loc.coords.altitude ?? null;
+        let heading = loc.coords.heading ?? null;
+
+        // a. Áp dụng Map Matching (Snap to Route): hút vào tim đường kế hoạch
+        if (isMapMatchingEnabled && plannedRouteCoords.length >= 2) {
+          const snapThreshold = policy?.deviationThresholdM ? Number(policy.deviationThresholdM) : 35;
+          const snapped = snapToRoute(
+            { latitude: lat, longitude: lng, elevation: alt },
+            plannedRouteCoords,
+            snapThreshold
+          );
+          if (snapped.snapped) {
+            lat = snapped.latitude;
+            lng = snapped.longitude;
+            if (snapped.bearingDeg != null) heading = snapped.bearingDeg;
+          }
         }
 
-        const intervalSec = policy?.sampleIntervalSeconds || 5;
-
-        locationSubscriptionRef.current = await Location.watchPositionAsync(
-          {
-            accuracy: Location.Accuracy.High,
-            timeInterval: intervalSec * 1000,
-            distanceInterval: 3,
+        // b. Đi qua GpsProcessor (lọc nhiễu, tính lũy kế distance, độ cao mượt)
+        const procResult = gpsProcessorRef.current.process({
+          coords: {
+            latitude: lat,
+            longitude: lng,
+            accuracy,
+            altitude: alt != null ? alt : null,
+            altitudeAccuracy: loc.coords.altitudeAccuracy ?? null,
+            speed: loc.coords.speed ?? 0,
+            heading: heading != null ? heading : null,
           },
-          async (loc) => {
-            if (isCancelled || !session) return;
+          timestamp: loc.timestamp,
+        });
 
-            const accuracy = loc.coords.accuracy ?? 10;
-            // Bỏ qua điểm nếu accuracy vượt trần cho phép của policy
-            const maxAcc = policy?.maxAcceptedAccuracyM || 50;
-            if (accuracy > maxAcc) return;
+        if (!procResult.accepted && !isSimulated) return;
 
-            const sample: GpsSample = {
-              clientSampleId: generateUUID(),
-              recordedAt: new Date(loc.timestamp).toISOString(),
-              latitude: loc.coords.latitude,
-              longitude: loc.coords.longitude,
-              accuracyM: accuracy,
-              altitudeM: loc.coords.altitude ?? null,
-              speedMps: loc.coords.speed ?? null,
-              headingDeg: loc.coords.heading ?? null,
-            };
+        const effectiveSpeed = procResult.speedKmh > 0 ? procResult.speedKmh / 3.6 : (loc.coords.speed ?? 0);
 
-            // Lưu tức thì vào SQLite
-            await insertGpsSample(session.id, sample);
+        const sample: GpsSample = {
+          clientSampleId: generateUUID(),
+          recordedAt: new Date(loc.timestamp).toISOString(),
+          latitude: lat,
+          longitude: lng,
+          accuracyM: accuracy,
+          altitudeM: alt ?? null,
+          speedMps: effectiveSpeed,
+          headingDeg: heading ?? null,
+        };
 
-            setCurrentLocation({
-              latitude: loc.coords.latitude,
-              longitude: loc.coords.longitude,
-              accuracyM: accuracy,
-              altitudeM: loc.coords.altitude,
-              speedMps: loc.coords.speed,
-              headingDeg: loc.coords.heading,
+        // Lưu tức thì vào SQLite
+        await insertGpsSample(session.id, sample);
+
+        setCurrentLocation({
+          latitude: lat,
+          longitude: lng,
+          accuracyM: accuracy,
+          altitudeM: alt ?? null,
+          speedMps: effectiveSpeed,
+          headingDeg: heading ?? null,
+        });
+
+        setLiveRouteCoords((prev) => [...prev, [sample.longitude, sample.latitude]]);
+      };
+
+      try {
+        if (isSimulated) {
+          if (!simulatorRef.current) {
+            simulatorRef.current = new TripGpsSimulator({
+              routeCoords: plannedRouteCoords,
+              speedMps: 3.0,
+              intervalMs: Math.max(1000, (policy?.sampleIntervalSeconds || 3) * 1000),
             });
-
-            setLiveRouteCoords((prev) => [...prev, [sample.longitude, sample.latitude]]);
+          } else {
+            simulatorRef.current.updateRoute(plannedRouteCoords);
           }
-        );
+          locationSubscriptionRef.current = simulatorRef.current.start(
+            handleLocationSample,
+            false
+          );
+        } else {
+          const { status } = await Location.requestForegroundPermissionsAsync();
+          if (status !== 'granted') {
+            setError('Cần cấp quyền truy cập vị trí để ghi lộ trình trekking.');
+            return;
+          }
+
+          const intervalSec = policy?.sampleIntervalSeconds || 5;
+
+          locationSubscriptionRef.current = await Location.watchPositionAsync(
+            {
+              accuracy: Location.Accuracy.High,
+              timeInterval: intervalSec * 1000,
+              distanceInterval: 3,
+            },
+            handleLocationSample
+          );
+        }
       } catch (err: any) {
         console.warn('[useTripGps] Location tracking error:', err?.message || err);
       }
@@ -294,8 +408,11 @@ export function useTripGps(tripId?: string) {
         locationSubscriptionRef.current.remove();
         locationSubscriptionRef.current = null;
       }
+      if (simulatorRef.current) {
+        simulatorRef.current.stop();
+      }
     };
-  }, [session?.status, session?.id, policy]);
+  }, [context?.permissions.canRecord, session?.status, session?.id, policy, isSimulated, isMapMatchingEnabled, plannedRouteCoords]);
 
   // 5. Chu kỳ Đồng bộ SQLite -> Backend (Mỗi syncIntervalSeconds)
   const processOutboxSync = useCallback(async () => {
@@ -335,22 +452,46 @@ export function useTripGps(tripId?: string) {
           console.warn('[useTripGps] Command sync failed:', cmd.action, cmdErr?.message);
         }
       }
-      await pruneSyncedCommands(session.id);
 
-      // b. Xử lý các điểm GPS chưa đồng bộ (synced = 0)
-      const maxBatch = policy?.maxBatchSamples || 200;
-      const pendingSamples = await getPendingSamples(session.id, maxBatch);
-
+      // b. Xử lý upload các điểm GPS theo batch
+      const maxBatch = policy?.maxBatchSamples || 100;
+      for (const pendingSessionId of await getTripSessionsWithPendingSamples(tripId)) {
+      try {
+      const pendingSamples = await getPendingSamples(pendingSessionId, maxBatch);
       if (pendingSamples.length > 0) {
-        const res = await uploadGpsSamples(tripId, session.id, { samples: pendingSamples }, deviceId);
+        const uploadPayload: SamplesRequest = {
+          samples: pendingSamples.map((s) => ({
+            clientSampleId: s.clientSampleId.toLowerCase(),
+            recordedAt: new Date(s.recordedAt).toISOString(),
+            latitude: Number(s.latitude),
+            longitude: Number(s.longitude),
+            accuracyM: Math.max(0, Number(s.accuracyM)),
+            altitudeM: s.altitudeM != null ? Number(s.altitudeM) : null,
+            speedMps: s.speedMps != null ? Math.max(0, Number(s.speedMps)) : null,
+            headingDeg:
+              s.headingDeg != null
+                ? Math.min(359.99, Math.max(0, ((Number(s.headingDeg) % 360) + 360) % 360))
+                : null,
+          })),
+        };
 
-        const accepted = [...res.acceptedSampleIds, ...res.duplicateSampleIds];
-        await markSamplesAccepted(session.id, accepted);
+        const res = await uploadGpsSamples(tripId, pendingSessionId, uploadPayload, deviceId);
+        await markSamplesAccepted(pendingSessionId, [...res.acceptedSampleIds, ...res.duplicateSampleIds]);
+        if (res.rejectedSamples?.length) {
+          await markSamplesRejected(pendingSessionId, res.rejectedSamples);
+        }
 
-        if (res.rejectedSamples?.length > 0) {
-          await markSamplesRejected(session.id, res.rejectedSamples);
+        if (pendingSessionId === session.id && res.totalDistanceMeters != null) {
+          setSession((prev) => (prev ? { ...prev, totalDistanceMeters: res.totalDistanceMeters, sampleCount: res.sampleCount } : prev));
         }
       }
+
+      } catch (err) {
+        // An expired old session must not block uploads from the new recording.
+        console.warn('[useTripGps] Session sample sync failed:', pendingSessionId, err);
+      }
+      }
+      await pruneSyncedCommands(session.id);
     } catch (err: any) {
       console.warn('[useTripGps] Outbox sync error:', err?.message || err);
     } finally {
@@ -376,14 +517,21 @@ export function useTripGps(tripId?: string) {
     try {
       setLoading(true);
       setError(null);
+      const freshContext = await getGpsContext(tripId);
+      setContext(freshContext);
+      if (!freshContext.permissions.canRecord) throw new Error(freshContext.permissions.cannotRecordReason || 'Không thể ghi GPS.');
       const clientSessionId = generateUUID();
       const deviceId = await getOrCreateDeviceId();
 
       const res = await startGpsSession(tripId, { clientSessionId, deviceId }, deviceId);
       setSession(res.session);
       setPolicy(res.policy);
+      gpsProcessorRef.current.reset(Date.parse(res.session.startedAt));
 
       await saveLocalTripSession(res.session, res.policy);
+      setLiveRouteCoords([]);
+      setActualRoute(null);
+      getGpsContext(tripId).then(setContext).catch(() => {});
     } catch (err: any) {
       console.warn('[useTripGps] Start session error:', err?.message || err);
       setError(err?.message || 'Không thể bắt đầu phiên ghi GPS.');
@@ -399,6 +547,11 @@ export function useTripGps(tripId?: string) {
       const commandId = generateUUID();
       const deviceId = await getOrCreateDeviceId();
       const occurredAt = new Date().toISOString();
+
+      gpsProcessorRef.current.breakSegment();
+      if (simulatorRef.current) {
+        simulatorRef.current.pause();
+      }
 
       const res = await pauseGpsSession(
         tripId,
@@ -424,6 +577,10 @@ export function useTripGps(tripId?: string) {
       const deviceId = await getOrCreateDeviceId();
       const occurredAt = new Date().toISOString();
 
+      if (simulatorRef.current) {
+        simulatorRef.current.resume();
+      }
+
       const res = await resumeGpsSession(
         tripId,
         session.id,
@@ -448,30 +605,41 @@ export function useTripGps(tripId?: string) {
       const deviceId = await getOrCreateDeviceId();
       const occurredAt = new Date().toISOString();
 
+      if (simulatorRef.current) {
+        simulatorRef.current.reset();
+      }
+      gpsProcessorRef.current.reset();
+
       const res = await finishGpsSession(
         tripId,
         session.id,
         { commandId, expectedVersion: session.version, occurredAt, reason: 'USER_FINISHED' },
         deviceId
       );
-
       setSession(res.session);
       await updateLocalSessionStatus(session.id, 'STOPPED', res.session.version, res.session.endedAt);
+      await pruneCompletedSessionSamples(session.id);
 
-      // Thử lấy ActualRoute ngay nếu READY
-      if (res.resultStatus === 'READY') {
-        const route = await getMyActualRoute(tripId);
-        setActualRoute(route);
-        // Dọn dẹp các điểm thô đã đồng bộ xong
-        await pruneCompletedSessionSamples(session.id);
-      }
+      // Tải lại đường đi thực tế cuối cùng
+      getMyActualRoute(tripId).then(setActualRoute).catch(() => {});
+      getGpsContext(tripId).then(setContext).catch(() => {});
+      return true;
     } catch (err: any) {
       console.warn('[useTripGps] Finish session error:', err?.message || err);
       setError(err?.message || 'Lỗi khi kết thúc phiên.');
+      return false;
     } finally {
       setLoading(false);
     }
   }, [tripId, session]);
+
+  const toggleSimulation = useCallback((val?: boolean) => {
+    setIsSimulated((prev) => (typeof val === 'boolean' ? val : !prev));
+  }, []);
+
+  const toggleMapMatching = useCallback((val?: boolean) => {
+    setIsMapMatchingEnabled((prev) => (typeof val === 'boolean' ? val : !prev));
+  }, []);
 
   // 7. Computed Data
   const myMemberState = useMemo<MemberStateDto | null>(() => {
@@ -483,22 +651,6 @@ export function useTripGps(tripId?: string) {
     if (!gpsState) return [];
     return gpsState.members.filter((m) => m.userId !== gpsState.selfUserId);
   }, [gpsState]);
-
-  // Tuyến kế hoạch (Planned Route Geometry)
-  const plannedRouteCoords = useMemo(() => {
-    if (!context || !context.routePlans || context.routePlans.length === 0) return [];
-    const activePlan =
-      context.routePlans.find((p) => p.trailPlanId === context.activeTrailPlanId) ||
-      context.routePlans[0];
-    if (!activePlan?.geometry) return [];
-    if (activePlan.geometry.type === 'LineString') {
-      return activePlan.geometry.coordinates as [number, number][];
-    }
-    if (activePlan.geometry.type === 'MultiLineString') {
-      return activePlan.geometry.coordinates as [number, number][][];
-    }
-    return [];
-  }, [context]);
 
   // Checkpoints
   const checkpoints = useMemo(() => {
@@ -528,7 +680,25 @@ export function useTripGps(tripId?: string) {
   }, [myMemberState]);
 
   // Thống kê di chuyển
+  const [clockNow, setClockNow] = useState(Date.now());
+  useEffect(() => {
+    setClockNow(Date.now());
+    if (session?.status !== 'ACTIVE') return;
+    const timer = setInterval(() => setClockNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [session?.id, session?.status]);
+
   const stats = useMemo(() => {
+    const intervals = session?.recordingIntervals;
+    const durationMs = intervals?.reduce((sum, interval) => {
+      const end = interval.end ? Date.parse(interval.end)
+        : session?.status === 'ACTIVE' ? clockNow : Date.parse(session?.endedAt || interval.start);
+      return sum + Math.max(0, end - Date.parse(interval.start));
+    }, 0);
+    const seconds = Math.floor((durationMs ?? 0) / 1000);
+    const recordingTime = session && !intervals ? '--:--:--'
+      : [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60]
+          .map(value => String(value).padStart(2, '0')).join(':');
     const distanceM = session?.totalDistanceMeters ?? myMemberState?.session?.totalDistanceMeters ?? 0;
     const distanceKm = (distanceM / 1000).toFixed(2);
     const speedKmh = currentLocation?.speedMps != null ? (currentLocation.speedMps * 3.6).toFixed(1) : '0.0';
@@ -536,12 +706,13 @@ export function useTripGps(tripId?: string) {
     const accuracyM = currentLocation?.accuracyM != null ? Math.round(currentLocation.accuracyM) : 8;
 
     return {
+      recordingTime,
       distanceKm,
       speedKmh,
       altitudeM,
       accuracyM,
     };
-  }, [session, myMemberState, currentLocation]);
+  }, [session, myMemberState, currentLocation, clockNow]);
 
   return {
     context,
@@ -563,6 +734,12 @@ export function useTripGps(tripId?: string) {
     syncing,
     error,
     socketConnected,
+    isSimulated,
+    setIsSimulated,
+    toggleSimulation,
+    isMapMatchingEnabled,
+    setIsMapMatchingEnabled,
+    toggleMapMatching,
     startRecording,
     pauseRecording,
     resumeRecording,

@@ -19,6 +19,10 @@ import type {
  */
 
 /** GET /geo/trips/:tripId/gps/context */
+export async function endGpsTrip(tripId: string): Promise<{ tripId: string; tripStatus: 'COMPLETED'; completedAt: string }> {
+  return apiRequest(`/api/v1/geo/trips/${encodeURIComponent(tripId)}/gps/end-trip`, { method: 'POST' });
+}
+
 export async function getGpsContext(tripId: string): Promise<GpsContextResponse> {
   return apiRequest<GpsContextResponse>(`/api/v1/geo/trips/${encodeURIComponent(tripId)}/gps/context`);
 }
