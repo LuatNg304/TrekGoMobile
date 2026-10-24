@@ -102,6 +102,7 @@ export const Radius = {
   xl: 24,      // Signature 24px rounded card
   pill: 9999,  // Signature pill buttons per DESIGN-wise.md
   full: 9999,  // Signature pill buttons
+  pill: 9999,
 };
 
 export const Shadows = {

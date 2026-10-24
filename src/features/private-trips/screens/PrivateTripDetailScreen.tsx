@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { CancelTripModal } from "../components/CancelTripModal";
+import { DirectInviteModal } from "../components/DirectInviteModal";
 import { EditPrivateTripModal } from "../components/EditPrivateTripModal";
 import { InviteShareModal } from "../components/InviteShareModal";
 import { PrivateTripHero } from "../components/PrivateTripHero";
@@ -52,6 +53,7 @@ export function PrivateTripDetailScreen({
   // Modals state
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
+  const [showDirectInviteModal, setShowDirectInviteModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [revokingInvite, setRevokingInvite] = useState(false);
 
@@ -269,6 +271,31 @@ export function PrivateTripDetailScreen({
               <Text style={styles.roomButtonText}>Vào phòng chờ chuyến đi</Text>
             </TouchableOpacity>
 
+            {/* Direct Member Invitation via Email (M1–M4) */}
+            {isHost && trip.status === "OPEN" ? (
+              <View style={styles.inviteButtonRow}>
+                <TouchableOpacity
+                  style={styles.directInviteButton}
+                  onPress={() => setShowDirectInviteModal(true)}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="mail" size={17} color="#FFFFFF" />
+                  <Text style={styles.directInviteButtonText}>
+                    ✉️ Mời bạn bè qua Email
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.shareCodeButton}
+                  onPress={handleOpenInviteModal}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="link-outline" size={17} color="#054D28" />
+                  <Text style={styles.shareCodeButtonText}>Link / Mã Code</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
+
             {isHost && trip.status === "OPEN" && new Date(trip.startAt).getTime() > Date.now() ? (
               <TouchableOpacity
                 style={styles.editTripButton}
@@ -314,6 +341,15 @@ export function PrivateTripDetailScreen({
         onClose={() => setShowInviteModal(false)}
         onGenerateNewCode={handleRegenerateInvite}
         onRevoke={isHost ? handleRevokeInvite : undefined}
+      />
+
+      {/* Direct Email Invite Modal (M1–M4) */}
+      <DirectInviteModal
+        visible={showDirectInviteModal}
+        tripId={trip.id}
+        tripTitle={trip.title}
+        onClose={() => setShowDirectInviteModal(false)}
+        onInviteSentSuccess={() => void refetchMembers()}
       />
 
       {showEditModal && (
@@ -451,5 +487,41 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700",
     color: Colors.primaryDark,
+  },
+  inviteButtonRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  directInviteButton: {
+    flex: 1.5,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    paddingVertical: 13,
+    borderRadius: Radius.full,
+    backgroundColor: "#054D28",
+  },
+  directInviteButtonText: {
+    fontSize: 13.5,
+    fontWeight: "800",
+    color: "#FFFFFF",
+  },
+  shareCodeButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 13,
+    borderRadius: Radius.full,
+    backgroundColor: "#E2F6D5",
+    borderWidth: 1,
+    borderColor: "#A3E635",
+  },
+  shareCodeButtonText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#054D28",
   },
 });

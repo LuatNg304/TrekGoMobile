@@ -15,3 +15,6 @@ export * from "./TripRoomMemberItem";
 export * from "./TripRoomMemberList";
 export * from "./EditPrivateTripModal";
 export * from "./PurchaseTrailModal";
+export * from "./DirectInviteModal";
+export * from "./DirectInviteCard";
+

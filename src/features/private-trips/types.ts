@@ -238,3 +238,71 @@ export interface PurchaseTrailResponse {
     type?: string;
   } | null;
 }
+
+// ─── Direct Member Invitation Types (PR #86 / M1–M4) ─────────────────────────
+
+export type InvitationStatus =
+  | "PENDING"
+  | "ACCEPTED"
+  | "DECLINED"
+  | "REVOKED"
+  | "EXPIRED"
+  | "INVALIDATED";
+
+export type DeclineReason =
+  | "NOT_INTERESTED"
+  | "SCHEDULE_CONFLICT"
+  | "OTHER";
+
+export interface PrivateMemberInvitationItem {
+  id: string;
+  tripId: string;
+  status: InvitationStatus;
+  expiresAt: string;
+  createdAt: string;
+  reason: string | null;
+  version: number;
+  reservesCapacity: boolean;
+  recipientDisplay: string;
+  senderDisplay?: string;
+  trip?: {
+    id: string;
+    title: string;
+    startAt: string;
+    endAt: string;
+    status: string;
+    maxPax?: number;
+  };
+  actions?: {
+    canAccept: boolean;
+    canEnterRoom: boolean;
+    canDecline: boolean;
+    canRevoke: boolean;
+  };
+}
+
+export interface MemberInvitationsListResponse {
+  items: PrivateMemberInvitationItem[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
+
+export interface CreateMemberInvitationPayload {
+  recipientEmail: string;
+  expiresAt?: string;
+}
+
+export interface AcceptInvitationResponse {
+  invitationStatus: InvitationStatus;
+  resolutionReason: string | null;
+  tripId: string;
+  memberId: string | null;
+  membershipStatus: string | null;
+  membershipVersion: number | null;
+  canEnterRoom: boolean;
+  alreadyMember: boolean;
+  rejoined: boolean;
+}
+

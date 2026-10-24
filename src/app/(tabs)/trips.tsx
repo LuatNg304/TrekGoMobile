@@ -20,14 +20,16 @@ import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/features/auth/AuthContext";
 import { BookingCard } from "@/features/bookings/components";
 import { useMyBookings } from "@/features/bookings/hooks";
+import { DirectInviteCard } from "@/features/private-trips/components/DirectInviteCard";
 import { PrivateTripCard } from "@/features/private-trips/components/PrivateTripCard";
 import { useMyPrivateTrips } from "@/features/private-trips/hooks/useMyPrivateTrips";
+import { useMyReceivedInvitations } from "@/features/private-trips/hooks/useMyReceivedInvitations";
 import type { PrivateTrip } from "@/features/private-trips/types";
 import { TripCard } from "@/features/trips/components";
 import { usePublicTrips } from "@/features/trips/hooks";
 
 type MainTab = "MY_TRIPS" | "PUBLIC_TRIPS";
-type TripFilter = "UPCOMING" | "PENDING" | "HISTORY" | "PRIVATE";
+type TripFilter = "UPCOMING" | "PENDING" | "HISTORY" | "PRIVATE" | "INVITATIONS";
 
 const DIFFICULTY_OPTIONS = ["Tất cả", "EASY", "MEDIUM", "HARD", "EXTREME"];
 const DIFFICULTY_LABELS: Record<string, string> = {
@@ -75,6 +77,16 @@ export default function TripsScreen() {
   } = useMyPrivateTrips(true);
 
   const {
+    invitations: receivedInvitations,
+    loading: loadingInvitations,
+    acceptingId,
+    decliningId,
+    refetch: refetchInvitations,
+    accept: acceptInvitation,
+    decline: declineInvitation,
+  } = useMyReceivedInvitations();
+
+  const {
     trips: publicTripsList,
     loading: loadingPublicTrips,
     refresh: refreshPublicTrips,
@@ -88,9 +100,10 @@ export default function TripsScreen() {
       refetchBookings(),
       refreshPublicTrips(),
       refetchPrivateTrips(),
+      refetchInvitations(),
     ]);
     setRefreshing(false);
-  }, [refetchBookings, refreshPublicTrips, refetchPrivateTrips]);
+  }, [refetchBookings, refreshPublicTrips, refetchPrivateTrips, refetchInvitations]);
 
   const params = useLocalSearchParams<{ tab?: string; filter?: string }>();
 
@@ -104,6 +117,8 @@ export default function TripsScreen() {
 
     if (params.filter === "PRIVATE") {
       setActiveFilter("PRIVATE");
+    } else if (params.filter === "INVITATIONS") {
+      setActiveFilter("INVITATIONS");
     } else if (params.filter === "UPCOMING") {
       setActiveFilter("UPCOMING");
     } else if (params.filter === "PENDING") {
@@ -113,11 +128,12 @@ export default function TripsScreen() {
     }
   }, [params.tab, params.filter]);
 
-  // Refetch private trips & bookings automatically on focus (e.g. after joining a trip)
+  // Refetch private trips, bookings & invitations automatically on focus
   useFocusEffect(
     useCallback(() => {
       void refetchBookings();
       void refetchPrivateTrips();
+      void refetchInvitations();
       if (params.tab === "PUBLIC_TRIPS") {
         setMainTab("PUBLIC_TRIPS");
       } else if (params.tab === "MY_TRIPS") {
@@ -125,8 +141,10 @@ export default function TripsScreen() {
       }
       if (params.filter === "PRIVATE") {
         setActiveFilter("PRIVATE");
+      } else if (params.filter === "INVITATIONS") {
+        setActiveFilter("INVITATIONS");
       }
-    }, [refetchBookings, refetchPrivateTrips, params.tab, params.filter]),
+    }, [refetchBookings, refetchPrivateTrips, refetchInvitations, params.tab, params.filter]),
   );
 
   const displayedPublicTrips = useMemo(() => {
@@ -181,6 +199,11 @@ export default function TripsScreen() {
         (t) => t.status === "COMPLETED" || t.status === "CANCELLED",
       ),
     [privateTrips],
+  );
+
+  const pendingInvitations = useMemo(
+    () => receivedInvitations.filter((inv) => inv.status === "PENDING"),
+    [receivedInvitations],
   );
 
   const [activeFilter, setActiveFilter] = useState<TripFilter>(
@@ -364,6 +387,52 @@ export default function TripsScreen() {
             >
               <Text style={[styles.countBadgeText, { fontSize: 10 }]}>
                 {privateTrips.length}
+              </Text>
+            </View>
+          )}
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            styles.subFilterChip,
+            activeFilter === "INVITATIONS" && styles.subFilterChipActive,
+            activeFilter !== "INVITATIONS" && { backgroundColor: Colors.secondaryContainer },
+            pendingInvitations.length > 0 && { borderColor: Colors.secondary, borderWidth: 1 },
+            { gap: 5 },
+          ]}
+          onPress={() => setActiveFilter("INVITATIONS")}
+        >
+          <Ionicons
+            name="mail"
+            size={13}
+            color={activeFilter === "INVITATIONS" ? Colors.onPrimary : Colors.secondary}
+          />
+          <Text
+            style={[
+              styles.subFilterText,
+              activeFilter === "INVITATIONS" && styles.subFilterTextActive,
+              activeFilter !== "INVITATIONS" && { color: Colors.secondary, fontWeight: "700" },
+            ]}
+          >
+            Hộp thư mời
+          </Text>
+          {pendingInvitations.length > 0 && (
+            <View
+              style={[
+                styles.countBadge,
+                {
+                  backgroundColor:
+                    activeFilter === "INVITATIONS"
+                      ? "rgba(255,255,255,0.3)"
+                      : Colors.secondary,
+                  minWidth: 18,
+                  height: 18,
+                  paddingHorizontal: 4,
+                },
+              ]}
+            >
+              <Text style={[styles.countBadgeText, { fontSize: 10 }]}>
+                {pendingInvitations.length}
               </Text>
             </View>
           )}
@@ -803,6 +872,28 @@ export default function TripsScreen() {
 
     return (
       <View style={{ paddingHorizontal: 16 }}>
+        {/* Pending Invitations Banner shortcut */}
+        {pendingInvitations.length > 0 && (
+          <TouchableOpacity
+            style={styles.invitationBanner}
+            onPress={() => setActiveFilter("INVITATIONS")}
+            activeOpacity={0.88}
+          >
+            <View style={styles.invitationBannerIcon}>
+              <Ionicons name="mail-unread" size={18} color={Colors.primaryDark} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.invitationBannerTitle}>
+                Bạn có {pendingInvitations.length} lời mời tham gia chuyến riêng
+              </Text>
+              <Text style={styles.invitationBannerSub}>
+                Bấm vào để xem và phản hồi tham gia ngay
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={Colors.primaryDark} />
+          </TouchableOpacity>
+        )}
+
         {/* Quick Action Bar for Private Trips */}
         <View style={styles.privateActionBar}>
           <TouchableOpacity
@@ -842,6 +933,77 @@ export default function TripsScreen() {
               }
             />
           </View>
+        ))}
+      </View>
+    );
+  }
+
+  function renderInvitationsInbox() {
+    if (loadingInvitations && receivedInvitations.length === 0) {
+      return (
+        <View style={[styles.emptyState, { paddingVertical: 40 }]}>
+          <ActivityIndicator size="large" color={Colors.primaryDark} />
+          <Text style={[styles.emptyDescription, { marginTop: 12 }]}>
+            Đang tải hộp thư lời mời...
+          </Text>
+        </View>
+      );
+    }
+
+    if (receivedInvitations.length === 0) {
+      return (
+        <View style={styles.emptyState}>
+          <View style={styles.emptyIcon}>
+            <Ionicons
+              name="mail-unread-outline"
+              size={34}
+              color={Colors.primaryDark}
+            />
+          </View>
+          <Text style={styles.emptyTitle}>Hộp thư lời mời trống</Text>
+          <Text style={styles.emptyDescription}>
+            Khi bạn bè hoặc Host gửi lời mời tham gia chuyến đi riêng tư đến email của bạn, lời mời sẽ hiển thị tại đây.
+          </Text>
+        </View>
+      );
+    }
+
+    return (
+      <View style={{ paddingHorizontal: 16 }}>
+        {pendingInvitations.length > 0 && (
+          <View style={styles.invitationInboxNotice}>
+            <Ionicons name="sparkles" size={16} color={Colors.primaryDark} />
+            <Text style={styles.invitationInboxNoticeText}>
+              Bạn có <Text style={{ fontWeight: "800" }}>{pendingInvitations.length}</Text> lời mời đang chờ bạn phản hồi.
+            </Text>
+          </View>
+        )}
+
+        {receivedInvitations.map((inv) => (
+          <DirectInviteCard
+            key={inv.id}
+            invitation={inv}
+            isAccepting={acceptingId === inv.id}
+            isDeclining={decliningId === inv.id}
+            onAccept={async () => {
+              const res = await acceptInvitation(inv.id);
+              if (res?.canEnterRoom && res.tripId) {
+                router.push({
+                  pathname: "/private-trips/[id]/room",
+                  params: { id: res.tripId },
+                } as any);
+              }
+            }}
+            onDecline={async (_id, reason) => {
+              await declineInvitation(inv.id, reason);
+            }}
+            onEnterRoom={(targetTripId) => {
+              router.push({
+                pathname: "/private-trips/[id]/room",
+                params: { id: targetTripId },
+              } as any);
+            }}
+          />
         ))}
       </View>
     );
@@ -928,6 +1090,7 @@ export default function TripsScreen() {
             {renderFilters()}
             {activeFilter === "UPCOMING" && renderUpcomingTrips()}
             {activeFilter === "PRIVATE" && renderPrivateTrips()}
+            {activeFilter === "INVITATIONS" && renderInvitationsInbox()}
             {activeFilter === "PENDING" && renderPendingTrips()}
             {activeFilter === "HISTORY" && renderHistory()}
           </>
@@ -1801,5 +1964,50 @@ const styles = StyleSheet.create({
     color: Colors.onSurfaceVariant,
     marginTop: 2,
     lineHeight: 15,
+  },
+  invitationBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: Colors.secondaryContainer,
+    borderRadius: Radius.lg,
+    padding: 12,
+    marginBottom: 12,
+    gap: 10,
+    borderWidth: 1,
+    borderColor: Colors.secondaryFixed,
+  },
+  invitationBannerIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.surfaceContainerLowest,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  invitationBannerTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: Colors.secondary,
+  },
+  invitationBannerSub: {
+    fontSize: 11,
+    color: Colors.onSurfaceVariant,
+    marginTop: 1,
+  },
+  invitationInboxNotice: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: Colors.primaryPale,
+    borderRadius: Radius.md,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 14,
+    gap: 8,
+  },
+  invitationInboxNoticeText: {
+    fontSize: 12,
+    color: Colors.primaryDark,
+    fontWeight: "500",
+    flex: 1,
   },
 });

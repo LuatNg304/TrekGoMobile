@@ -13,6 +13,7 @@ import {
   View
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { DirectInviteModal } from "../components/DirectInviteModal";
 import { InviteShareModal } from "../components/InviteShareModal";
 import { TripRoomActions } from "../components/TripRoomActions";
 import { TripRoomHeader } from "../components/TripRoomHeader";
@@ -62,6 +63,7 @@ export function PrivateTripRoomScreen({
 
   const [revokingInvite, setRevokingInvite] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
+  const [showDirectInviteModal, setShowDirectInviteModal] = useState(false);
 
   const loading = loadingRoom || loadingMembers;
 
@@ -315,11 +317,12 @@ export function PrivateTripRoomScreen({
           permissions={roomData.permissions}
           leaving={leavingTrip}
           onInvite={handleOpenInvite}
+          onDirectInvite={() => setShowDirectInviteModal(true)}
           onLeave={handleLeaveTrip}
         />
       </ScrollView>
 
-      {/* Invite Modal */}
+      {/* Invite Modal (Link / Code) */}
       <InviteShareModal
         visible={showInviteModal}
         inviteCode={inviteData?.inviteCode}
@@ -332,6 +335,15 @@ export function PrivateTripRoomScreen({
         onClose={() => setShowInviteModal(false)}
         onGenerateNewCode={handleRegenerateInvite}
         onRevoke={roomData.viewer.isHost ? handleRevokeInvite : undefined}
+      />
+
+      {/* Direct Email Invite Modal (M1–M4) */}
+      <DirectInviteModal
+        visible={showDirectInviteModal}
+        tripId={tripId || roomData.trip.id}
+        tripTitle={roomData.trip.title}
+        onClose={() => setShowDirectInviteModal(false)}
+        onInviteSentSuccess={reloadAll}
       />
     </SafeAreaView>
   );

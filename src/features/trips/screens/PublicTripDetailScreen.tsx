@@ -4,6 +4,7 @@ import { BookingParticipantsModal } from "@/features/bookings/components";
 import { bookingApiService } from "@/features/bookings/services/booking.api";
 import type { BookingDetail, BookingSummary } from "@/features/bookings/types";
 import {
+  TripCostBreakdown,
   TripHeroSection,
   TripLeaderInfo,
   TripPickupInfo,
@@ -160,6 +161,14 @@ export function PublicTripDetailScreen({
     );
   }
 
+  const handleSafeBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace("/(tabs)/trips" as any);
+    }
+  };
+
   if (error || !trip) {
     return (
       <SafeAreaView style={styles.loadingContainer}>
@@ -170,7 +179,7 @@ export function PublicTripDetailScreen({
         <View style={{ flexDirection: "row", gap: 12, marginTop: 8 }}>
           <TouchableOpacity
             style={[styles.backBtn, { width: "auto", paddingHorizontal: 16 }]}
-            onPress={() => router.back()}
+            onPress={handleSafeBack}
           >
             <Text style={{ fontSize: 13, fontWeight: "700", color: Colors.onSurface }}>
               Quay lại
@@ -199,7 +208,7 @@ export function PublicTripDetailScreen({
         <View style={styles.navBar}>
           <TouchableOpacity
             style={styles.backBtn}
-            onPress={() => router.back()}
+            onPress={handleSafeBack}
             activeOpacity={0.8}
           >
             <Ionicons name="arrow-back" size={20} color={Colors.onSurface} />
@@ -224,6 +233,9 @@ export function PublicTripDetailScreen({
           routes={trip.routes}
           checkpoints={trip.checkpoints}
         />
+
+        {/* 5. Transparent Cost Breakdown (TG-PTR-PRICING-01) */}
+        <TripCostBreakdown currency={trip.currency} />
 
         {/* Bottom padding for fixed bar */}
         <View style={{ height: 100 }} />
