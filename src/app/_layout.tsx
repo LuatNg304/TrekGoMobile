@@ -129,7 +129,6 @@ function RootNavigator() {
     <View style={styles.container}>
       <StatusBar style="dark" />
       <Stack
-        initialRouteName="index"
         screenOptions={{
           headerShown: false,
           contentStyle: { backgroundColor: Colors.surface },

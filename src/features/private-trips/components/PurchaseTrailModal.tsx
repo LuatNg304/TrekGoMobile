@@ -49,17 +49,25 @@ export function PurchaseTrailModal({
   const [verifying, setVerifying] = useState(false);
   const [showWebView, setShowWebView] = useState(false);
   const [webViewUrl, setWebViewUrl] = useState<string | null>(null);
-  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+  const appStateRef = useRef<string>(AppState.currentState ?? "");
 
-  // Check access whenever modal opens with trailId
+  // Check access whenever modal opens with trailId.
+  // Reset is deferred to avoid a synchronous state cascade inside the effect.
   useEffect(() => {
     if (visible && trailId) {
       void checkAccess(trailId);
-    } else {
+      return;
+    }
+
+    const resetTimer = setTimeout(() => {
       setShowWebView(false);
       setWebViewUrl(null);
       void reset();
-    }
+    }, 0);
+
+    return () => {
+      clearTimeout(resetTimer);
+    };
   }, [visible, trailId, checkAccess, reset]);
 
   // Listen to AppState: when returning to the app, auto-check payment status

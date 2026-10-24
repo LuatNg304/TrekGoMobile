@@ -189,7 +189,7 @@ export function PublicTripsExploreScreen() {
             <View style={styles.footerLoader}>
               <ActivityIndicator size="small" color={Colors.primary} />
             </View>
-          ) : null
+          ) : undefined
         }
       />
     </SafeAreaView>

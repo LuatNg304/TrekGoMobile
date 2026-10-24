@@ -170,7 +170,7 @@ export default function PersonalTrailEditScreen() {
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.headerBar}>
-          <TouchableOpacity style={styles.headerButton} onPress={router.back}>
+          <TouchableOpacity style={styles.headerButton} onPress={() => router.back()}>
             <Ionicons name="arrow-back" size={21} color={Colors.onSurface} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Chỉnh sửa Personal Trail</Text>
@@ -206,7 +206,7 @@ export default function PersonalTrailEditScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.headerBar}>
-        <TouchableOpacity style={styles.headerButton} onPress={router.back}>
+        <TouchableOpacity style={styles.headerButton} onPress={() => router.back()}>
           <Ionicons name="arrow-back" size={21} color={Colors.onSurface} />
         </TouchableOpacity>
 

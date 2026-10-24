@@ -95,7 +95,7 @@ export default function CommunityCreatePostScreen() {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <View style={styles.headerBar}>
-          <TouchableOpacity style={styles.headerButton} onPress={router.back}>
+          <TouchableOpacity style={styles.headerButton} onPress={() => router.back()}>
             <Ionicons name="close" size={23} color={Colors.onSurface} />
           </TouchableOpacity>
           <View style={styles.headerTitleBox}>

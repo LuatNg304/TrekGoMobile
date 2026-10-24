@@ -242,7 +242,7 @@ export function PaymentWebViewModal({
             onShouldStartLoadWithRequest={(request) => {
               return handleUrlChange(request.url);
             }}
-            onNavigationStateChange={(navState: WebViewNavigation) => {
+            onNavigationStateChange={(navState: WebViewNavigation): void => {
               handleUrlChange(navState.url);
             }}
             javaScriptEnabled={true}

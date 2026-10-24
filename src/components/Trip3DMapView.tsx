@@ -1,5 +1,5 @@
 import { MAPTILER_STYLE_URL } from "@/constants/map";
-import React, { useCallback, useMemo, useRef } from "react";
+import React, { useCallback, useMemo } from "react";
 import {
   ActivityIndicator,
   Platform,
@@ -201,7 +201,6 @@ export function Trip3DMapView({
   height = 350,
   fullScreen = false,
 }: Trip3DMapViewProps) {
-  const webviewRef = useRef<WebView>(null);
 
   const html = useMemo(() => {
     if (!trailData) return null;
@@ -247,7 +246,6 @@ export function Trip3DMapView({
   return (
     <View style={containerStyle}>
       <WebView
-        ref={webviewRef}
         originWhitelist={["*"]}
         source={{ html: html! }}
         style={styles.webview}

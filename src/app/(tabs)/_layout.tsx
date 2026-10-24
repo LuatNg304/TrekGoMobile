@@ -143,12 +143,17 @@ function TabIcon({
   activeIcon: keyof typeof Ionicons.glyphMap;
   inactiveIcon: keyof typeof Ionicons.glyphMap;
 }) {
+  const iconColor =
+    typeof color === "number" || color == null
+      ? Colors.onSurface
+      : color;
+
   return (
     <View style={[styles.iconContainer, focused && styles.iconActiveContainer]}>
       <Ionicons
         name={focused ? activeIcon : inactiveIcon}
         size={19}
-        color={focused ? Colors.onPrimary : color}
+        color={focused ? Colors.onPrimary : iconColor}
       />
     </View>
   );
