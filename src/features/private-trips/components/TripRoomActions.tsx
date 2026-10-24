@@ -11,6 +11,7 @@ export interface TripRoomActionsProps {
   permissions?: TripRoomPermissions;
   leaving?: boolean;
   onInvite: () => void;
+  onDirectInvite?: () => void;
   onLeave?: () => void;
   onLeaveSuccess?: () => void;
 }
@@ -20,6 +21,7 @@ export function TripRoomActions({
   permissions,
   leaving = false,
   onInvite,
+  onDirectInvite,
   onLeave,
 }: TripRoomActionsProps) {
   const canInvite = Boolean(isHost && permissions?.canInvite);
@@ -29,14 +31,27 @@ export function TripRoomActions({
     <View style={styles.container}>
       {/* Host actions */}
       {canInvite ? (
-        <TouchableOpacity
-          style={styles.primaryButton}
-          onPress={() => onInvite?.()}
-          activeOpacity={0.8}
-        >
-          <Ionicons name="person-add" size={18} color="#FFFFFF" />
-          <Text style={styles.primaryButtonText}>Mời thêm bạn bè</Text>
-        </TouchableOpacity>
+        <View style={styles.hostActionRow}>
+          <TouchableOpacity
+            style={styles.directInviteButton}
+            onPress={() => onDirectInvite?.()}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="mail" size={17} color="#FFFFFF" />
+            <Text style={styles.directInviteButtonText}>
+              ✉️ Mời qua Email
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.codeInviteButton}
+            onPress={() => onInvite?.()}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="link-outline" size={17} color="#054D28" />
+            <Text style={styles.codeInviteButtonText}>Link / Mã Code</Text>
+          </TouchableOpacity>
+        </View>
       ) : null}
 
       {/* Member actions */}
@@ -105,5 +120,41 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "700",
     color: "#DC2626",
+  },
+  hostActionRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  directInviteButton: {
+    flex: 1.4,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    paddingVertical: 14,
+    borderRadius: Radius.full,
+    backgroundColor: "#054D28",
+  },
+  directInviteButtonText: {
+    fontSize: 13.5,
+    fontWeight: "800",
+    color: "#FFFFFF",
+  },
+  codeInviteButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 14,
+    borderRadius: Radius.full,
+    backgroundColor: "#E2F6D5",
+    borderWidth: 1,
+    borderColor: "#A3E635",
+  },
+  codeInviteButtonText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#054D28",
   },
 });

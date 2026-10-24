@@ -72,6 +72,7 @@ export function LeaderTripEditScreen() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [capacity, setCapacity] = useState(15);
+  const [minPax, setMinPax] = useState(5);
   const [price, setPrice] = useState("2850000");
   const [priceExplanation, setPriceExplanation] = useState("");
 
@@ -92,6 +93,7 @@ export function LeaderTripEditScreen() {
       setStartDate(formatIsoToVnDate(res.startAt));
       setEndDate(formatIsoToVnDate(res.endAt));
       setCapacity(res.capacity || 15);
+      setMinPax(res.minPax || 5);
       setPrice(String(res.price || res.pricePerPax || "2850000").replace(/\D/g, ""));
       setPriceExplanation(res.priceExplanation || "");
     } catch (err: any) {
