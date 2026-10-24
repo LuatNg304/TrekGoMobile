@@ -751,7 +751,16 @@ export default function HomeScreen() {
 
               <TouchableOpacity
                 style={styles.navLiveBtn}
-                onPress={() => router.push("/navigation")}
+                onPress={() =>
+                  router.push({
+                    pathname: "/navigation",
+                    params: {
+                      tripId: activeTrip?.id,
+                      tripTitle: activeTrip?.name,
+                      tripType: "PUBLIC",
+                    },
+                  })
+                }
                 activeOpacity={0.85}
               >
                 <Ionicons
@@ -933,7 +942,16 @@ export default function HomeScreen() {
         visible={tripPrepVisible}
         trip={activeTrip}
         onClose={() => setTripPrepVisible(false)}
-        onStartNavigation={() => router.push("/navigation")}
+        onStartNavigation={() =>
+          router.push({
+            pathname: "/navigation",
+            params: {
+              tripId: activeTrip?.id,
+              tripTitle: activeTrip?.name,
+              tripType: "PUBLIC",
+            },
+          })
+        }
       />
 
       <CreatePrivateTripModal

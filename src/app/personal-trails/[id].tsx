@@ -509,7 +509,6 @@ export default function PersonalTrailDetailScreen() {
                     ? [trail.gpsRoute[0][0], trail.gpsRoute[0][1]]
                     : [108.529, 11.583]
               }
-              is3D={true}
               dragRotate={true}
               onMapReady={handleMapReady}
               plannedRoute={

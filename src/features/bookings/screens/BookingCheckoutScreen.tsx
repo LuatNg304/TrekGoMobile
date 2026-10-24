@@ -1,3 +1,4 @@
+import { TripGpsButton } from "@/components/trip/TripGpsButton";
 import { Colors, Radius, Shadows } from "@/constants/theme";
 import {
   CancelBookingModal,
@@ -346,6 +347,16 @@ export function BookingCheckoutScreen({
             </View>
           ) : null}
         </View>
+
+        {isConfirmed && booking.trip?.id && (
+          <View style={{ marginBottom: 16 }}>
+            <TripGpsButton
+              tripId={booking.trip.id}
+              tripType="PUBLIC"
+              tripTitle={booking.trip.title}
+            />
+          </View>
+        )}
 
         {/* Transport Section (Only visible when CONFIRMED) */}
         {isConfirmed && booking.transport && booking.transport.length > 0 ? (

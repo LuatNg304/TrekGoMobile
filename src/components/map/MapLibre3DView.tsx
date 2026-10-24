@@ -39,6 +39,17 @@ export type MapRouteCoordinates =
   | [number, number, number?][]
   | [number, number, number?][][];
 
+export interface MapGroupMember {
+  userId: string;
+  fullName: string;
+  avatarUrl?: string | null;
+  tripRole: 'HOST' | 'LEADER' | 'MEMBER';
+  locationStatus: 'NO_DATA' | 'LIVE' | 'STALE' | 'OFFLINE' | 'PAUSED' | 'STOPPED';
+  latitude: number;
+  longitude: number;
+  isSelf?: boolean;
+}
+
 export interface MapLibre3DViewProps {
   height?: number;
   center?: [number, number]; // [lng, lat]
@@ -52,13 +63,17 @@ export interface MapLibre3DViewProps {
   traveledRoute?: MapRouteCoordinates;
   currentPosition?: MapCoordinate | null;
   checkpoints?: MapCheckpoint[];
+  groupMembers?: MapGroupMember[];
   showEndpoints?: boolean; // Tự động hiển thị mốc START và END tại điểm đầu và điểm cuối của route vẽ
+  showControls?: boolean; // Hiển thị các nút điều khiển mặc định (3D, La bàn, Định vị) của bản đồ
   interactive?: boolean;
   dragRotate?: boolean;
   followUser?: boolean; // Tự động trượt camera bám theo GPS (giữ nguyên mức zoom)
   autoCenterOnUser?: boolean;
   onMapReady?: () => void;
   onCheckpointPress?: (checkpointId: string) => void;
+  onMemberPress?: (userId: string, fullName: string) => void;
+  onBearingChange?: (bearing: number) => void;
   onUserInteraction?: () => void; // Người dùng chủ động chạm/vuốt/zoom bản đồ
   onCompassPress?: () => void; // Người dùng bấm la bàn (reset hướng Bắc)
   onLocatePress?: () => void; // Người dùng bấm nút định vị (zoom lại vị trí người dùng)
@@ -82,22 +97,26 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
       height,
       center = [108.529, 11.5831], // Mặc định Lâm Đồng / Tà Năng
       zoom = 13.5,
-      minZoom = 10,
+      minZoom = 5,
       maxZoom = 18,
-      pitch = 60,
-      bearing = -20,
-      is3D = true,
+      pitch = 0,        // <-- Đổi thành 0 độ (góc nhìn 2D thẳng)
+      bearing = 0,      // <-- Hướng thẳng về phía Bắc
+      is3D = false,     // <-- Đổi mặc định thành 2D
       plannedRoute = [],
       traveledRoute = [],
       currentPosition = null,
       checkpoints = [],
+      groupMembers = [],
       showEndpoints = true,
+      showControls = true,
       interactive = true,
       dragRotate = true, // Cho phép xoay tròn 360 độ ở cả 2D và 3D để quan sát địa hình mọi hướng
       followUser = false,
       autoCenterOnUser = false,
       onMapReady,
       onCheckpointPress,
+      onMemberPress,
+      onBearingChange,
       onUserInteraction,
       onCompassPress,
       onLocatePress,
@@ -179,13 +198,13 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
       if (!isLoaded) return;
       const totalPoints =
         Array.isArray(traveledRoute) &&
-        traveledRoute.length > 0 &&
-        Array.isArray(traveledRoute[0]) &&
-        Array.isArray((traveledRoute[0] as any)[0])
+          traveledRoute.length > 0 &&
+          Array.isArray(traveledRoute[0]) &&
+          Array.isArray((traveledRoute[0] as any)[0])
           ? (traveledRoute as any[][]).reduce(
-              (acc, seg) => acc + (Array.isArray(seg) ? seg.length : 0),
-              0,
-            )
+            (acc, seg) => acc + (Array.isArray(seg) ? seg.length : 0),
+            0,
+          )
           : traveledRoute?.length || 0;
 
       if (totalPoints !== prevTraveledCount.current) {
@@ -211,6 +230,14 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
         updateCheckpoints(${JSON.stringify(checkpoints)});
       `);
     }, [checkpoints, isLoaded]);
+
+    // Khi groupMembers thay đổi
+    useEffect(() => {
+      if (!isLoaded) return;
+      runInMap(`
+        updateGroupMembers(${JSON.stringify(groupMembers || [])});
+      `);
+    }, [groupMembers, isLoaded]);
 
     // Khi vị trí hiện tại thay đổi -> Cập nhật vị trí marker và pan camera nếu followUser = true (giữ nguyên zoom)
     const hasCenteredInitialUser = useRef(false);
@@ -243,10 +270,14 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
           onMapReady?.();
         } else if (data.type === "CHECKPOINT_CLICK") {
           onCheckpointPress?.(data.id);
+        } else if (data.type === "MEMBER_CLICK") {
+          onMemberPress?.(data.userId, data.fullName);
         } else if (data.type === "USER_INTERACTION") {
           onUserInteraction?.();
         } else if (data.type === "BEARING_CHANGE") {
-          setCurrentBearing(Math.round(data.bearing || 0));
+          const b = Math.round(data.bearing || 0);
+          setCurrentBearing(b);
+          onBearingChange?.(b);
         } else if (data.type === "LOG") {
           console.warn("[MapLibre3DView WebView]", data.message);
         }
@@ -356,6 +387,11 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
     .maplibregl-popup-tip {
       border-top-color: #0c2000 !important;
     }
+    /* Dời cụm nút chữ "i" (Attribution Control) lên cao để không bị dashboard đáy che */
+    .maplibregl-ctrl-bottom-right {
+      bottom: 15px !important;
+      right: 10px !important;
+    }
   </style>
 </head>
 <body>
@@ -368,6 +404,7 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
 
     const map = new maplibregl.Map({
       container: 'map',
+      attributionControl: false,
       style: ${JSON.stringify(MAPTILER_STYLE_URL)},
       center: INITIAL_CENTER,
       zoom: INITIAL_ZOOM,
@@ -446,6 +483,7 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
     };
 
     let checkpointMarkers = [];
+    let groupMemberMarkers = {};
     let startMarker = null;
     let endMarker = null;
     let userMarker = null;
@@ -700,6 +738,81 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
       });
     };
 
+    window.updateGroupMembers = function(members) {
+      var activeIds = new Set((members || []).map(function(m) { return m.userId; }));
+      Object.keys(groupMemberMarkers).forEach(function(id) {
+        if (!activeIds.has(id)) {
+          groupMemberMarkers[id].remove();
+          delete groupMemberMarkers[id];
+        }
+      });
+
+      (members || []).forEach(function(m) {
+        if (!m.latitude || !m.longitude || m.isSelf) {
+          if (groupMemberMarkers[m.userId]) {
+            groupMemberMarkers[m.userId].remove();
+            delete groupMemberMarkers[m.userId];
+          }
+          return;
+        }
+
+        var statusColor = m.locationStatus === 'LIVE' ? '#2ead4b' : (m.locationStatus === 'PAUSED' || m.locationStatus === 'STALE') ? '#ffd11a' : '#868685';
+        var roleBorder = m.tripRole === 'LEADER' ? '2.5px solid #ffd11a' : (m.tripRole === 'HOST' ? '2.5px solid #9fe870' : '2px solid #ffffff');
+        var initial = (m.fullName || 'U').charAt(0).toUpperCase();
+
+        if (!groupMemberMarkers[m.userId]) {
+          var el = document.createElement('div');
+          el.style.width = '32px';
+          el.style.height = '32px';
+          el.style.borderRadius = '50%';
+          el.style.background = '#0e0f0c';
+          el.style.color = '#ffffff';
+          el.style.display = 'flex';
+          el.style.alignItems = 'center';
+          el.style.justifyContent = 'center';
+          el.style.fontSize = '13px';
+          el.style.fontWeight = '700';
+          el.style.cursor = 'pointer';
+          el.style.boxShadow = '0 2px 8px rgba(0,0,0,0.4)';
+          el.style.position = 'relative';
+          el.style.border = roleBorder;
+
+          var dot = document.createElement('div');
+          dot.style.position = 'absolute';
+          dot.style.bottom = '-2px';
+          dot.style.right = '-2px';
+          dot.style.width = '10px';
+          dot.style.height = '10px';
+          dot.style.borderRadius = '50%';
+          dot.style.border = '1.5px solid #ffffff';
+          dot.style.background = statusColor;
+          el.appendChild(dot);
+
+          var label = document.createElement('span');
+          label.innerText = initial;
+          el.appendChild(label);
+
+          el.onclick = function() {
+            if (window.ReactNativeWebView) {
+              window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: 'MEMBER_CLICK',
+                userId: m.userId,
+                fullName: m.fullName
+              }));
+            }
+          };
+
+          var marker = new maplibregl.Marker({ element: el })
+            .setLngLat([m.longitude, m.latitude])
+            .addTo(map);
+
+          groupMemberMarkers[m.userId] = marker;
+        } else {
+          groupMemberMarkers[m.userId].setLngLat([m.longitude, m.latitude]);
+        }
+      });
+    };
+
     window.flyTo = function(center, zoom) {
       map.flyTo({ center: center, zoom: zoom || 14, duration: 1200 });
     };
@@ -879,7 +992,7 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
         )}
 
         {/* Tactical Map HUD Overlays */}
-        {interactive && (
+        {interactive && showControls && (
           <View style={styles.hudTopRight}>
             <TouchableOpacity
               style={[styles.hudButton, is3DMode && styles.hudButtonActive]}
@@ -939,9 +1052,7 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
           </View>
         )}
 
-        <View style={styles.hudBottomLeft}>
-          <Text style={styles.watermarkText}>TREKGO 3D · SATELLITE & DEM</Text>
-        </View>
+
       </View>
     );
   },
