@@ -418,6 +418,22 @@ export function LeaderTripDetailScreen() {
 
           {trip.status !== "DRAFT" && (
             <TouchableOpacity
+              style={[styles.toolBtn, styles.toolBtnCheckIn]}
+              onPress={() =>
+                router.push({
+                  pathname: "/field-operations/leader-checkin" as any,
+                  params: { tripId: trip.id },
+                })
+              }
+              activeOpacity={0.8}
+            >
+              <Ionicons name="qr-code-outline" size={15} color="#163300" />
+              <Text style={styles.toolBtnCheckInText}>Điểm danh QR</Text>
+            </TouchableOpacity>
+          )}
+
+          {trip.status !== "DRAFT" && (
+            <TouchableOpacity
               style={[styles.toolBtn, styles.toolBtnStart]}
               onPress={() => router.push("/field-operations/leader-pretrip" as any)}
               activeOpacity={0.8}
@@ -1268,6 +1284,15 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "800",
     color: "#ffffff",
+  },
+  toolBtnCheckIn: {
+    backgroundColor: "#9fe870",
+    borderColor: "#82d453",
+  },
+  toolBtnCheckInText: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: "#163300",
   },
   toolBtnStart: {
     backgroundColor: "#0369a1",

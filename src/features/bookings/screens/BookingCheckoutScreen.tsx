@@ -16,6 +16,7 @@ import {
   bookingApiService,
 } from "@/features/bookings/services/booking.api";
 import type { PaymentGateway } from "@/features/bookings/types";
+import { CheckInQrCard } from "@/features/check-in/components/CheckInQrCard";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
@@ -301,6 +302,9 @@ export function BookingCheckoutScreen({
             </View>
           </View>
         ) : null}
+
+        {/* QR điểm danh (chỉ hiển thị khi đã xác nhận) */}
+        {isConfirmed ? <CheckInQrCard booking={booking} /> : null}
 
         {/* Trip Overview Card */}
         <View style={styles.card}>
