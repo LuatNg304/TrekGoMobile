@@ -1,4 +1,5 @@
 import { Colors, Radius } from "@/constants/theme";
+import { TripGpsButton } from "@/components/trip/TripGpsButton";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useState } from "react";
@@ -288,6 +289,17 @@ export function PrivateTripRoomScreen({
       >
         {/* Header Summary */}
         <TripRoomHeader roomData={roomData} />
+
+        {tripId && roomData.trip.status !== "CANCELLED" && (
+          <View style={{ marginVertical: 16 }}>
+            <TripGpsButton
+              tripStatus={roomData.trip.status}
+              tripId={tripId}
+              tripType="PRIVATE"
+              tripTitle={roomData.trip.title}
+            />
+          </View>
+        )}
 
         {/* Member List */}
         <TripRoomMemberList

@@ -1103,7 +1103,16 @@ export default function TripsScreen() {
         visible={prepModalVisible}
         trip={activeTrip}
         onClose={() => setPrepModalVisible(false)}
-        onStartNavigation={() => router.push("/navigation")}
+        onStartNavigation={() =>
+          router.push({
+            pathname: "/navigation",
+            params: {
+              tripId: activeTrip?.id,
+              tripTitle: activeTrip?.name,
+              tripType: "PUBLIC",
+            },
+          })
+        }
       />
     </SafeAreaView>
   );

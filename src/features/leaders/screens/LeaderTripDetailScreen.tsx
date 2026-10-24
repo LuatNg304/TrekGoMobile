@@ -1,4 +1,5 @@
 import { Colors, Radius, Shadows } from "@/constants/theme";
+import { TripGpsButton } from "@/components/trip/TripGpsButton";
 import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/features/auth/AuthContext";
 import {
@@ -863,6 +864,9 @@ export function LeaderTripDetailScreen() {
               • Hotline Cứu hộ phản ứng nhanh VFRS: 1800 9988 (Trực 24/7).
             </Text>
           </View>
+        </View>
+        <View style={{ margin: 16 }}>
+          <TripGpsButton tripId={trip.id} tripType="PUBLIC" tripTitle={trip.title} tripStatus={trip.status} />
         </View>
       </ScrollView>
 
