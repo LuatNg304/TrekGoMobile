@@ -1,6 +1,15 @@
 // ─── Domain Types for Private Trips (CF03 & CF04) ───────────────────────────
 
-export type TripStatus = "OPEN" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED";
+export type TripStatus =
+  | "DRAFT"
+  | "OPEN"
+  | "FULL"
+  | "CLOSED"
+  | "CANCEL_PENDING"
+  | "IN_PROGRESS"
+  | "COMPLETED"
+  | "CANCELLED"
+  | "INTERRUPTED";
 
 export type MemberRole = "HOST" | "MEMBER";
 
@@ -51,6 +60,21 @@ export interface PrivateTrip {
     snapshotName: string;
     snapshotGeojson?: any;
   }>;
+  activeMemberCount?: number;
+  viewer?: {
+    isHost: boolean;
+    membershipId: string;
+    membershipVersion: number;
+    membershipStatus: MemberStatus;
+  };
+  permissions?: TripRoomPermissions;
+}
+
+export interface MyPrivateTripsResponse {
+  items: PrivateTrip[];
+  page: number;
+  pageSize: number;
+  total: number;
 }
 
 export interface TripMember {

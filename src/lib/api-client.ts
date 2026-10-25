@@ -35,6 +35,7 @@ export class ApiError extends Error {
     readonly status: number,
     readonly code?: string,
     readonly details?: unknown,
+    readonly retryable?: boolean,
   ) {
     super(message);
     this.name = "ApiError";
@@ -139,6 +140,7 @@ async function parseResponse<T>(
       response.status,
       errorCode,
       errorDetails,
+      errorPayload?.error?.retryable ?? errorPayload?.retryable,
     );
   }
 

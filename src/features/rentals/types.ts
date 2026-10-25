@@ -31,6 +31,7 @@ export type RentalProduct = {
   version: number;
   imageMediaIds: string[];
   imageUrl?: string;
+  imageUrls?: string[];
   spec: unknown;
   recommendationTags: string[];
 };
@@ -162,6 +163,7 @@ export type RentalOrderStatus =
 
 export type RentalOrderSummary = {
   id: string;
+  orderCode?: string | null;
   bookingId?: string;
   tripId: string;
   status: RentalOrderStatus;
@@ -178,6 +180,7 @@ export type RentalOrderSummary = {
   trip?: {
     id?: string;
     title?: string;
+    type?: RentalTripType;
     startAt?: string;
     endAt?: string;
   } | null;
@@ -192,10 +195,12 @@ export type RentalOrderLine = {
   dailyPrice?: number;
   feeAmount?: number;
   depositAmount?: number;
+  imageUrl?: string;
   product?: {
     id?: string;
     name?: string;
     sku?: string;
+    imageUrl?: string;
   } | null;
 };
 
@@ -247,6 +252,7 @@ export type DeliveryTaskDetail = {
     allowedActions: string[];
   };
   package: { id: string; code: string; status: string; version: number } | null;
+  custodyTransfer: { id: string; status: string; requestedAt: string } | null;
   units: DeliveryTaskUnit[];
   recipient: { displayName?: string; fullName?: string; name?: string };
   verificationStatus: Record<string, unknown>;
@@ -279,6 +285,22 @@ export type RentalReturnTransferResult = {
   monitoringStatus?: string;
 };
 
+export type RentalReturnReceipt = {
+  receiptDocumentId: string;
+  documentId: string;
+  documentType: "RETURN_RECEIPT";
+  documentNumber: string;
+  returnSessionId: string;
+  receivedUnitCount: number;
+  notReturnedUnitIds: string[];
+  renderStatus: string;
+  downloadReady: boolean;
+  orderId: string;
+  issuedAt?: string;
+  snapshotHash: string;
+  version: number;
+};
+
 export type RentalOrderTimelineItem = {
   id?: string;
   status?: string;
@@ -291,19 +313,86 @@ export type RentalOrderTimelineItem = {
 export type RentalOrderDetail = {
   order: RentalOrderSummary;
   items: RentalOrderLine[];
+  quantityReservations: {
+    id: string;
+    orderLineId: string;
+    productId: string;
+    quantity: number;
+    occupiedFrom: string;
+    occupiedUntil: string;
+    status: string;
+    holdExpiresAt?: string | null;
+  }[];
   assignedUnits?: RentalAssignedUnit[];
   payment?: RentalPaymentStatus | null;
   deposit?: RentalDepositStatus | null;
   timeline?: RentalOrderTimelineItem[];
 };
 
+export type RentalPaymentGateway = "momo" | "vnpay";
+
+export type RentalPaymentState =
+  | "NOT_STARTED"
+  | "PENDING"
+  | "PROCESSING"
+  | "SUCCEEDED"
+  | "FAILED"
+  | "CANCELLED"
+  | "EXPIRED";
+
 export type RentalPaymentStatus = {
-  status: string;
-  paymentRef?: string;
-  nextAction?: unknown;
-  amount?: number;
-  refundedAmount?: number;
-  expiresAt?: string;
+  paymentRef: string;
+  status: RentalPaymentState;
+  nextAction: {
+    type: "CREATE_PAYMENT" | "AWAIT_PAYMENT_RESULT" | "RETRY_PAYMENT";
+  } | null;
+  expiresAt: string | null;
+  amount: number;
+  refundedAmount: number;
+  paidAt?: string | null;
+  invoiceStatus: string | null;
+  applicationStatus: "PENDING" | "APPLIED" | "REJECTED" | null;
+  applicationReasonCode: string | null;
+  reconciliationStatus: string | null;
+  reconciliationRequired: boolean;
+  gateway: RentalPaymentGateway | null;
+  providerEnvironment: string | null;
+  paymentMethod: "QR" | "REDIRECT" | null;
+  orderStatus: string;
+  financialStatus: string;
+};
+
+export type RentalPaymentOptions = {
+  defaultGateway?: RentalPaymentGateway;
+  gateways: {
+    gateway: RentalPaymentGateway;
+    environment: "MOCK" | "SANDBOX" | "PRODUCTION" | string;
+    methods?: ("QR" | "REDIRECT")[];
+  }[];
+};
+
+export type RentalPaymentCheckout = {
+  paymentId: string;
+  invoiceId: string;
+  invoiceType: "RENTAL";
+  status:
+    | "PENDING"
+    | "PROCESSING"
+    | "SUCCEEDED"
+    | "FAILED"
+    | "CANCELLED"
+    | "EXPIRED";
+  amount: string;
+  currency: string;
+  providerEnvironment: string;
+  gateway: RentalPaymentGateway;
+  checkout: {
+    type: "QR" | "REDIRECT";
+    url: string | null;
+    qrData: string | null;
+  } | null;
+  expiresAt: string | null;
+  reconciliationRequired: boolean;
 };
 
 export type RentalPickupCode = {
@@ -328,9 +417,14 @@ export type RentalHandoverPreview = {
 export type RentalDepositItem = {
   unitId: string;
   assetCode?: string;
-  amount: number;
+  depositAmount?: number;
+  amount?: number;
   status: string;
+  inspectionStatus?: string | null;
   refundRef?: string | null;
+  refundStatus?: string | null;
+  refundAmount?: number | null;
+  heldReason?: string | null;
   deduction?: number | null;
   reason?: string | null;
 };
@@ -339,8 +433,10 @@ export type RentalDepositStatus = {
   collectedAmount: number;
   heldAmount: number;
   refundedAmount: number;
+  refundPendingAmount?: number;
   deductionAmount: number;
   items: RentalDepositItem[];
+  groupedRefunds?: Record<string, unknown>[];
 };
 
 export function calculateProductDeposit(product: RentalProduct) {

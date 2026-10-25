@@ -1,7 +1,7 @@
 import { Colors, Radius, Shadows } from "@/constants/theme";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
-import React, { useMemo, useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -26,7 +26,13 @@ export function MyPrivateTripsScreen() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<TabKey>("UPCOMING");
 
-  const { trips, loading, error, refetch } = useMyPrivateTrips(true);
+  const { trips, loading, error, refetch } = useMyPrivateTrips(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      void refetch();
+    }, [refetch]),
+  );
   const [refreshing, setRefreshing] = useState(false);
 
   // Invite code input modal
@@ -47,13 +53,13 @@ export function MyPrivateTripsScreen() {
   const filteredTrips = useMemo(() => {
     return trips.filter((trip) => {
       if (activeTab === "UPCOMING") {
-        return trip.status === "OPEN" || trip.status === "IN_PROGRESS";
+        return ["OPEN", "FULL", "CLOSED", "CANCEL_PENDING", "IN_PROGRESS"].includes(trip.status);
       }
       if (activeTab === "COMPLETED") {
         return trip.status === "COMPLETED";
       }
       if (activeTab === "CANCELLED") {
-        return trip.status === "CANCELLED";
+        return trip.status === "CANCELLED" || trip.status === "INTERRUPTED";
       }
       return false;
     });
@@ -192,7 +198,7 @@ export function MyPrivateTripsScreen() {
           renderItem={({ item }) => (
             <PrivateTripCard
               trip={item}
-              currentPax={1}
+              currentPax={item.activeMemberCount ?? 1}
               onPress={() => handleTripPress(item)}
             />
           )}

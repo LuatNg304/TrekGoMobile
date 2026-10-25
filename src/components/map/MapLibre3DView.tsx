@@ -17,7 +17,15 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { WebView } from "react-native-webview";
+import { WebView, type WebViewProps } from "react-native-webview";
+
+type MapWebViewHandle = {
+  injectJavaScript: (script: string) => void;
+};
+
+const MapWebView = WebView as unknown as React.ComponentType<
+  WebViewProps & React.RefAttributes<MapWebViewHandle>
+>;
 
 export interface MapCoordinate {
   latitude: number;
@@ -123,7 +131,7 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
     },
     ref,
   ) => {
-    const webViewRef = useRef<WebView>(null);
+    const webViewRef = useRef<MapWebViewHandle | null>(null);
     const [isLoaded, setIsLoaded] = useState(false);
     const [is3DMode, setIs3DMode] = useState(is3D);
     const [currentBearing, setCurrentBearing] = useState(0);
@@ -1042,7 +1050,7 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
           height !== undefined ? { height } : { flex: 1 },
         ]}
       >
-        <WebView
+        <MapWebView
           ref={webViewRef}
           originWhitelist={["*"]}
           source={webViewSource}

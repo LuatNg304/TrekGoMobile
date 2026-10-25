@@ -476,4 +476,3 @@ export async function getTripDiscoverySlots(
     return null;
   }
 }
-

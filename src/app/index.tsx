@@ -9,6 +9,9 @@ export default function RootIndex() {
   const effectiveRole = user?.role || authRole;
 
   if (isAuthenticated || authRole) {
+    if (effectiveRole === "STAFF_INVENTORY") {
+      return <Redirect href={"/inventory-operations" as Href} />;
+    }
     if (effectiveRole === "STAFF_DELIVERY" || effectiveRole === "LEADER") {
       return <Redirect href={"/field-operations" as Href} />;
     }

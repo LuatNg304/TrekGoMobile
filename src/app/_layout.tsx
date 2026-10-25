@@ -80,6 +80,7 @@ function RootNavigator() {
     const rootSegment = (segments[0] as string | undefined) || "";
     const isInAuthGroup = rootSegment === "auth";
     const isInFieldOps = rootSegment === "field-operations";
+    const isInInventoryOps = rootSegment === "inventory-operations";
     const isInTabs = rootSegment === "(tabs)";
 
     // Determine current effective role (from auth token or mock switcher)
@@ -92,7 +93,11 @@ function RootNavigator() {
 
     if (isAuthenticated || authRole) {
       // Role-based routing when logged in
-      if (effectiveRole === "STAFF_DELIVERY") {
+      if (effectiveRole === "STAFF_INVENTORY") {
+        if (!isInInventoryOps) {
+          router.replace("/inventory-operations" as Href);
+        }
+      } else if (effectiveRole === "STAFF_DELIVERY") {
         // Staff Delivery is dedicated to field-operations
         if (isInAuthGroup || isInTabs) {
           router.replace("/field-operations" as Href);
@@ -103,7 +108,7 @@ function RootNavigator() {
         }
       } else {
         // Regular User / Trekker should not access field-operations
-        if (isInAuthGroup || isInFieldOps) {
+        if (isInAuthGroup || isInFieldOps || isInInventoryOps) {
           router.replace("/(tabs)" as Href);
         }
       }
@@ -124,7 +129,6 @@ function RootNavigator() {
     <View style={styles.container}>
       <StatusBar style="dark" />
       <Stack
-        initialRouteName="index"
         screenOptions={{
           headerShown: false,
           contentStyle: { backgroundColor: Colors.surface },
@@ -135,6 +139,7 @@ function RootNavigator() {
         <Stack.Screen name="auth" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="field-operations" options={{ headerShown: false }} />
+        <Stack.Screen name="inventory-operations" options={{ headerShown: false }} />
         <Stack.Screen
           name="navigation"
           options={{

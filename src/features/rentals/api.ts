@@ -11,6 +11,9 @@ import {
   RentalOrderDetail,
   RentalOrderCreated,
   RentalOrderSummary,
+  RentalPaymentCheckout,
+  RentalPaymentGateway,
+  RentalPaymentOptions,
   RentalPaymentStatus,
   RentalPickupCode,
   RentalProduct,
@@ -49,6 +52,13 @@ type PrivateTrip = {
   status: string;
 };
 
+type PrivateTripListResult = {
+  items: PrivateTrip[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
+
 type EligibilityResult = {
   eligible: boolean;
   reason?: string;
@@ -61,6 +71,79 @@ type EligibilityResult = {
 type MediaDelivery = {
   url: string;
 };
+
+type KnownTripDetail = {
+  title: string;
+  type: "PUBLIC" | "PRIVATE";
+  startAt: string;
+  endAt: string;
+};
+
+async function getKnownTripDetails(accessToken: string) {
+  const [bookingResult, privateTripResult] = await Promise.allSettled([
+    apiRequest<Envelope<BookingListResult>>(
+      "/api/v1/bookings?page=1&pageSize=100",
+      { method: "GET", accessToken },
+    ),
+    apiRequest<Envelope<PrivateTripListResult>>(
+      "/api/v1/me/private-trips?page=1&pageSize=100",
+      { method: "GET", accessToken },
+    ),
+  ]);
+
+  const entries: [string, KnownTripDetail][] = [];
+
+  if (bookingResult.status === "fulfilled") {
+    unwrap(bookingResult.value).items.forEach((booking) => {
+      entries.push([
+        booking.trip.id,
+        {
+          title: booking.trip.title,
+          type: "PUBLIC",
+          startAt: booking.trip.startAt,
+          endAt: booking.trip.endAt,
+        },
+      ]);
+    });
+  }
+
+  if (privateTripResult.status === "fulfilled") {
+    unwrap(privateTripResult.value).items.forEach((trip) => {
+      entries.push([
+        trip.id,
+        {
+          title: trip.title,
+          type: "PRIVATE",
+          startAt: trip.startAt,
+          endAt: trip.endAt,
+        },
+      ]);
+    });
+  }
+
+  return new Map(entries);
+}
+
+function attachTripTitle<T extends RentalOrderSummary>(
+  order: T,
+  trips: Map<string, KnownTripDetail>,
+): T {
+  const knownTrip = trips.get(order.tripId);
+  const title = order.trip?.title?.trim() || knownTrip?.title;
+  if (!title) return order;
+
+  return {
+    ...order,
+    trip: {
+      ...order.trip,
+      id: order.trip?.id || order.tripId,
+      title,
+      type: order.trip?.type || knownTrip?.type,
+      startAt: order.trip?.startAt || knownTrip?.startAt,
+      endAt: order.trip?.endAt || knownTrip?.endAt,
+    },
+  };
+}
 
 function unwrap<T>(payload: Envelope<T>): T {
   if (
@@ -89,19 +172,29 @@ async function resolveProductImage(
   product: RentalProduct,
   variant: "CATALOG_CARD" | "CATALOG_DETAIL",
 ) {
-  const mediaId = product.imageMediaIds[0];
-  if (!mediaId) return product;
+  if (!product.imageMediaIds.length) return product;
 
-  try {
-    const response = await apiRequest<Envelope<MediaDelivery>>(
-      `/api/v1/media/${mediaId}/delivery?variant=${variant}&format=AUTO`,
-    );
+  const deliveries = await Promise.allSettled(
+    product.imageMediaIds.map((mediaId) =>
+      apiRequest<Envelope<MediaDelivery>>(
+        `/api/v1/media/${mediaId}/delivery?variant=${variant}&format=AUTO`,
+      ),
+    ),
+  );
+  const imageUrls = deliveries.flatMap((delivery) =>
+    delivery.status === "fulfilled" ? [unwrap(delivery.value).url] : [],
+  );
 
-    return { ...product, imageUrl: unwrap(response).url };
-  } catch {
-    // Catalog remains usable when a legacy/invalid media id cannot be resolved.
-    return product;
-  }
+  return imageUrls.length
+    ? { ...product, imageUrl: imageUrls[0], imageUrls }
+    : product;
+}
+
+async function getResolvedProduct(productId: string) {
+  const response = await apiRequest<Envelope<RentalProduct>>(
+    `/api/v1/rental-products/${productId}`,
+  );
+  return resolveProductImage(unwrap(response), "CATALOG_DETAIL");
 }
 
 async function getEligibility(
@@ -174,11 +267,7 @@ export const rentalApi = {
   },
 
   async getProduct(productId: string) {
-    const response = await apiRequest<Envelope<RentalProduct>>(
-      `/api/v1/rental-products/${productId}`,
-    );
-
-    return resolveProductImage(unwrap(response), "CATALOG_DETAIL");
+    return getResolvedProduct(productId);
   },
 
   async listTripOptions(accessToken: string) {
@@ -189,7 +278,7 @@ export const rentalApi = {
         "/api/v1/bookings?page=1&pageSize=50",
         { method: "GET", accessToken },
       ),
-      apiRequest<Envelope<PrivateTrip[]>>("/api/v1/private-trips?page=1", {
+      apiRequest<Envelope<PrivateTripListResult>>("/api/v1/me/private-trips?page=1&pageSize=50", {
         method: "GET",
         accessToken,
       }),
@@ -215,9 +304,10 @@ export const rentalApi = {
     const privateTrips =
       privateTripResult.status === "fulfilled"
         ? unwrap(privateTripResult.value)
-            .filter(
+            .items.filter(
               (trip) =>
-                trip.status === "OPEN" && new Date(trip.endAt).getTime() > now,
+                ["OPEN", "FULL", "CLOSED"].includes(trip.status) &&
+                new Date(trip.endAt).getTime() > now,
             )
             .map((trip) => ({
               id: trip.id,
@@ -313,7 +403,13 @@ export const rentalApi = {
       Envelope<PaginatedResult<RentalOrderSummary>>
     >(`/api/v1/rental-orders?${query}`, { method: "GET", accessToken });
 
-    return unwrap(response);
+    const result = unwrap(response);
+    const trips = await getKnownTripDetails(accessToken);
+
+    return {
+      ...result,
+      items: result.items.map((order) => attachTripTitle(order, trips)),
+    };
   },
 
   async getOrder(orderId: string, accessToken: string) {
@@ -322,7 +418,42 @@ export const rentalApi = {
       { method: "GET", accessToken },
     );
 
-    return unwrap(response);
+    const result = unwrap(response);
+    const trips = await getKnownTripDetails(accessToken);
+
+    const products = await Promise.allSettled(
+      [...new Set(result.items.map((item) => item.productId))].map((productId) =>
+        getResolvedProduct(productId),
+      ),
+    );
+    const productMap = new Map(
+      products.flatMap((entry) =>
+        entry.status === "fulfilled" ? [[entry.value.id, entry.value] as const] : [],
+      ),
+    );
+
+    return {
+      ...result,
+      order: attachTripTitle(result.order, trips),
+      items: result.items.map((item) => {
+        const product = productMap.get(item.productId);
+        return product
+          ? {
+              ...item,
+              name: item.name || product.name,
+              sku: item.sku || product.sku,
+              imageUrl: item.imageUrl || product.imageUrl,
+              product: {
+                ...item.product,
+                id: item.product?.id || product.id,
+                name: item.product?.name || product.name,
+                sku: item.product?.sku || product.sku,
+                imageUrl: item.product?.imageUrl || product.imageUrl,
+              },
+            }
+          : item;
+      }),
+    };
   },
 
   async listDeliveryTasks(
@@ -340,7 +471,52 @@ export const rentalApi = {
       { method: "GET", accessToken },
     );
 
-    return unwrap(response);
+    const result = unwrap(response);
+    const trips = await getKnownTripDetails(accessToken);
+
+    const orderIds = [
+      ...new Set(
+        result.items
+          .filter((task) => !trips.has(task.orderSummary.tripId))
+          .map((task) => task.orderSummary.orderId),
+      ),
+    ].slice(0, 50);
+    const orderResults = await Promise.allSettled(
+      orderIds.map((orderId) =>
+        apiRequest<Envelope<RentalOrderDetail>>(
+          `/api/v1/rental-orders/${encodeURIComponent(orderId)}`,
+          { method: "GET", accessToken },
+        ),
+      ),
+    );
+    orderResults.forEach((orderResult) => {
+      if (orderResult.status !== "fulfilled") return;
+      const order = unwrap(orderResult.value).order;
+      const trip = order.trip;
+      if (!trip?.title || !trip.startAt || !trip.endAt) return;
+      trips.set(order.tripId, {
+        title: trip.title,
+        type: order.bookingId ? "PUBLIC" : "PRIVATE",
+        startAt: trip.startAt,
+        endAt: trip.endAt,
+      });
+    });
+
+    return {
+      ...result,
+      items: result.items.map((task) => {
+        const trip = trips.get(task.orderSummary.tripId);
+        return trip
+          ? {
+              ...task,
+              tripTitle: trip.title,
+              tripType: trip.type,
+              tripStartAt: trip.startAt,
+              tripEndAt: trip.endAt,
+            }
+          : task;
+      }),
+    };
   },
 
   async claimDeliveryTask(
@@ -371,6 +547,111 @@ export const rentalApi = {
     return unwrap(response);
   },
 
+  async receiveDeliveryPackage(
+    taskId: string,
+    input: {
+      custodyTransferId: string;
+      packageCode: string;
+      expectedVersion: number;
+    },
+    idempotencyKey: string,
+    accessToken: string,
+  ) {
+    const response = await apiRequest<
+      Envelope<{
+        task: { id: string; status: string; packageReceivedAt?: string | null; version: number };
+        custody: { id: string; status: string; receivedAt?: string | null };
+      }>
+    >(`/api/v1/delivery/tasks/${taskId}/receive-package`, {
+      method: "POST",
+      accessToken,
+      headers: { "Idempotency-Key": idempotencyKey },
+      body: JSON.stringify(input),
+    });
+
+    return unwrap(response);
+  },
+
+  async verifyDeliveryRecipient(
+    taskId: string,
+    input: { pickupCode: string; expectedVersion: number },
+    idempotencyKey: string,
+    accessToken: string,
+  ) {
+    const response = await apiRequest<
+      Envelope<{
+        verificationRef: string;
+        recipient: Record<string, unknown>;
+        expectedPackage: { id: string; code: string; version: number };
+        expiresAt: string;
+        taskVersion: number;
+      }>
+    >(`/api/v1/delivery/tasks/${taskId}/verify-user`, {
+      method: "POST",
+      accessToken,
+      headers: { "Idempotency-Key": idempotencyKey },
+      body: JSON.stringify(input),
+    });
+
+    return unwrap(response);
+  },
+
+  async commitRentalHandover(
+    orderId: string,
+    input: {
+      packageId: string;
+      verificationRef: string;
+      recipientNotes?: string;
+      reportedIssues?: { unitId?: string; type: string; description: string }[];
+      expectedVersion: number;
+    },
+    idempotencyKey: string,
+    accessToken: string,
+  ) {
+    const response = await apiRequest<Envelope<Record<string, unknown>>>(
+      `/api/v1/rental-orders/${orderId}/handover`,
+      {
+        method: "POST",
+        accessToken,
+        headers: { "Idempotency-Key": idempotencyKey },
+        body: JSON.stringify(input),
+      },
+    );
+
+    return unwrap(response);
+  },
+
+  async markRentalNoShow(
+    orderId: string,
+    input: {
+      reason:
+        | "NO_SHOW"
+        | "USER_NO_SHOW"
+        | "USER_CHANGED_MIND"
+        | "USER_REFUSED_DISCLOSED_CONDITION"
+        | "SYSTEM_WRONG_EQUIPMENT"
+        | "SYSTEM_DAMAGED_EQUIPMENT"
+        | "SYSTEM_MISSING_EQUIPMENT"
+        | "OTHER_SYSTEM_FAULT";
+      notes?: string;
+      evidenceIds?: string[];
+      expectedVersion: number;
+    },
+    idempotencyKey: string,
+    accessToken: string,
+  ) {
+    const response = await apiRequest<Envelope<Record<string, unknown>>>(
+      `/api/v1/rental-orders/${orderId}/no-show`,
+      {
+        method: "POST",
+        accessToken,
+        headers: { "Idempotency-Key": idempotencyKey },
+        body: JSON.stringify(input),
+      },
+    );
+
+    return unwrap(response);
+  },
   async scanRentalReturn(
     orderId: string,
     input: { assetCodes: string[]; operationId: string; expectedVersion: number },
@@ -441,6 +722,37 @@ export const rentalApi = {
     const response = await apiRequest<Envelope<RentalPaymentStatus>>(
       `/api/v1/rental-orders/${orderId}/payment`,
       { method: "GET", accessToken },
+    );
+
+    return unwrap(response);
+  },
+
+  async listPaymentOptions(accessToken: string) {
+    const response = await apiRequest<Envelope<RentalPaymentOptions>>(
+      "/api/v1/payments/options",
+      { method: "GET", accessToken },
+    );
+
+    return unwrap(response);
+  },
+
+  async createPayment(
+    orderId: string,
+    input: {
+      gateway: RentalPaymentGateway;
+      paymentMethod: "REDIRECT";
+    },
+    idempotencyKey: string,
+    accessToken: string,
+  ) {
+    const response = await apiRequest<Envelope<RentalPaymentCheckout>>(
+      `/api/v1/rental-orders/${orderId}/payments`,
+      {
+        method: "POST",
+        accessToken,
+        headers: { "Idempotency-Key": idempotencyKey },
+        body: JSON.stringify(input),
+      },
     );
 
     return unwrap(response);

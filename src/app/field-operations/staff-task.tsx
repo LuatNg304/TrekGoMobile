@@ -1,98 +1,586 @@
-import { FieldModal } from '@/components/FieldModal';
-import { Colors, Radius, Shadows } from '@/constants/theme';
-import { DeliveryItemStatus, useApp } from '@/context/AppContext';
-import { deliveryTasks } from '@/data/fieldOpsMock';
-import { Ionicons } from '@expo/vector-icons';
-import * as ImagePicker from 'expo-image-picker';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useState } from 'react';
-import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { FieldModal } from "@/components/FieldModal";
+import { Colors, Radius, Shadows } from "@/constants/theme";
+import { useAuth } from "@/features/auth/AuthContext";
+import { rentalApi } from "@/features/rentals/api";
+import {
+  DeliveryTaskDetail,
+  DeliveryTaskSummary,
+  RentalOrderDetail,
+} from "@/features/rentals/types";
+import { Ionicons } from "@expo/vector-icons";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ActivityIndicator,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
-const equipment = ['Balo trekking 45L', 'Gậy trekking carbon', 'Bộ áo mưa chống nước', 'Đèn đội đầu'];
-const statusLabels: Record<DeliveryItemStatus, string> = { PENDING: 'Chưa kiểm', OK: 'Đủ / tốt', MISSING: 'Thiếu', DAMAGED: 'Hư hỏng' };
+type ItemStatus = "PENDING" | "OK" | "MISSING" | "DAMAGED";
+type ItemReview = { status: ItemStatus; note: string };
+type NoShowReason =
+  | "USER_NO_SHOW"
+  | "USER_CHANGED_MIND"
+  | "USER_REFUSED_DISCLOSED_CONDITION"
+  | "SYSTEM_WRONG_EQUIPMENT"
+  | "SYSTEM_DAMAGED_EQUIPMENT"
+  | "SYSTEM_MISSING_EQUIPMENT";
+
+const noShowReasons: { value: NoShowReason; label: string }[] = [
+  { value: "USER_NO_SHOW", label: "Khách không đến" },
+  { value: "USER_CHANGED_MIND", label: "Khách đổi ý" },
+  { value: "USER_REFUSED_DISCLOSED_CONDITION", label: "Khách từ chối tình trạng đã công bố" },
+  { value: "SYSTEM_WRONG_EQUIPMENT", label: "TrekGo giao sai thiết bị" },
+  { value: "SYSTEM_DAMAGED_EQUIPMENT", label: "Thiết bị hỏng tại điểm giao" },
+  { value: "SYSTEM_MISSING_EQUIPMENT", label: "Gói bàn giao thiếu thiết bị" },
+];
+
+function shortAssetCode(value: string) {
+  return value.replace(/[^a-zA-Z0-9]/g, "").slice(-6).toUpperCase();
+}
+
+function tripWindow(order?: RentalOrderDetail) {
+  const trip = order?.order.trip;
+  if (!trip?.startAt || !trip.endAt) return "Khung giờ chuyến đi đang cập nhật";
+  const formatter = new Intl.DateTimeFormat("vi-VN", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  const type = trip.type === "PRIVATE" ? "Chuyến riêng tư" : "Chuyến công khai";
+  return `${type} · ${formatter.format(new Date(trip.startAt))} – ${formatter.format(new Date(trip.endAt))}`;
+}
+
+function operationKey(prefix: string) {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function recipientName(summary?: DeliveryTaskSummary, task?: DeliveryTaskDetail) {
+  const recipient = task?.recipient || summary?.orderSummary.recipient;
+  return recipient?.displayName || recipient?.fullName || recipient?.name || "Khách thuê";
+}
+
+function verificationRef(task?: DeliveryTaskDetail) {
+  const value = task?.verificationStatus?.verificationRef;
+  return typeof value === "string" ? value : undefined;
+}
+
+function deliveryStatus(status?: string) {
+  const labels: Record<string, { title: string; message: string; warning?: boolean }> = {
+    HANDED_OVER: {
+      title: "Đã giao thiết bị thành công",
+      message: "Khách đã nhận đủ thiết bị. Nhiệm vụ giao đã hoàn tất.",
+    },
+    NO_SHOW: {
+      title: "Khách không đến nhận",
+      message: "Nhiệm vụ đã được ghi nhận ngoại lệ và đang chờ bộ phận liên quan xử lý.",
+      warning: true,
+    },
+    REFUSED: {
+      title: "Khách từ chối nhận thiết bị",
+      message: "Lý do từ chối đã được lưu. Vui lòng bảo quản gói thiết bị để bàn giao lại.",
+      warning: true,
+    },
+    CLOSED: {
+      title: "Nhiệm vụ đã đóng",
+      message: "Không còn thao tác giao nhận nào cần thực hiện.",
+    },
+    CANCELLED: {
+      title: "Nhiệm vụ đã hủy",
+      message: "Không tiếp tục giao thiết bị cho nhiệm vụ này.",
+      warning: true,
+    },
+  };
+  return labels[status ?? ""] ?? {
+    title: "Nhiệm vụ đã được cập nhật",
+    message: "Tiến độ mới nhất đã được hệ thống ghi nhận.",
+  };
+}
 
 export default function StaffTaskScreen() {
   const router = useRouter();
-  const { fieldWorkflow, receiveDeliveryPackage, markArrivedAtPickup, setDeliveryVerified, setDeliveryItem, setDeliveryPhoto, setDeliverySigned, completeDelivery } = useApp();
-  const { taskId } = useLocalSearchParams<{ taskId?: string }>();
-  const task = deliveryTasks.find(item => item.id === taskId) ?? deliveryTasks[0];
-  const [otp, setOtp] = useState('');
-  const [packageCode, setPackageCode] = useState('');
-  const [photoMenu, setPhotoMenu] = useState(false);
+  const params = useLocalSearchParams<{ taskId?: string | string[]; orderId?: string | string[] }>();
+  const requestedTaskId = Array.isArray(params.taskId) ? params.taskId[0] : params.taskId;
+  const requestedOrderId = Array.isArray(params.orderId) ? params.orderId[0] : params.orderId;
+  const { accessToken } = useAuth();
+  const keys = useRef({
+    claim: operationKey("claim-outbound"),
+    receive: operationKey("receive-package"),
+    verify: operationKey("verify-recipient"),
+    handover: operationKey("commit-handover"),
+    noShow: operationKey("mark-no-show"),
+  });
+
+  const [summary, setSummary] = useState<DeliveryTaskSummary>();
+  const [task, setTask] = useState<DeliveryTaskDetail>();
+  const [order, setOrder] = useState<RentalOrderDetail>();
+  const [reviews, setReviews] = useState<Record<string, ItemReview>>({});
+  const [custodyTransferId, setCustodyTransferId] = useState("");
+  const [packageCode, setPackageCode] = useState("");
+  const [pickupCode, setPickupCode] = useState("");
+  const [verifiedRef, setVerifiedRef] = useState<string>();
+  const [recipientNotes, setRecipientNotes] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
   const [complete, setComplete] = useState(false);
+  const [error, setError] = useState<string>();
   const [feedback, setFeedback] = useState<{ title: string; message: string } | null>(null);
-  const [isBusy, setIsBusy] = useState(false);
-  const verified = fieldWorkflow.deliveryVerified;
-  const signed = fieldWorkflow.deliverySigned;
-  const photoUri = fieldWorkflow.deliveryPhotoUri;
-  const allItemsReviewed = fieldWorkflow.deliveryItems.length === equipment.length
-    && fieldWorkflow.deliveryItems.every((item: { status: string; note: string }) => item.status !== 'PENDING' && (item.status === 'OK' || item.note.trim().length > 0));
-  const step = !fieldWorkflow.packageReceived ? 0 : !fieldWorkflow.arrivedAtPickup ? 1 : !verified ? 2 : !allItemsReviewed ? 3 : 4;
+  const [noShowVisible, setNoShowVisible] = useState(false);
+  const [noShowReason, setNoShowReason] = useState<NoShowReason>("USER_NO_SHOW");
+  const [noShowNotes, setNoShowNotes] = useState("");
 
-  const setItemStatus = (index: number, status: DeliveryItemStatus) => {
-    const note = fieldWorkflow.deliveryItems[index]?.note ?? '';
-    setDeliveryItem(index, status, note);
+  const load = useCallback(async () => {
+    if (!accessToken) {
+      setError("Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại bằng tài khoản giao nhận.");
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    setError(undefined);
+    try {
+      const listed = await rentalApi.listDeliveryTasks(accessToken, {
+        type: "OUTBOUND",
+        page: 1,
+        pageSize: 100,
+      });
+      const selected =
+        listed.items.find((item) => item.id === requestedTaskId) ||
+        listed.items.find((item) => item.orderSummary.orderId === requestedOrderId) ||
+        listed.items.find((item) => !["HANDED_OVER", "NO_SHOW", "REFUSED", "CLOSED", "CANCELLED"].includes(item.status));
+
+      if (!selected) {
+        setSummary(undefined);
+        setTask(undefined);
+        setOrder(undefined);
+        setError("Không có nhiệm vụ giao thiết bị đang hoạt động.");
+        return;
+      }
+
+      setSummary(selected);
+      setPackageCode((current) => current || selected.package.code);
+      const orderDetail = await rentalApi.getOrder(selected.orderSummary.orderId, accessToken);
+      setOrder(orderDetail);
+
+      try {
+        const taskDetail = await rentalApi.getDeliveryTask(selected.id, accessToken);
+        setTask(taskDetail);
+        setCustodyTransferId((current) => current || taskDetail.custodyTransfer?.id || "");
+        setVerifiedRef(verificationRef(taskDetail));
+        setReviews((current) => {
+          const next = { ...current };
+          taskDetail.units.forEach((unit) => {
+            next[unit.unitId] ||= { status: "PENDING", note: "" };
+          });
+          return next;
+        });
+      } catch {
+        if (selected.status !== "SCHEDULED" && selected.status !== "BLOCKED") {
+          throw new Error("Nhiệm vụ đã có người nhận hoặc tài khoản này không có quyền truy cập.");
+        }
+        setTask(undefined);
+      }
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Không tải được nhiệm vụ giao thiết bị.");
+    } finally {
+      setLoading(false);
+    }
+  }, [accessToken, requestedOrderId, requestedTaskId]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => void load(), 0);
+    return () => clearTimeout(timer);
+  }, [load]);
+
+  const units = useMemo(() => task?.units || [], [task?.units]);
+  const allReviewed =
+    units.length > 0 &&
+    units.every((unit) => {
+      const review = reviews[unit.unitId];
+      return review && review.status !== "PENDING" && (review.status === "OK" || review.note.trim().length > 0);
+    });
+  const currentVerificationRef = verifiedRef || verificationRef(task);
+  const serverStatus = task?.task.status || summary?.status;
+  const statusPresentation = deliveryStatus(serverStatus);
+
+  const setReview = (unitId: string, update: Partial<ItemReview>) => {
+    setReviews((current) => ({
+      ...current,
+      [unitId]: {
+        status: current[unitId]?.status || "PENDING",
+        note: current[unitId]?.note || "",
+        ...update,
+      },
+    }));
   };
 
-  const verifyByScan = () => {
-    if (isBusy) return;
-    setIsBusy(true);
-    setTimeout(() => { setDeliveryVerified(true); setIsBusy(false); }, 1000);
+  const claimTask = async () => {
+    if (!accessToken || !summary || busy) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      await rentalApi.claimDeliveryTask(summary.id, summary.version, keys.current.claim, accessToken);
+      await load();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Không nhận được nhiệm vụ.");
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const receivePackageByScan = () => {
-    if (isBusy) return;
-    setIsBusy(true);
-    setTimeout(() => {
-      const accepted = receiveDeliveryPackage('PKG-7892-A');
-      setIsBusy(false);
-      if (!accepted) setFeedback({ title: 'Không thể nhận package', message: 'Đơn chưa ở trạng thái READY_FOR_DELIVERY hoặc mã package không hợp lệ.' });
-    }, 1000);
+  const receivePackage = async () => {
+    if (!accessToken || !summary || !task || busy) return;
+    if (!custodyTransferId.trim() || !packageCode.trim()) {
+      setFeedback({
+        title: "Thiếu dữ liệu từ kho",
+        message: "Cần quét mã bàn giao và mã gói thiết bị trên QR của kho.",
+      });
+      return;
+    }
+    setBusy(true);
+    setError(undefined);
+    try {
+      await rentalApi.receiveDeliveryPackage(
+        summary.id,
+        {
+          custodyTransferId: custodyTransferId.trim(),
+          packageCode: packageCode.trim(),
+          expectedVersion: task.task.version,
+        },
+        keys.current.receive,
+        accessToken,
+      );
+      await load();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Không nhận được gói thiết bị từ kho.");
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const receivePackageManually = () => {
-    const accepted = receiveDeliveryPackage(packageCode.trim());
-    if (!accepted) setFeedback({ title: 'Mã package không đúng', message: 'Nhập mã mock PKG-7892-A và đảm bảo đơn đã READY_FOR_DELIVERY.' });
+  const verifyRecipient = async () => {
+    if (!accessToken || !summary || !task || busy) return;
+    if (!pickupCode.trim()) {
+      setFeedback({ title: "Thiếu mã pickup", message: "Nhập mã pickup một lần do khách hàng cung cấp." });
+      return;
+    }
+    setBusy(true);
+    setError(undefined);
+    try {
+      const result = await rentalApi.verifyDeliveryRecipient(
+        summary.id,
+        { pickupCode: pickupCode.trim(), expectedVersion: task.task.version },
+        keys.current.verify,
+        accessToken,
+      );
+      setVerifiedRef(result.verificationRef);
+      await load();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Không xác minh được người nhận.");
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const capture = async (source: 'camera' | 'library') => {
-    setPhotoMenu(false);
-    const permission = source === 'camera' ? await ImagePicker.requestCameraPermissionsAsync() : await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) { setFeedback({ title: 'Cần cấp quyền', message: 'Hãy cấp quyền để thêm ảnh bằng chứng.' }); return; }
-    const result = source === 'camera'
-      ? await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [4, 3], quality: 0.8 })
-      : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [4, 3], quality: 0.8 });
-    if (!result.canceled && result.assets[0]) setDeliveryPhoto(result.assets[0].uri);
+  const handover = async () => {
+    if (!accessToken || !summary || !task || !order || busy) return;
+    if (!currentVerificationRef) {
+      setFeedback({ title: "Chưa xác minh", message: "Phải xác minh pickup code trước khi bàn giao." });
+      return;
+    }
+    if (!task.package) {
+      setFeedback({ title: "Thiếu gói thiết bị", message: "Thông tin gói bàn giao chưa sẵn sàng. Hãy tải lại nhiệm vụ." });
+      return;
+    }
+    if (!allReviewed) {
+      setFeedback({ title: "Chưa kiểm đủ", message: "Kiểm tra từng thiết bị; món thiếu hoặc hỏng phải có ghi chú." });
+      return;
+    }
+
+    const reportedIssues = units.flatMap((unit) => {
+      const review = reviews[unit.unitId];
+      if (!review || review.status === "OK") return [];
+      return [{ unitId: unit.unitId, type: review.status, description: review.note.trim() }];
+    });
+
+    setBusy(true);
+    setError(undefined);
+    try {
+      await rentalApi.commitRentalHandover(
+        summary.orderSummary.orderId,
+        {
+          packageId: task.package.id,
+          verificationRef: currentVerificationRef,
+          recipientNotes: recipientNotes.trim() || undefined,
+          reportedIssues,
+          expectedVersion: order.order.version,
+        },
+        keys.current.handover,
+        accessToken,
+      );
+      setComplete(true);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Bàn giao thiết bị thất bại.");
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const next = () => {
-    if (step === 0) { setFeedback({ title: 'Chưa nhận package', message: 'Quét đúng QR package từ kho trước khi tiếp tục.' }); return; }
-    if (step === 1) { setFeedback({ title: 'Chưa đến điểm tập trung', message: 'Di chuyển tới điểm tập trung rồi bấm ĐÃ ĐẾN NƠI.' }); return; }
-    if (step === 2) { setFeedback({ title: 'Chưa xác minh', message: 'Quét QR hoặc nhập đúng OTP 123456 trước khi tiếp tục.' }); return; }
-    if (step === 3) { setFeedback({ title: 'Chưa đủ thiết bị', message: 'Mỗi món phải được đánh dấu đủ, thiếu hoặc hư hỏng. Món thiếu/hỏng cần ghi chú.' }); return; }
-    if (!photoUri || !signed) { setFeedback({ title: 'Thiếu bằng chứng', message: 'Cần ảnh bàn giao và chữ ký người nhận.' }); return; }
-    if (isBusy) return;
-    setIsBusy(true);
-    setTimeout(() => { completeDelivery(); setIsBusy(false); setComplete(true); }, 500);
+  const markNoShow = async () => {
+    if (!accessToken || !summary || !order || busy) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      await rentalApi.markRentalNoShow(
+        summary.orderSummary.orderId,
+        {
+          reason: noShowReason,
+          notes: noShowNotes.trim() || undefined,
+          evidenceIds: [],
+          expectedVersion: order.order.version,
+        },
+        keys.current.noShow,
+        accessToken,
+      );
+      setNoShowVisible(false);
+      setComplete(true);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Không ghi nhận được no-show/từ chối.");
+    } finally {
+      setBusy(false);
+    }
   };
 
-  return <SafeAreaView style={styles.safe}><ScrollView contentContainerStyle={styles.content}>
-    <View style={styles.header}><TouchableOpacity onPress={() => router.back()}><Ionicons name="arrow-back" size={23} color={Colors.ink} /></TouchableOpacity><Text style={styles.headerTitle}>Chi tiết nhiệm vụ</Text><View style={{ width: 23 }} /></View>
-    <View style={styles.taskHeader}><Text style={styles.taskId}>{task.id}</Text><Text style={styles.title}>{task.title}</Text><Text style={styles.meta}>{task.customer} · {task.location}</Text></View>
-    <View style={styles.steps}>{['Nhận package', 'Đến điểm tập trung', 'Xác minh đơn', 'Kiểm tra thiết bị', 'Bằng chứng bàn giao'].map((label, index) => <View key={label} style={styles.step}><View style={[styles.stepCircle, index < step && styles.stepDone]}>{index < step ? <Ionicons name="checkmark" size={14} color="#fff" /> : <Text style={styles.stepNumber}>{index + 1}</Text>}</View><Text style={[styles.stepLabel, index === step && styles.stepLabelActive]}>{label}</Text></View>)}</View>
-    {step === 0 && <><Text style={styles.section}>NHẬN PACKAGE TỪ KHO</Text><View style={styles.card}><InfoRow icon="cube-outline" label="Package" value="PKG-7892-A" /><InfoRow icon="checkmark-circle-outline" label="Trạng thái đơn" value="READY_FOR_DELIVERY" /><TouchableOpacity style={[styles.qrBox, isBusy && styles.disabled]} onPress={receivePackageByScan} disabled={isBusy}><Ionicons name="qr-code" size={52} color={Colors.ink} /><Text style={styles.qrTitle}>{isBusy ? 'Đang quét package...' : 'Quét QR package'}</Text><Text style={styles.muted}>Chỉ nhận được khi package đã READY_FOR_DELIVERY</Text></TouchableOpacity><View style={styles.otpRow}><TextInput value={packageCode} onChangeText={setPackageCode} autoCapitalize="characters" placeholder="PKG-7892-A" placeholderTextColor={Colors.onSurfaceMuted} style={styles.input} /><TouchableOpacity style={styles.verifyButton} onPress={receivePackageManually}><Text style={styles.verifyText}>NHẬP MÃ</Text></TouchableOpacity></View></View></>}
-    {step === 1 && <><Text style={styles.section}>DI CHUYỂN TỚI ĐIỂM TẬP TRUNG</Text><View style={styles.card}><InfoRow icon="location-outline" label="Điểm hẹn" value={task.location} /><Text style={styles.notice}>Sau khi nhận package, di chuyển tới điểm tập trung để xác nhận thông tin user.</Text><TouchableOpacity style={styles.primary} onPress={markArrivedAtPickup}><Ionicons name="location" size={18} color="#fff" /><Text style={styles.primaryText}>ĐÃ ĐẾN NƠI</Text></TouchableOpacity></View></>}
-    {step === 2 && <><Text style={styles.section}>XÁC THỰC NGƯỜI NHẬN</Text><View style={styles.card}><InfoRow icon="person-outline" label="Người nhận" value={task.customer} /><InfoRow icon="location-outline" label="Điểm giao" value={task.location} /><TouchableOpacity style={[styles.qrBox, verified && styles.verified]} onPress={verifyByScan} disabled={isBusy || verified}><Ionicons name={verified ? 'checkmark-circle' : 'qr-code'} size={52} color={verified ? Colors.primaryDark : Colors.ink} /><Text style={styles.qrTitle}>{verified ? 'Đã xác minh' : isBusy ? 'Đang quét...' : 'Chạm để quét QR'}</Text><Text style={styles.muted}>{verified ? 'Người nhận hợp lệ' : 'Quét mất khoảng 1 giây, không xác minh ngay'}</Text></TouchableOpacity><View style={styles.otpRow}><TextInput value={otp} onChangeText={setOtp} keyboardType="number-pad" placeholder="OTP 123456" placeholderTextColor={Colors.onSurfaceMuted} style={styles.input} /><TouchableOpacity style={styles.verifyButton} onPress={() => otp === '123456' ? setDeliveryVerified(true) : setFeedback({ title: 'OTP chưa đúng', message: 'Dùng mã mock 123456 để tiếp tục.' })}><Text style={styles.verifyText}>XÁC MINH</Text></TouchableOpacity></View></View></>}
-    {step === 3 && <><Text style={styles.section}>DANH SÁCH THIẾT BỊ BÀN GIAO</Text><View style={styles.card}>{equipment.map((item, index) => { const itemState = fieldWorkflow.deliveryItems[index] ?? { status: 'PENDING' as DeliveryItemStatus, note: '' }; return <View key={item} style={styles.itemBlock}><Text style={styles.checkLabel}>{item}</Text><View style={styles.statusRow}>{(['OK', 'MISSING', 'DAMAGED'] as DeliveryItemStatus[]).map(status => <TouchableOpacity key={status} style={[styles.statusButton, itemState.status === status && styles.statusSelected]} onPress={() => setItemStatus(index, status)}><Text style={styles.statusText}>{statusLabels[status]}</Text></TouchableOpacity>)}</View>{(itemState.status === 'MISSING' || itemState.status === 'DAMAGED') && <TextInput value={itemState.note} onChangeText={note => setDeliveryItem(index, itemState.status, note)} placeholder="Nhập ghi chú bắt buộc" placeholderTextColor={Colors.onSurfaceMuted} style={styles.noteInput} />}</View>; })}<Text style={styles.notice}>{allItemsReviewed ? 'Đã kiểm đủ và ghi chú các món bất thường.' : 'Hãy đánh dấu từng món; thiếu hoặc hư hỏng phải có ghi chú.'}</Text></View></>}
-    {step === 4 && <><Text style={styles.section}>BẰNG CHỨNG GIAO HÀNG</Text><View style={styles.card}><TouchableOpacity style={[styles.upload, photoUri && styles.verified]} onPress={() => setPhotoMenu(true)}><Ionicons name={photoUri ? 'checkmark-circle' : 'camera-outline'} size={28} color={Colors.primaryDark} />{photoUri && !photoUri.startsWith('mock://') && <Image source={{ uri: photoUri }} style={styles.photo} />}<Text style={styles.uploadTitle}>{photoUri ? 'Đã có ảnh bàn giao' : 'Chụp ảnh bàn giao'}</Text><Text style={styles.muted}>Camera hoặc thư viện ảnh</Text></TouchableOpacity><TouchableOpacity style={styles.demoProof} onPress={() => setDeliveryPhoto('mock://delivery-proof')}><Ionicons name="image-outline" size={18} color={Colors.primaryDark} /><Text style={styles.demoProofText}>Dùng ảnh demo để test</Text></TouchableOpacity><TouchableOpacity style={[styles.signature, signed && styles.verified]} onPress={() => setDeliverySigned(!signed)}><Text style={styles.signatureTitle}>Chữ ký người nhận</Text><Text style={styles.signatureLine}>{signed ? 'Nguyễn Tuấn Anh · Đã xác nhận' : 'Chạm để xác nhận chữ ký mock'}</Text></TouchableOpacity></View></>}
-    <TouchableOpacity disabled={isBusy || step === 1} style={[styles.primary, (isBusy || step === 1) && styles.disabled]} onPress={next}><Text style={styles.primaryText}>{isBusy ? 'ĐANG XỬ LÝ...' : step === 4 ? 'XÁC NHẬN HOÀN TẤT' : step === 1 ? 'BẤM ĐÃ ĐẾN NƠI Ở TRÊN' : 'TIẾP TỤC'}</Text><Ionicons name="arrow-forward" size={18} color="#fff" /></TouchableOpacity>
-  </ScrollView>
-    <Modal visible={photoMenu} transparent animationType="slide" onRequestClose={() => setPhotoMenu(false)}><Pressable style={styles.backdrop} onPress={() => setPhotoMenu(false)}><View style={styles.menu}><Text style={styles.menuTitle}>Thêm ảnh bằng chứng</Text><TouchableOpacity style={styles.menuAction} onPress={() => capture('camera')}><Ionicons name="camera" size={22} color={Colors.primaryDark} /><Text style={styles.menuText}>Mở camera và chụp ảnh</Text></TouchableOpacity><TouchableOpacity style={styles.menuAction} onPress={() => capture('library')}><Ionicons name="images" size={22} color={Colors.primaryDark} /><Text style={styles.menuText}>Chọn từ thư viện ảnh</Text></TouchableOpacity></View></Pressable></Modal>
-    <FieldModal visible={complete} title="Bàn giao thành công" message={`Task ${task.id} đã được hoàn tất và đồng bộ.`} icon="checkmark-circle" actionLabel="Về dashboard" onAction={() => { setComplete(false); router.replace('/field-operations' as any); }} onClose={() => setComplete(false)} />
-    <FieldModal visible={feedback !== null} title={feedback?.title ?? ''} message={feedback?.message ?? ''} icon="information-circle" tone="warning" actionLabel="Đã hiểu" onAction={() => setFeedback(null)} onClose={() => setFeedback(null)} />
-  </SafeAreaView>;
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color={Colors.primaryDark} />
+          <Text style={styles.muted}>Đang cập nhật nhiệm vụ giao thiết bị...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!summary || !order) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()}><Ionicons name="arrow-back" size={23} color={Colors.ink} /></TouchableOpacity>
+          <Text style={styles.headerTitle}>Giao thiết bị</Text><View style={{ width: 23 }} />
+        </View>
+        <View style={styles.center}>
+          <Ionicons name="alert-circle-outline" size={48} color="#9b6700" />
+          <Text style={styles.cardTitle}>Không tải được nhiệm vụ</Text>
+          <Text style={styles.muted}>{error}</Text>
+          <TouchableOpacity style={styles.primary} onPress={() => void load()}><Text style={styles.primaryText}>TẢI LẠI</Text></TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <SafeAreaView style={styles.safe}>
+      <ScrollView contentContainerStyle={styles.content}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()}><Ionicons name="arrow-back" size={23} color={Colors.ink} /></TouchableOpacity>
+          <Text style={styles.headerTitle}>Chi tiết giao thiết bị</Text><View style={{ width: 23 }} />
+        </View>
+        <View style={styles.taskHeader}>
+          <Text style={styles.taskId}>GIAO THIẾT BỊ</Text>
+          <Text style={styles.title}>{order.order.trip?.title || "Chuyến trekking"}</Text>
+          <Text style={styles.meta}>{recipientName(summary, task)} · {summary.point.name}</Text>
+          <Text style={styles.tripTime}>{tripWindow(order)}</Text>
+        </View>
+
+        {!task ? (
+          <View style={styles.card}>
+            <Text style={styles.section}>BƯỚC 1 · NHẬN NHIỆM VỤ</Text>
+            <Text style={styles.cardTitle}>Nhiệm vụ đang chờ nhận</Text>
+            <Text style={styles.muted}>Nhận nhiệm vụ trước khi lấy gói thiết bị từ kho.</Text>
+            {error ? <Text style={styles.errorText}>{error}</Text> : null}
+            <TouchableOpacity disabled={busy} style={[styles.primary, busy && styles.disabled]} onPress={() => void claimTask()}>
+              <Text style={styles.primaryText}>{busy ? "ĐANG NHẬN..." : "NHẬN NHIỆM VỤ"}</Text>
+            </TouchableOpacity>
+          </View>
+        ) : serverStatus === "SCHEDULED" || serverStatus === "BLOCKED" ? (
+          <View style={styles.card}>
+            <Text style={styles.section}>BƯỚC 1 · NHẬN GÓI TỪ KHO</Text>
+            <InfoRow icon="cube-outline" label="Mã gói thiết bị" value={task.package?.code || summary.package.code} />
+            <TextInput value={custodyTransferId} onChangeText={setCustodyTransferId} autoCapitalize="none" placeholder="Quét mã bàn giao từ kho" placeholderTextColor={Colors.onSurfaceMuted} style={styles.input} />
+            <TextInput value={packageCode} onChangeText={setPackageCode} autoCapitalize="characters" placeholder="Nhập mã gói thiết bị" placeholderTextColor={Colors.onSurfaceMuted} style={styles.input} />
+            <Text style={styles.notice}>Quét hoặc nhập đúng hai giá trị trên phiếu/QR bàn giao của Staff Kho.</Text>
+            <TouchableOpacity disabled={busy} style={[styles.primary, busy && styles.disabled]} onPress={() => void receivePackage()}>
+              <Text style={styles.primaryText}>{busy ? "ĐANG XỬ LÝ..." : "XÁC NHẬN NHẬN GÓI"}</Text>
+            </TouchableOpacity>
+          </View>
+        ) : serverStatus === "PACKAGE_RECEIVED" ? (
+          <View style={styles.card}>
+            <Text style={styles.section}>BƯỚC 2 · XÁC MINH NGƯỜI NHẬN</Text>
+            <InfoRow icon="person-outline" label="Người nhận" value={recipientName(summary, task)} />
+            <InfoRow icon="location-outline" label="Điểm tập trung" value={summary.point.name} />
+            <TextInput value={pickupCode} onChangeText={setPickupCode} autoCapitalize="characters" placeholder="Mã pickup từ khách" placeholderTextColor={Colors.onSurfaceMuted} style={styles.input} />
+            <Text style={styles.notice}>Chỉ xác minh khi đã đến đúng điểm tập trung và gặp người nhận.</Text>
+            <TouchableOpacity disabled={busy} style={[styles.primary, busy && styles.disabled]} onPress={() => void verifyRecipient()}>
+              <Text style={styles.primaryText}>{busy ? "ĐANG XÁC MINH..." : "XÁC MINH MÃ PICKUP"}</Text>
+            </TouchableOpacity>
+          </View>
+        ) : serverStatus === "RECIPIENT_VERIFIED" ? (
+          <View style={styles.card}>
+            <Text style={styles.section}>BƯỚC 3 · KIỂM TRA VÀ BÀN GIAO</Text>
+            {units.map((unit) => {
+              const review = reviews[unit.unitId] || { status: "PENDING" as ItemStatus, note: "" };
+              return (
+                <View key={unit.unitId} style={styles.item}>
+                  <Text style={styles.itemName}>{unit.product?.name || unit.assetCode}</Text>
+                  <Text style={styles.assetCode}>Mã {shortAssetCode(unit.assetCode)}</Text>
+                  <View style={styles.statusRow}>
+                    {(["OK", "MISSING", "DAMAGED"] as ItemStatus[]).map((status) => (
+                      <TouchableOpacity key={status} style={[styles.statusButton, review.status === status && styles.statusSelected]} onPress={() => setReview(unit.unitId, { status })}>
+                        <Text style={[styles.statusText, review.status === status && styles.statusTextSelected]}>{status === "OK" ? "Đủ / tốt" : status === "MISSING" ? "Thiếu" : "Hư hỏng"}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                  {(review.status === "MISSING" || review.status === "DAMAGED") && (
+                    <TextInput value={review.note} onChangeText={(note) => setReview(unit.unitId, { note })} placeholder="Mô tả bắt buộc" placeholderTextColor={Colors.onSurfaceMuted} style={styles.issueInput} />
+                  )}
+                </View>
+              );
+            })}
+            <TextInput value={recipientNotes} onChangeText={setRecipientNotes} placeholder="Ghi chú của người nhận (không bắt buộc)" placeholderTextColor={Colors.onSurfaceMuted} multiline style={[styles.input, styles.notes]} />
+            <TouchableOpacity disabled={busy || !allReviewed} style={[styles.primary, (busy || !allReviewed) && styles.disabled]} onPress={() => void handover()}>
+              <Text style={styles.primaryText}>{busy ? "ĐANG BÀN GIAO..." : "XÁC NHẬN BÀN GIAO"}</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={[styles.card, statusPresentation.warning && styles.warningCard]}>
+            <View style={[styles.resultIcon, statusPresentation.warning && styles.resultIconWarning]}>
+              <Ionicons
+                name={statusPresentation.warning ? "alert-circle" : "checkmark-circle"}
+                size={31}
+                color={statusPresentation.warning ? "#A15400" : Colors.primaryDark}
+              />
+            </View>
+            <Text style={styles.cardTitle}>{statusPresentation.title}</Text>
+            <Text style={styles.muted}>{statusPresentation.message}</Text>
+            <View style={styles.friendlyStatus}>
+              <Ionicons name="sparkles-outline" size={15} color={Colors.primaryDark} />
+              <Text style={styles.friendlyStatusText}>Thông tin đã đồng bộ với TrekOps</Text>
+            </View>
+          </View>
+        )}
+
+        {error && task ? <View style={styles.errorBox}><Text style={styles.errorText}>{error}</Text></View> : null}
+        {task && !completedStatus(serverStatus) ? (
+          <TouchableOpacity style={styles.noShowButton} onPress={() => setNoShowVisible(true)}>
+            <Ionicons name="alert-circle-outline" size={18} color={Colors.error} />
+            <Text style={styles.noShowText}>KHÁCH KHÔNG ĐẾN / TỪ CHỐI NHẬN</Text>
+          </TouchableOpacity>
+        ) : null}
+      </ScrollView>
+
+      <Modal visible={noShowVisible} transparent animationType="slide" onRequestClose={() => setNoShowVisible(false)}>
+        <Pressable style={styles.backdrop} onPress={() => setNoShowVisible(false)}>
+          <Pressable style={styles.menu} onPress={(event) => event.stopPropagation()}>
+            <Text style={styles.menuTitle}>Ghi nhận ngoại lệ giao hàng</Text>
+            {noShowReasons.map((reason) => (
+              <TouchableOpacity key={reason.value} style={[styles.reasonButton, noShowReason === reason.value && styles.reasonSelected]} onPress={() => setNoShowReason(reason.value)}>
+                <Text style={styles.reasonText}>{reason.label}</Text>
+              </TouchableOpacity>
+            ))}
+            <TextInput value={noShowNotes} onChangeText={setNoShowNotes} placeholder="Ghi chú bổ sung" placeholderTextColor={Colors.onSurfaceMuted} multiline style={[styles.input, styles.notes]} />
+            <TouchableOpacity disabled={busy} style={[styles.dangerButton, busy && styles.disabled]} onPress={() => void markNoShow()}>
+              <Text style={styles.primaryText}>{busy ? "ĐANG GHI NHẬN..." : "XÁC NHẬN NGOẠI LỆ"}</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <FieldModal
+        visible={complete}
+        title="Đã cập nhật nhiệm vụ"
+        message="Thông tin giao nhận đã được lưu thành công."
+        icon="checkmark-circle"
+        actionLabel="Về dashboard"
+        onAction={() => { setComplete(false); router.replace("/field-operations" as never); }}
+        onClose={() => setComplete(false)}
+      />
+      <FieldModal
+        visible={feedback !== null}
+        title={feedback?.title || ""}
+        message={feedback?.message || ""}
+        icon="information-circle"
+        tone="warning"
+        actionLabel="Đã hiểu"
+        onAction={() => setFeedback(null)}
+        onClose={() => setFeedback(null)}
+      />
+    </SafeAreaView>
+  );
 }
 
-function InfoRow({ icon, label, value }: { icon: keyof typeof Ionicons.glyphMap; label: string; value: string }) { return <View style={styles.info}><Ionicons name={icon} size={18} color={Colors.primaryDark} /><View><Text style={styles.muted}>{label}</Text><Text style={styles.infoValue}>{value}</Text></View></View>; }
-const styles = StyleSheet.create({ safe: { flex: 1, backgroundColor: Colors.surface }, content: { padding: 20, paddingBottom: 35 }, header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 25 }, headerTitle: { color: Colors.ink, fontSize: 17, fontWeight: '800' }, taskHeader: { backgroundColor: Colors.inverseSurface, padding: 18, borderRadius: Radius.md, marginBottom: 20 }, taskId: { color: Colors.primary, fontSize: 11, fontWeight: '800' }, title: { color: '#fff', fontSize: 23, fontWeight: '800', marginTop: 7 }, meta: { color: '#bed0bb', fontSize: 13, marginTop: 8 }, steps: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 25 }, step: { alignItems: 'center', width: '32%' }, stepCircle: { width: 30, height: 30, borderRadius: 15, backgroundColor: Colors.surfaceContainerHighest, alignItems: 'center', justifyContent: 'center' }, stepDone: { backgroundColor: Colors.primaryDark }, stepNumber: { color: Colors.onSurfaceMuted, fontWeight: '800', fontSize: 12 }, stepLabel: { color: Colors.onSurfaceMuted, fontSize: 10, textAlign: 'center', marginTop: 6 }, stepLabelActive: { color: Colors.primaryDark, fontWeight: '800' }, section: { color: Colors.onSurfaceMuted, fontSize: 11, fontWeight: '800', letterSpacing: .8, marginBottom: 10 }, card: { backgroundColor: '#fff', padding: 17, borderRadius: Radius.md, marginBottom: 18, ...Shadows.card }, info: { flexDirection: 'row', gap: 12, alignItems: 'center', paddingBottom: 14, marginBottom: 14, borderBottomWidth: 1, borderBottomColor: Colors.surfaceContainer }, muted: { color: Colors.onSurfaceMuted, fontSize: 12 }, infoValue: { color: Colors.ink, fontSize: 15, fontWeight: '700', marginTop: 3 }, qrBox: { alignItems: 'center', backgroundColor: Colors.surfaceContainerLow, padding: 18, borderRadius: Radius.sm }, verified: { backgroundColor: '#e9f4de' }, qrTitle: { color: Colors.ink, fontWeight: '800', marginTop: 8 }, otpRow: { flexDirection: 'row', gap: 9, marginTop: 14 }, input: { flex: 1, borderWidth: 1, borderColor: Colors.surfaceContainerHighest, borderRadius: Radius.sm, padding: 13, color: Colors.ink }, verifyButton: { justifyContent: 'center', backgroundColor: Colors.primaryDark, borderRadius: Radius.sm, paddingHorizontal: 13 }, verifyText: { color: '#fff', fontSize: 11, fontWeight: '800' }, itemBlock: { paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: Colors.surfaceContainer }, checkLabel: { color: Colors.ink, fontSize: 14, fontWeight: '700' }, statusRow: { flexDirection: 'row', gap: 6, marginTop: 9 }, statusButton: { borderWidth: 1, borderColor: Colors.surfaceContainerHighest, borderRadius: 7, paddingVertical: 8, paddingHorizontal: 7 }, statusSelected: { backgroundColor: Colors.primaryDark, borderColor: Colors.primaryDark }, statusText: { color: Colors.ink, fontSize: 10, fontWeight: '700' }, noteInput: { borderWidth: 1, borderColor: Colors.error, borderRadius: 7, padding: 9, color: Colors.ink, marginTop: 8 }, notice: { color: Colors.body, backgroundColor: '#fff5d7', padding: 12, borderRadius: 8, marginTop: 15, fontSize: 12 }, upload: { alignItems: 'center', padding: 22, borderWidth: 1, borderStyle: 'dashed', borderColor: Colors.primaryDark, borderRadius: Radius.sm }, demoProof: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, padding: 11, marginTop: 10, borderRadius: 8, backgroundColor: '#eaf5e1' }, demoProofText: { color: Colors.primaryDark, fontSize: 12, fontWeight: '800' }, photo: { width: '100%', height: 150, borderRadius: 8, marginTop: 10 }, uploadTitle: { color: Colors.primaryDark, fontWeight: '800', marginTop: 8 }, signature: { padding: 14, marginTop: 14, borderRadius: 8, backgroundColor: Colors.surfaceContainerLow }, signatureTitle: { color: Colors.onSurfaceMuted, fontSize: 12 }, signatureLine: { color: Colors.ink, fontSize: 15, marginTop: 12 }, primary: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: Colors.primaryDark, padding: 15, borderRadius: Radius.sm }, disabled: { opacity: .6 }, primaryText: { color: '#fff', fontWeight: '800', fontSize: 14 }, backdrop: { flex: 1, backgroundColor: 'rgba(14,15,12,.45)', justifyContent: 'flex-end' }, menu: { backgroundColor: Colors.surface, padding: 22, borderTopLeftRadius: 24, borderTopRightRadius: 24 }, menuTitle: { color: Colors.ink, fontSize: 19, fontWeight: '800', marginBottom: 12 }, menuAction: { flexDirection: 'row', alignItems: 'center', gap: 13, paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: Colors.surfaceContainer }, menuText: { color: Colors.ink, fontSize: 15, fontWeight: '700' } });
+function completedStatus(status?: string) {
+  return Boolean(status && ["HANDED_OVER", "NO_SHOW", "REFUSED", "CLOSED", "CANCELLED"].includes(status));
+}
+
+function InfoRow({ icon, label, value }: { icon: keyof typeof Ionicons.glyphMap; label: string; value: string }) {
+  return (
+    <View style={styles.info}>
+      <Ionicons name={icon} size={18} color={Colors.primaryDark} />
+      <View><Text style={styles.muted}>{label}</Text><Text style={styles.infoValue}>{value}</Text></View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: Colors.surface },
+  content: { padding: 20, paddingBottom: 35 },
+  center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, padding: 28 },
+  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 24 },
+  headerTitle: { color: Colors.ink, fontSize: 17, fontWeight: "600" },
+  taskHeader: { backgroundColor: Colors.inverseSurface, padding: 18, borderRadius: Radius.xl, marginBottom: 18, ...Shadows.tactical },
+  taskId: { color: Colors.primary, fontSize: 11, fontWeight: "600" },
+  title: { color: "#fff", fontSize: 22, fontWeight: "600", marginTop: 7 },
+  meta: { color: "#bed0bb", fontSize: 13, marginTop: 8 },
+  tripTime: { color: "#dce9d8", fontSize: 11, lineHeight: 16, marginTop: 5 },
+  card: { backgroundColor: "#fff", padding: 17, borderRadius: Radius.xl, marginBottom: 16, ...Shadows.card },
+  section: { color: Colors.onSurfaceMuted, fontSize: 11, fontWeight: "600", letterSpacing: 0.8, marginBottom: 12 },
+  cardTitle: { color: Colors.ink, fontSize: 18, fontWeight: "600", marginTop: 8 },
+  muted: { color: Colors.onSurfaceMuted, fontSize: 12, marginTop: 6 },
+  input: { borderWidth: 1, borderColor: Colors.surfaceContainerHighest, borderRadius: Radius.sm, padding: 13, color: Colors.ink, marginTop: 10 },
+  notes: { minHeight: 76, textAlignVertical: "top" },
+  notice: { color: Colors.body, backgroundColor: "#fff5d7", padding: 12, borderRadius: 8, marginTop: 12, fontSize: 12 },
+  primary: { flexDirection: "row", alignItems: "center", justifyContent: "center", backgroundColor: Colors.primaryDark, padding: 15, borderRadius: Radius.sm, marginTop: 15 },
+  primaryText: { color: "#fff", fontWeight: "600", fontSize: 13 },
+  disabled: { opacity: 0.55 },
+  info: { flexDirection: "row", gap: 12, alignItems: "center", paddingBottom: 12, marginBottom: 8, borderBottomWidth: 1, borderBottomColor: Colors.surfaceContainer },
+  infoValue: { color: Colors.ink, fontSize: 14, fontWeight: "600", marginTop: 3 },
+  item: { paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: Colors.surfaceContainer },
+  itemName: { color: Colors.ink, fontSize: 14, fontWeight: "600" },
+  assetCode: { color: Colors.onSurfaceMuted, fontSize: 11, marginTop: 3 },
+  statusRow: { flexDirection: "row", gap: 6, marginTop: 8 },
+  statusButton: { borderWidth: 1, borderColor: Colors.surfaceContainerHighest, borderRadius: 7, paddingVertical: 8, paddingHorizontal: 9 },
+  statusSelected: { backgroundColor: Colors.primaryDark, borderColor: Colors.primaryDark },
+  statusText: { color: Colors.ink, fontSize: 10, fontWeight: "600" },
+  statusTextSelected: { color: "#fff" },
+  issueInput: { borderWidth: 1, borderColor: Colors.error, borderRadius: 7, padding: 9, color: Colors.ink, marginTop: 8 },
+  errorBox: { backgroundColor: "#ffe8e5", borderRadius: Radius.sm, padding: 12, marginBottom: 12 },
+  errorText: { color: Colors.error, fontSize: 12, marginTop: 8 },
+  noShowButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, padding: 14 },
+  noShowText: { color: Colors.error, fontWeight: "600", fontSize: 11 },
+  warningCard: { borderWidth: 1, borderColor: "#f1c978", backgroundColor: "#fffaf0" },
+  resultIcon: { width: 54, height: 54, borderRadius: 27, alignItems: "center", justifyContent: "center", backgroundColor: "#e4f4db" },
+  resultIconWarning: { backgroundColor: "#ffedc7" },
+  friendlyStatus: { flexDirection: "row", alignItems: "center", alignSelf: "flex-start", gap: 6, borderRadius: 14, backgroundColor: "#edf5e8", paddingHorizontal: 10, paddingVertical: 7, marginTop: 14 },
+  friendlyStatusText: { color: Colors.primaryDark, fontSize: 10, fontWeight: "600" },
+  backdrop: { flex: 1, backgroundColor: "rgba(14,15,12,.45)", justifyContent: "flex-end" },
+  menu: { backgroundColor: Colors.surface, padding: 22, borderTopLeftRadius: 24, borderTopRightRadius: 24 },
+  menuTitle: { color: Colors.ink, fontSize: 19, fontWeight: "600", marginBottom: 12 },
+  reasonButton: { padding: 11, borderRadius: 8, marginBottom: 6, backgroundColor: Colors.surfaceContainerLow },
+  reasonSelected: { backgroundColor: "#dcefd2", borderWidth: 1, borderColor: Colors.primaryDark },
+  reasonText: { color: Colors.ink, fontSize: 12, fontWeight: "600" },
+  dangerButton: { alignItems: "center", backgroundColor: Colors.error, padding: 14, borderRadius: Radius.sm, marginTop: 12 },
+});
