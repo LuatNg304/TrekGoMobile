@@ -20,6 +20,7 @@ export type PreparationTaskSummary = {
   status: PreparationTaskStatus;
   orderId: string;
   orderCode: string;
+  tripTitle?: string | null;
   assignee: { id: string; displayName: string } | null;
   deadline: string | null;
   pickup: { id: string; name: string };
@@ -302,9 +303,24 @@ export const staffInventoryApi = {
 };
 
 export async function uploadInventoryEvidence(
-  asset: { uri: string; fileName?: string | null; mimeType?: string | null; fileSize?: number },
+  asset: {
+    uri: string;
+    fileName?: string | null;
+    mimeType?: string | null;
+    fileSize?: number;
+    type?: string | null;
+  },
   accessToken: string,
+  options?: { scope?: "CONDITION_EVIDENCE" | "RETURN_EVIDENCE" },
 ) {
+  const mediaPath = (asset.fileName || asset.uri).toLowerCase();
+  const isVideo =
+    asset.type === "video" ||
+    asset.mimeType?.startsWith("video/") === true ||
+    /\.(mp4|mov|m4v|webm)(?:$|\?)/i.test(mediaPath);
+  const resourceType = isVideo ? "VIDEO" : "IMAGE";
+  const fallbackName = `condition-${Date.now()}.${isVideo ? "mp4" : "jpg"}`;
+  const contentType = asset.mimeType || (isVideo ? "video/mp4" : "image/jpeg");
   const intentPayload = await apiRequest<
     Envelope<{
       mediaId: string;
@@ -318,10 +334,10 @@ export async function uploadInventoryEvidence(
     method: "POST",
     accessToken,
     body: JSON.stringify({
-      scope: "CONDITION_EVIDENCE",
-      resourceType: "IMAGE",
-      fileName: asset.fileName || `condition-${Date.now()}.jpg`,
-      contentType: asset.mimeType || "image/jpeg",
+      scope: options?.scope ?? "CONDITION_EVIDENCE",
+      resourceType,
+      fileName: asset.fileName || fallbackName,
+      contentType,
       sizeBytes: asset.fileSize,
       captureSource: "CAMERA",
       clientCapturedAt: new Date().toISOString(),
@@ -332,18 +348,22 @@ export async function uploadInventoryEvidence(
   Object.entries(intent.upload.formFields).forEach(([key, value]) => {
     formData.append(key, String(value));
   });
-  formData.append("file", {
-    uri: asset.uri,
-    name: asset.fileName || `condition-${Date.now()}.jpg`,
-    type: asset.mimeType || "image/jpeg",
-  } as unknown as Blob);
+  const fileName = asset.fileName || fallbackName;
+  const localFileResponse = await fetch(asset.uri);
+
+  if (!localFileResponse.ok) {
+    throw new Error("Không thể đọc tệp bằng chứng trên thiết bị.");
+  }
+
+  const fileBlob = await localFileResponse.blob();
+  formData.append("file", fileBlob, fileName);
 
   const uploadedResponse = await fetch(intent.upload.uploadUrl, {
     method: intent.upload.method || "POST",
     body: formData,
   });
   if (!uploadedResponse.ok) {
-    throw new Error("Không thể tải ảnh tình trạng lên kho media.");
+    throw new Error("Không thể tải bằng chứng lên kho media.");
   }
   const uploaded = (await uploadedResponse.json()) as {
     public_id: string;

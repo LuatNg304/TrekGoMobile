@@ -49,6 +49,7 @@ export default function RentalProductDetailScreen() {
   const [product, setProduct] = useState<RentalProduct>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
+  const [activeImage, setActiveImage] = useState(0);
 
   const productId = Array.isArray(id) ? id[0] : id;
   const cartEntry = cart.find((entry) => entry.item.id === productId);
@@ -144,8 +145,8 @@ export default function RentalProductDetailScreen() {
         contentContainerStyle={styles.content}
       >
         <View style={styles.heroCard}>
-          {product.imageUrl ? (
-            <Image source={{ uri: product.imageUrl }} style={styles.heroImage} />
+          {(product.imageUrls?.[activeImage] || product.imageUrl) ? (
+            <Image source={{ uri: product.imageUrls?.[activeImage] || product.imageUrl }} style={styles.heroImage} />
           ) : (
             <View style={styles.heroPlaceholder}>
               <Ionicons name="cube-outline" size={70} color={Colors.primaryDark} />
@@ -157,9 +158,29 @@ export default function RentalProductDetailScreen() {
           <View style={styles.heroBottom}>
             <Text style={styles.category}>{product.category.name}</Text>
             <Text style={styles.productName}>{product.name}</Text>
-            <Text style={styles.sku}>SKU: {product.sku}</Text>
+            {product.sku ? <Text style={styles.sku}>SKU: {product.sku}</Text> : null}
           </View>
+          {(product.imageUrls?.length ?? 0) > 1 && (
+            <View style={styles.galleryCounter}>
+              <Ionicons name="images-outline" size={13} color="#fff" />
+              <Text style={styles.galleryCounterText}>{activeImage + 1}/{product.imageUrls!.length}</Text>
+            </View>
+          )}
         </View>
+
+        {(product.imageUrls?.length ?? 0) > 1 && (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.thumbnailRow}>
+            {product.imageUrls!.map((url, index) => (
+              <TouchableOpacity
+                key={`${url}-${index}`}
+                style={[styles.thumbnailButton, activeImage === index && styles.thumbnailButtonActive]}
+                onPress={() => setActiveImage(index)}
+              >
+                <Image source={{ uri: url }} style={styles.thumbnailImage} />
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        )}
 
         <View style={styles.tripCard}>
           <View style={styles.tripIcon}>
@@ -337,7 +358,7 @@ function Header({
         <Ionicons name="arrow-back" size={20} color={Colors.onSurface} />
       </TouchableOpacity>
       <View style={styles.headerText}>
-        <Text style={styles.headerEyebrow}>TREKGO RENTAL</Text>
+        <Text style={styles.headerEyebrow}>TREKGO GEAR</Text>
         <Text style={styles.headerTitle}>Chi tiết thiết bị</Text>
       </View>
       <TouchableOpacity style={styles.headerButton} onPress={onCart}>
@@ -386,14 +407,14 @@ const styles = StyleSheet.create({
   headerEyebrow: {
     color: Colors.primaryDark,
     fontSize: 9,
-    fontWeight: "900",
+    fontWeight: "700",
     letterSpacing: 0.8,
   },
   headerTitle: {
     marginTop: 1,
     color: Colors.onSurface,
     fontSize: 17,
-    fontWeight: "900",
+    fontWeight: "700",
   },
   cartBadge: {
     position: "absolute",
@@ -407,7 +428,7 @@ const styles = StyleSheet.create({
     borderRadius: Radius.full,
     backgroundColor: Colors.error,
   },
-  cartBadgeText: { color: "#fff", fontSize: 9, fontWeight: "900" },
+  cartBadgeText: { color: "#fff", fontSize: 9, fontWeight: "700" },
   centerState: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12 },
   emptyState: {
     flex: 1,
@@ -427,7 +448,7 @@ const styles = StyleSheet.create({
     marginTop: 14,
     color: Colors.onSurface,
     fontSize: 20,
-    fontWeight: "900",
+    fontWeight: "700",
   },
   stateText: {
     marginTop: 8,
@@ -442,7 +463,7 @@ const styles = StyleSheet.create({
     borderRadius: Radius.full,
     backgroundColor: Colors.primaryDark,
   },
-  primaryButtonText: { color: Colors.onPrimaryDark, fontWeight: "900" },
+  primaryButtonText: { color: Colors.onPrimaryDark, fontWeight: "700" },
   content: { padding: 16, paddingBottom: 130, gap: 14 },
   heroCard: {
     height: 310,
@@ -469,6 +490,12 @@ const styles = StyleSheet.create({
     borderRadius: Radius.lg,
     backgroundColor: "rgba(14,15,12,0.80)",
   },
+  galleryCounter: { position: "absolute", top: 12, right: 12, paddingHorizontal: 9, paddingVertical: 6, flexDirection: "row", alignItems: "center", gap: 5, borderRadius: Radius.full, backgroundColor: "rgba(14,15,12,0.72)" },
+  galleryCounterText: { color: "#fff", fontSize: 10, fontWeight: "700" },
+  thumbnailRow: { gap: 8, paddingVertical: 1 },
+  thumbnailButton: { width: 62, height: 62, overflow: "hidden", borderWidth: 2, borderColor: "transparent", borderRadius: Radius.md, backgroundColor: Colors.surfaceContainer },
+  thumbnailButtonActive: { borderColor: Colors.primaryDark },
+  thumbnailImage: { width: "100%", height: "100%" },
   category: {
     alignSelf: "flex-start",
     paddingHorizontal: 9,
@@ -478,14 +505,14 @@ const styles = StyleSheet.create({
     color: Colors.onPrimary,
     backgroundColor: Colors.primary,
     fontSize: 9,
-    fontWeight: "900",
+    fontWeight: "700",
     textTransform: "uppercase",
   },
   productName: {
     marginTop: 7,
     color: "#fff",
     fontSize: 23,
-    fontWeight: "900",
+    fontWeight: "700",
     lineHeight: 28,
   },
   sku: { marginTop: 3, color: Colors.primaryNeutral, fontSize: 10 },
@@ -510,14 +537,14 @@ const styles = StyleSheet.create({
   tripLabel: {
     color: Colors.primaryDark,
     fontSize: 8,
-    fontWeight: "900",
+    fontWeight: "700",
     letterSpacing: 0.4,
   },
   tripTitle: {
     marginTop: 3,
     color: Colors.onSurface,
     fontSize: 13,
-    fontWeight: "900",
+    fontWeight: "700",
   },
   tripDescription: { marginTop: 2, color: Colors.onSurfaceVariant, fontSize: 9 },
   tripAction: {
@@ -526,7 +553,7 @@ const styles = StyleSheet.create({
     borderRadius: Radius.full,
     backgroundColor: Colors.inkDeep,
   },
-  tripActionText: { color: Colors.onPrimaryDark, fontSize: 10, fontWeight: "900" },
+  tripActionText: { color: Colors.onPrimaryDark, fontSize: 10, fontWeight: "700" },
   priceCard: {
     padding: 16,
     flexDirection: "row",
@@ -539,14 +566,14 @@ const styles = StyleSheet.create({
   priceLabel: {
     color: Colors.onSurfaceVariant,
     fontSize: 9,
-    fontWeight: "900",
+    fontWeight: "700",
     letterSpacing: 0.5,
   },
   dailyPrice: {
     marginTop: 3,
     color: Colors.primaryDark,
     fontSize: 22,
-    fontWeight: "900",
+    fontWeight: "700",
   },
   perDay: { color: Colors.onSurfaceVariant, fontSize: 12, fontWeight: "500" },
   depositBox: { alignItems: "flex-end" },
@@ -563,7 +590,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surfaceContainerLowest,
     ...Shadows.card,
   },
-  sectionTitle: { color: Colors.onSurface, fontSize: 15, fontWeight: "900" },
+  sectionTitle: { color: Colors.onSurface, fontSize: 16, lineHeight: 22, fontWeight: "700" },
   description: {
     marginTop: 8,
     color: Colors.onSurfaceVariant,

@@ -19,6 +19,13 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 type TaskTab = "WAITING" | "IN_PROGRESS" | "COMPLETED";
+type TaskKindFilter = "ALL" | "OUTBOUND" | "RETURN";
+type EnrichedDeliveryTask = DeliveryTaskSummary & {
+  tripTitle?: string;
+  tripType?: "PUBLIC" | "PRIVATE";
+  tripStartAt?: string;
+  tripEndAt?: string;
+};
 
 const completedStatuses = new Set([
   "HANDED_OVER",
@@ -50,7 +57,7 @@ function statusLabel(status: string) {
   const labels: Record<string, string> = {
     SCHEDULED: "Chờ nhận",
     BLOCKED: "Đang bị chặn",
-    PACKAGE_RECEIVED: "Đã nhận package",
+    PACKAGE_RECEIVED: "Đã nhận gói thiết bị",
     RECIPIENT_VERIFIED: "Đã xác minh khách",
     HANDED_OVER: "Đã bàn giao",
     COLLECTING: "Đang thu hồi",
@@ -61,7 +68,19 @@ function statusLabel(status: string) {
     CLOSED: "Đã đóng",
     CANCELLED: "Đã hủy",
   };
-  return labels[status] || status;
+  return labels[status] || "Đang cập nhật";
+}
+
+function formatTripWindow(startAt?: string, endAt?: string) {
+  if (!startAt || !endAt) return "Khung giờ chuyến đi đang cập nhật";
+  const format = (value: string) =>
+    new Intl.DateTimeFormat("vi-VN", {
+      day: "2-digit",
+      month: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(new Date(value));
+  return `${format(startAt)} → ${format(endAt)}`;
 }
 
 export default function FieldOperationsHome() {
@@ -69,7 +88,8 @@ export default function FieldOperationsHome() {
   const { user, authRole, signOut } = useApp();
   const { user: authUser, accessToken, signOut: authSignOut } = useAuth();
   const [activeTaskTab, setActiveTaskTab] = useState<TaskTab>("WAITING");
-  const [tasks, setTasks] = useState<DeliveryTaskSummary[]>([]);
+  const [taskKind, setTaskKind] = useState<TaskKindFilter>("ALL");
+  const [tasks, setTasks] = useState<EnrichedDeliveryTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string>();
@@ -125,9 +145,15 @@ export default function FieldOperationsHome() {
   }, [effectiveRole, loadTasks, router]);
 
   const visibleTasks = useMemo(
-    () => tasks.filter((task) => taskTab(task) === activeTaskTab),
-    [activeTaskTab, tasks],
+    () =>
+      tasks.filter(
+        (task) =>
+          taskTab(task) === activeTaskTab &&
+          (taskKind === "ALL" || task.type === taskKind),
+      ),
+    [activeTaskTab, taskKind, tasks],
   );
+  const waitingCount = tasks.filter((task) => taskTab(task) === "WAITING").length;
   const inProgressCount = tasks.filter((task) => taskTab(task) === "IN_PROGRESS").length;
   const completedCount = tasks.filter((task) => taskTab(task) === "COMPLETED").length;
 
@@ -176,21 +202,59 @@ export default function FieldOperationsHome() {
         </View>
 
         <View style={styles.statusBanner}>
-          <Ionicons name="cube" size={22} color={Colors.primaryDark} />
+          <View style={styles.bannerIcon}>
+            <Ionicons name="navigate" size={21} color={Colors.primaryDark} />
+          </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.bannerTitle}>Ca giao nhận hôm nay</Text>
-            <Text style={styles.bannerText}>{tasks.length} task từ hệ thống</Text>
+            <Text style={styles.bannerText}>
+              {waitingCount} việc chờ nhận · {inProgressCount} việc đang thực hiện
+            </Text>
           </View>
-          <View style={styles.liveDot} />
+          <TouchableOpacity onPress={() => void loadTasks(true)}>
+            <Ionicons name="refresh" size={21} color={Colors.primaryDark} />
+          </TouchableOpacity>
         </View>
 
         <View style={styles.statsRow}>
-          <Stat value={String(tasks.length)} label="Tổng task" />
-          <Stat value={String(inProgressCount)} label="Đang xử lý" />
-          <Stat value={String(completedCount)} label="Đã hoàn tất" />
+          <Stat value={String(waitingCount)} label="Cần nhận" icon="time-outline" />
+          <Stat value={String(inProgressCount)} label="Đang đi" icon="navigate-outline" />
+          <Stat value={String(completedCount)} label="Hoàn tất" icon="checkmark-circle-outline" />
         </View>
 
-        <Text style={styles.sectionTitle}>NHIỆM VỤ</Text>
+        <View style={styles.sectionHeadingRow}>
+          <View>
+            <Text style={styles.sectionTitle}>LỊCH GIAO NHẬN</Text>
+            <Text style={styles.sectionCaption}>Theo loại công việc và tiến độ</Text>
+          </View>
+          <Text style={styles.resultCount}>{visibleTasks.length} việc</Text>
+        </View>
+
+        <View style={styles.kindTabs}>
+          {(
+            [
+              ["ALL", "Tất cả", "apps-outline"],
+              ["OUTBOUND", "Giao thiết bị", "arrow-up-circle-outline"],
+              ["RETURN", "Thu hồi", "arrow-down-circle-outline"],
+            ] as const
+          ).map(([value, label, icon]) => (
+            <TouchableOpacity
+              key={value}
+              style={[styles.kindTab, taskKind === value && styles.kindTabActive]}
+              onPress={() => setTaskKind(value)}
+            >
+              <Ionicons
+                name={icon}
+                size={16}
+                color={taskKind === value ? "#fff" : Colors.primaryDark}
+              />
+              <Text style={[styles.kindTabText, taskKind === value && styles.kindTabTextActive]}>
+                {label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
         <View style={styles.taskTabs}>
           {(
             [
@@ -214,7 +278,7 @@ export default function FieldOperationsHome() {
         {loading ? (
           <View style={styles.center}>
             <ActivityIndicator color={Colors.primaryDark} />
-            <Text style={styles.emptyText}>Đang tải task thật...</Text>
+            <Text style={styles.emptyText}>Đang tải lịch giao nhận...</Text>
           </View>
         ) : error ? (
           <View style={styles.errorBox}>
@@ -225,23 +289,55 @@ export default function FieldOperationsHome() {
           </View>
         ) : visibleTasks.length === 0 ? (
           <View style={styles.center}>
-            <Text style={styles.emptyText}>Không có task trong trạng thái này.</Text>
+            <Text style={styles.emptyText}>Không có nhiệm vụ trong trạng thái này.</Text>
           </View>
         ) : (
           visibleTasks.map((task) => (
             <TouchableOpacity
               key={task.id}
-              style={styles.taskCard}
+              style={[
+                styles.taskCard,
+                task.type === "RETURN" ? styles.returnCard : styles.outboundCard,
+              ]}
               onPress={() => openTask(task)}
               activeOpacity={0.84}
             >
               <View style={styles.taskTop}>
-                <Text style={styles.taskId}>{task.id.slice(0, 8).toUpperCase()}</Text>
-                <Text style={styles.taskStatus}>{statusLabel(task.status)}</Text>
+                <View
+                  style={[
+                    styles.taskTypeBadge,
+                    task.type === "RETURN" ? styles.returnBadge : styles.outboundBadge,
+                  ]}
+                >
+                  <Ionicons
+                    name={task.type === "RETURN" ? "arrow-down-circle" : "arrow-up-circle"}
+                    size={15}
+                    color={task.type === "RETURN" ? "#A15400" : Colors.primaryDark}
+                  />
+                  <Text
+                    style={[
+                      styles.taskTypeText,
+                      task.type === "RETURN" && styles.returnTypeText,
+                    ]}
+                  >
+                    {task.type === "RETURN" ? "THU HỒI THIẾT BỊ" : "GIAO THIẾT BỊ"}
+                  </Text>
+                </View>
+                <View style={styles.statusPill}>
+                  <Text style={styles.taskStatus}>{statusLabel(task.status)}</Text>
+                </View>
               </View>
-              <Text style={styles.taskTitle}>
-                {task.type === "RETURN" ? "Thu hồi thiết bị" : "Giao thiết bị"}
-              </Text>
+              <Text style={styles.taskTitle}>{task.tripTitle || "Chuyến trekking"}</Text>
+              <View style={styles.tripInfoRow}>
+                <View style={styles.tripTypePill}>
+                  <Text style={styles.tripTypeText}>
+                    {task.tripType === "PRIVATE" ? "Chuyến riêng" : "Chuyến công khai"}
+                  </Text>
+                </View>
+                <Text style={styles.tripTime}>
+                  {formatTripWindow(task.tripStartAt, task.tripEndAt)}
+                </Text>
+              </View>
               <Text style={styles.taskMeta}>
                 <Ionicons name="person-outline" size={13} /> {recipientName(task)}
               </Text>
@@ -249,9 +345,20 @@ export default function FieldOperationsHome() {
                 <Ionicons name="location-outline" size={13} /> {task.point.name}
               </Text>
               <View style={styles.taskItems}>
-                <Ionicons name="cube-outline" size={15} color={Colors.primaryDark} />
-                <Text style={styles.taskItemsText}>{task.package.code}</Text>
-                <Ionicons name="arrow-forward" size={17} color={Colors.primaryDark} />
+                <Ionicons
+                  name={task.type === "RETURN" ? "return-down-back-outline" : "cube-outline"}
+                  size={16}
+                  color={Colors.primaryDark}
+                />
+                <Text style={styles.taskItemsText}>
+                  {task.package.status === "HANDED_OVER"
+                    ? "Gói thiết bị đã bàn giao"
+                    : task.package.status === "READY"
+                      ? "Gói thiết bị sẵn sàng"
+                      : "Thông tin gói thiết bị"}
+                </Text>
+                <Text style={styles.openTaskText}>Mở nhiệm vụ</Text>
+                <Ionicons name="chevron-forward" size={17} color={Colors.primaryDark} />
               </View>
             </TouchableOpacity>
           ))
@@ -266,9 +373,18 @@ export default function FieldOperationsHome() {
   );
 }
 
-function Stat({ value, label }: { value: string; label: string }) {
+function Stat({
+  value,
+  label,
+  icon,
+}: {
+  value: string;
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+}) {
   return (
     <View style={styles.stat}>
+      <Ionicons name={icon} size={17} color={Colors.primaryDark} />
       <Text style={styles.statValue}>{value}</Text>
       <Text style={styles.statLabel}>{label}</Text>
     </View>
@@ -279,36 +395,56 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: Colors.surface },
   content: { padding: 20, paddingBottom: 40 },
   header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 22 },
-  eyebrow: { color: Colors.primaryDark, fontSize: 11, fontWeight: "800", letterSpacing: 1.1 },
-  heading: { color: Colors.ink, fontSize: 25, fontWeight: "800", marginTop: 5 },
+  eyebrow: { color: Colors.primaryDark, fontSize: 11, fontWeight: "600", letterSpacing: 1.1 },
+  heading: { color: Colors.ink, fontSize: 25, fontWeight: "600", marginTop: 5 },
   statusBanner: { flexDirection: "row", alignItems: "center", gap: 12, padding: 16, borderRadius: Radius.md, marginBottom: 16, backgroundColor: "#eaf5e1" },
-  bannerTitle: { color: Colors.ink, fontSize: 15, fontWeight: "800" },
+  bannerIcon: { width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center", backgroundColor: "#d6edc8" },
+  bannerTitle: { color: Colors.ink, fontSize: 15, fontWeight: "600" },
   bannerText: { color: Colors.body, fontSize: 12, marginTop: 4 },
-  liveDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: "#22a35a" },
   statsRow: { flexDirection: "row", gap: 10, marginBottom: 25 },
-  stat: { flex: 1, backgroundColor: "#fff", padding: 14, borderRadius: Radius.sm, ...Shadows.card },
-  statValue: { color: Colors.ink, fontSize: 22, fontWeight: "800" },
+  stat: { flex: 1, backgroundColor: "#fff", padding: 12, borderRadius: Radius.sm, ...Shadows.card },
+  statValue: { color: Colors.ink, fontSize: 22, fontWeight: "600" },
   statLabel: { color: Colors.onSurfaceMuted, fontSize: 11, marginTop: 5 },
-  sectionTitle: { color: Colors.onSurfaceMuted, fontSize: 11, fontWeight: "800", letterSpacing: 0.8, marginBottom: 10, marginTop: 8 },
+  sectionHeadingRow: { flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between", marginBottom: 11 },
+  sectionTitle: { color: Colors.ink, fontSize: 14, fontWeight: "600", letterSpacing: 0.5 },
+  sectionCaption: { color: Colors.onSurfaceMuted, fontSize: 10, marginTop: 3 },
+  resultCount: { color: Colors.primaryDark, fontSize: 11, fontWeight: "600" },
+  kindTabs: { flexDirection: "row", gap: 7, marginBottom: 9 },
+  kindTab: { flex: 1, minHeight: 40, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, borderWidth: 1, borderColor: "#d7e5d0", borderRadius: 12, backgroundColor: "#f8fbf6" },
+  kindTabActive: { backgroundColor: Colors.primaryDark, borderColor: Colors.primaryDark },
+  kindTabText: { color: Colors.primaryDark, fontSize: 10, fontWeight: "600" },
+  kindTabTextActive: { color: "#fff" },
   taskTabs: { flexDirection: "row", gap: 7, marginBottom: 12 },
   taskTab: { flex: 1, alignItems: "center", paddingVertical: 10, borderRadius: 8, backgroundColor: Colors.surfaceContainerLow },
   taskTabActive: { backgroundColor: Colors.primaryDark },
-  taskTabText: { color: Colors.onSurfaceMuted, fontSize: 11, fontWeight: "700" },
+  taskTabText: { color: Colors.onSurfaceMuted, fontSize: 11, fontWeight: "600" },
   taskTabTextActive: { color: "#fff" },
   center: { backgroundColor: "#fff", padding: 24, borderRadius: Radius.sm, alignItems: "center", gap: 10 },
   emptyText: { color: Colors.onSurfaceMuted, textAlign: "center" },
   errorBox: { backgroundColor: "#ffe8e5", padding: 16, borderRadius: Radius.sm },
   errorText: { color: Colors.error, fontSize: 13 },
   retry: { alignSelf: "flex-start", backgroundColor: Colors.primaryDark, paddingVertical: 9, paddingHorizontal: 14, borderRadius: 8, marginTop: 12 },
-  retryText: { color: "#fff", fontWeight: "800", fontSize: 11 },
-  taskCard: { backgroundColor: "#fff", borderRadius: Radius.md, padding: 16, marginBottom: 12, ...Shadows.card },
-  taskTop: { flexDirection: "row", justifyContent: "space-between" },
-  taskId: { color: Colors.primaryDark, fontSize: 11, fontWeight: "800" },
-  taskStatus: { color: "#9b6700", fontSize: 11, fontWeight: "700" },
-  taskTitle: { color: Colors.ink, fontSize: 17, fontWeight: "800", marginVertical: 8 },
+  retryText: { color: "#fff", fontWeight: "600", fontSize: 11 },
+  taskCard: { backgroundColor: "#fff", borderRadius: Radius.xl, padding: 16, marginBottom: 12, borderLeftWidth: 4, ...Shadows.card },
+  outboundCard: { borderLeftColor: Colors.primaryDark },
+  returnCard: { borderLeftColor: "#E49A37" },
+  taskTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8 },
+  taskTypeBadge: { flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 14, paddingHorizontal: 8, paddingVertical: 5 },
+  outboundBadge: { backgroundColor: "#e4f4db" },
+  returnBadge: { backgroundColor: "#fff0d9" },
+  taskTypeText: { color: Colors.primaryDark, fontSize: 9, fontWeight: "600" },
+  returnTypeText: { color: "#A15400" },
+  statusPill: { borderRadius: 14, paddingHorizontal: 8, paddingVertical: 5, backgroundColor: "#f2efe7" },
+  taskStatus: { color: "#76520b", fontSize: 9, fontWeight: "600" },
+  taskTitle: { color: Colors.ink, fontSize: 18, fontWeight: "600", marginTop: 12, marginBottom: 7 },
+  tripInfoRow: { flexDirection: "row", alignItems: "center", gap: 7, marginBottom: 11 },
+  tripTypePill: { borderRadius: 10, paddingHorizontal: 7, paddingVertical: 4, backgroundColor: "#edf3ea" },
+  tripTypeText: { color: Colors.primaryDark, fontSize: 9, fontWeight: "600" },
+  tripTime: { flex: 1, color: Colors.onSurfaceVariant, fontSize: 10 },
   taskMeta: { color: Colors.body, fontSize: 13, marginBottom: 5 },
   taskItems: { flexDirection: "row", alignItems: "center", gap: 8, borderTopWidth: 1, borderTopColor: Colors.surfaceContainer, paddingTop: 12, marginTop: 7 },
   taskItemsText: { flex: 1, color: Colors.onSurfaceVariant, fontSize: 12 },
+  openTaskText: { color: Colors.primaryDark, fontSize: 10, fontWeight: "600" },
   refreshAction: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, padding: 14, marginTop: 8 },
-  refreshText: { color: Colors.primaryDark, fontWeight: "800" },
+  refreshText: { color: Colors.primaryDark, fontWeight: "600" },
 });

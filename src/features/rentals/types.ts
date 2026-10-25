@@ -31,6 +31,7 @@ export type RentalProduct = {
   version: number;
   imageMediaIds: string[];
   imageUrl?: string;
+  imageUrls?: string[];
   spec: unknown;
   recommendationTags: string[];
 };
@@ -162,6 +163,7 @@ export type RentalOrderStatus =
 
 export type RentalOrderSummary = {
   id: string;
+  orderCode?: string | null;
   bookingId?: string;
   tripId: string;
   status: RentalOrderStatus;
@@ -178,6 +180,7 @@ export type RentalOrderSummary = {
   trip?: {
     id?: string;
     title?: string;
+    type?: RentalTripType;
     startAt?: string;
     endAt?: string;
   } | null;
@@ -192,10 +195,12 @@ export type RentalOrderLine = {
   dailyPrice?: number;
   feeAmount?: number;
   depositAmount?: number;
+  imageUrl?: string;
   product?: {
     id?: string;
     name?: string;
     sku?: string;
+    imageUrl?: string;
   } | null;
 };
 
@@ -278,6 +283,22 @@ export type RentalReturnTransferResult = {
   transferStartedAt?: string | null;
   transferWatchAt?: string | null;
   monitoringStatus?: string;
+};
+
+export type RentalReturnReceipt = {
+  receiptDocumentId: string;
+  documentId: string;
+  documentType: "RETURN_RECEIPT";
+  documentNumber: string;
+  returnSessionId: string;
+  receivedUnitCount: number;
+  notReturnedUnitIds: string[];
+  renderStatus: string;
+  downloadReady: boolean;
+  orderId: string;
+  issuedAt?: string;
+  snapshotHash: string;
+  version: number;
 };
 
 export type RentalOrderTimelineItem = {

@@ -25,6 +25,9 @@ import {
 const money = (value: number, currency = "VND") =>
   `${value.toLocaleString("vi-VN")} ${currency === "VND" ? "đ" : currency}`;
 
+const shortCode = (value: string) =>
+  value.replaceAll("-", "").slice(0, 6).toUpperCase();
+
 function createIdempotencyKey() {
   return `mobile-rental-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
@@ -172,9 +175,8 @@ export default function RentalCheckoutScreen() {
           </View>
           <Text style={styles.successTitle}>Đã giữ thiết bị</Text>
           <Text style={styles.successDescription}>
-            Đơn {createdOrder.order.id} đã được tạo ở trạng thái{" "}
-            {createdOrder.order.status}. Thiết bị chỉ được giữ tới hạn thanh
-            toán do server quy định.
+            Đơn {shortCode(createdOrder.order.id)} đã được tạo. Thiết bị được
+            tạm giữ đến hạn thanh toán hiển thị trong chi tiết đơn.
           </Text>
           <View style={styles.successAmount}>
             <Text style={styles.summaryLabel}>Tổng cần thanh toán</Text>
@@ -197,8 +199,7 @@ export default function RentalCheckoutScreen() {
             <Ionicons name="arrow-forward" size={19} color={Colors.onPrimary} />
           </TouchableOpacity>
           <Text style={styles.serverNote}>
-            Mobile chỉ hiển thị trạng thái từ server. Bàn giao, nhận trả và kiểm
-            định do Staff thực hiện theo đúng quyền.
+            Bạn có thể theo dõi quá trình chuẩn bị, bàn giao và hoàn trả ngay trong đơn thuê.
           </Text>
         </View>
       </SafeAreaView>
@@ -216,7 +217,7 @@ export default function RentalCheckoutScreen() {
         </TouchableOpacity>
         <View style={styles.flexOne}>
           <Text style={styles.eyebrow}>RENTAL CHECKOUT</Text>
-          <Text style={styles.headerTitle}>Kiểm tra & báo giá</Text>
+          <Text style={styles.headerTitle}>Xác nhận thuê thiết bị</Text>
         </View>
         <View style={styles.headerIcon}>
           <Ionicons
@@ -241,7 +242,7 @@ export default function RentalCheckoutScreen() {
           <StateCard
             icon="trail-sign-outline"
             title="Chưa chọn chuyến đi"
-            description="Rental cần một Trip membership hợp lệ trước khi kiểm tra tồn kho."
+            description="Hãy chọn chuyến đi để hệ thống xác định thời gian thuê và tồn kho phù hợp."
             action="Chọn chuyến đi"
             onAction={() => router.replace("/rental-trip-select" as Href)}
           />
@@ -325,7 +326,12 @@ export default function RentalCheckoutScreen() {
               </View>
             )}
 
-            {!quote ? (
+            {!quote && creatingQuote ? (
+              <ProgressCard
+                title="Đang tạo báo giá"
+                description="Hệ thống đang kiểm tra giá thuê, tiền cọc và số lượng thiết bị."
+              />
+            ) : !quote ? (
               <TouchableOpacity
                 style={[
                   styles.primaryButton,
@@ -335,24 +341,16 @@ export default function RentalCheckoutScreen() {
                 disabled={checking || shortages.length > 0 || creatingQuote}
                 onPress={() => void createQuote()}
               >
-                {creatingQuote ? (
-                  <ActivityIndicator color={Colors.onPrimary} />
-                ) : (
-                  <>
-                    <Text style={styles.primaryButtonText}>
-                      Tạo báo giá thật
-                    </Text>
-                    <Ionicons
-                      name="arrow-forward"
-                      size={19}
-                      color={Colors.onPrimary}
-                    />
-                  </>
-                )}
+                <Text style={styles.primaryButtonText}>Xem báo giá</Text>
+                <Ionicons
+                  name="arrow-forward"
+                  size={19}
+                  color={Colors.onPrimary}
+                />
               </TouchableOpacity>
             ) : (
               <View style={styles.quoteCard}>
-                <Text style={styles.cardLabel}>BÁO GIÁ TỪ SERVER</Text>
+                <Text style={styles.cardLabel}>CHI TIẾT BÁO GIÁ</Text>
                 <Text style={styles.quoteTitle}>
                   {quote.chargedDays} ngày thuê
                 </Text>
@@ -386,29 +384,24 @@ export default function RentalCheckoutScreen() {
                   {new Date(quote.expiresAt).toLocaleString("vi-VN")}
                 </Text>
 
-                <TouchableOpacity
-                  style={[
-                    styles.primaryButton,
-                    creatingOrder && styles.disabledButton,
-                  ]}
-                  disabled={creatingOrder}
-                  onPress={() => void createOrder()}
-                >
-                  {creatingOrder ? (
-                    <ActivityIndicator color={Colors.onPrimary} />
-                  ) : (
-                    <>
-                      <Ionicons
-                        name="lock-closed"
-                        size={18}
-                        color={Colors.onPrimary}
-                      />
-                      <Text style={styles.primaryButtonText}>
-                        Giữ thiết bị & tạo đơn
-                      </Text>
-                    </>
-                  )}
-                </TouchableOpacity>
+                {creatingOrder ? (
+                  <ProgressCard
+                    title="Đang tạo đơn thuê"
+                    description="Vui lòng giữ ứng dụng mở trong giây lát."
+                  />
+                ) : (
+                  <TouchableOpacity
+                    style={styles.primaryButton}
+                    onPress={() => void createOrder()}
+                  >
+                    <Ionicons
+                      name="lock-closed"
+                      size={18}
+                      color={Colors.onPrimary}
+                    />
+                    <Text style={styles.primaryButtonText}>Xác nhận thuê</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             )}
 
@@ -424,6 +417,26 @@ export default function RentalCheckoutScreen() {
         )}
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+function ProgressCard({
+  title,
+  description,
+}: {
+  title: string;
+  description: string;
+}) {
+  return (
+    <View style={styles.progressCard} accessibilityRole="progressbar">
+      <View style={styles.progressIcon}>
+        <ActivityIndicator size="small" color={Colors.primaryDark} />
+      </View>
+      <View style={styles.flexOne}>
+        <Text style={styles.progressTitle}>{title}</Text>
+        <Text style={styles.progressDescription}>{description}</Text>
+      </View>
+    </View>
   );
 }
 
@@ -494,10 +507,10 @@ const styles = StyleSheet.create({
   eyebrow: {
     color: Colors.primaryDark,
     fontSize: 10,
-    fontWeight: "900",
+    fontWeight: "600",
     letterSpacing: 1.2,
   },
-  headerTitle: { color: Colors.onSurface, fontSize: 25, fontWeight: "900" },
+  headerTitle: { color: Colors.onSurface, fontSize: 25, fontWeight: "600" },
   content: { padding: 18, paddingBottom: 48, gap: 14 },
   tripCard: {
     flexDirection: "row",
@@ -512,14 +525,14 @@ const styles = StyleSheet.create({
   cardLabel: {
     color: Colors.primaryDark,
     fontSize: 10,
-    fontWeight: "900",
+    fontWeight: "600",
     letterSpacing: 0.8,
   },
   tripTitle: {
     marginTop: 3,
     color: Colors.onSurface,
     fontSize: 16,
-    fontWeight: "800",
+    fontWeight: "600",
   },
   sectionCard: {
     padding: 16,
@@ -531,7 +544,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     color: Colors.onSurface,
     fontSize: 18,
-    fontWeight: "900",
+    fontWeight: "600",
   },
   itemRow: {
     minHeight: 62,
@@ -549,10 +562,10 @@ const styles = StyleSheet.create({
     borderRadius: Radius.md,
     backgroundColor: "#EAF9E1",
   },
-  itemName: { color: Colors.onSurface, fontSize: 14, fontWeight: "800" },
+  itemName: { color: Colors.onSurface, fontSize: 14, fontWeight: "600" },
   itemMeta: { color: Colors.onSurfaceVariant, fontSize: 12 },
-  stockText: { color: Colors.primaryDark, fontSize: 13, fontWeight: "800" },
-  errorText: { color: Colors.error, fontSize: 13, fontWeight: "800" },
+  stockText: { color: Colors.primaryDark, fontSize: 13, fontWeight: "600" },
+  errorText: { color: Colors.error, fontSize: 13, fontWeight: "600" },
   errorCard: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -567,7 +580,7 @@ const styles = StyleSheet.create({
     flex: 1,
     color: Colors.error,
     fontSize: 13,
-    fontWeight: "700",
+    fontWeight: "600",
   },
   primaryButton: {
     minHeight: 54,
@@ -582,7 +595,7 @@ const styles = StyleSheet.create({
   primaryButtonText: {
     color: Colors.onPrimary,
     fontSize: 15,
-    fontWeight: "900",
+    fontWeight: "600",
   },
   disabledButton: { opacity: 0.45 },
   quoteCard: {
@@ -592,14 +605,38 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     ...Shadows.card,
   },
-  quoteTitle: { color: Colors.onSurface, fontSize: 22, fontWeight: "900" },
+  quoteTitle: { color: Colors.onSurface, fontSize: 22, fontWeight: "600" },
+  progressCard: {
+    minHeight: 76,
+    padding: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderRadius: 24,
+    backgroundColor: "#E8EBE6",
+  },
+  progressIcon: {
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 22,
+    backgroundColor: "#FFFFFF",
+  },
+  progressTitle: { color: Colors.onSurface, fontSize: 15, fontWeight: "600" },
+  progressDescription: {
+    marginTop: 3,
+    color: Colors.onSurfaceVariant,
+    fontSize: 12,
+    lineHeight: 18,
+  },
   summaryRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     gap: 12,
   },
   summaryLabel: { flex: 1, color: Colors.onSurfaceVariant, fontSize: 13 },
-  summaryValue: { color: Colors.onSurface, fontSize: 13, fontWeight: "800" },
+  summaryValue: { color: Colors.onSurface, fontSize: 13, fontWeight: "600" },
   divider: { height: 1, backgroundColor: Colors.surfaceContainerHighest },
   totalRow: {
     flexDirection: "row",
@@ -607,8 +644,8 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 12,
   },
-  totalLabel: { color: Colors.onSurface, fontSize: 15, fontWeight: "900" },
-  totalValue: { color: Colors.primaryDark, fontSize: 22, fontWeight: "900" },
+  totalLabel: { color: Colors.onSurface, fontSize: 15, fontWeight: "600" },
+  totalValue: { color: Colors.primaryDark, fontSize: 22, fontWeight: "600" },
   expiryText: { color: Colors.onSurfaceVariant, fontSize: 11 },
   retryButton: {
     minHeight: 44,
@@ -617,7 +654,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 7,
   },
-  retryText: { color: Colors.primaryDark, fontSize: 13, fontWeight: "800" },
+  retryText: { color: Colors.primaryDark, fontSize: 13, fontWeight: "600" },
   stateCard: {
     alignItems: "center",
     gap: 12,
@@ -626,7 +663,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     ...Shadows.card,
   },
-  stateTitle: { color: Colors.onSurface, fontSize: 22, fontWeight: "900" },
+  stateTitle: { color: Colors.onSurface, fontSize: 22, fontWeight: "600" },
   stateDescription: {
     color: Colors.onSurfaceVariant,
     fontSize: 14,
@@ -648,7 +685,7 @@ const styles = StyleSheet.create({
     borderRadius: 43,
     backgroundColor: "#DDF7CD",
   },
-  successTitle: { color: Colors.onSurface, fontSize: 28, fontWeight: "900" },
+  successTitle: { color: Colors.onSurface, fontSize: 28, fontWeight: "600" },
   successDescription: {
     color: Colors.onSurfaceVariant,
     fontSize: 14,

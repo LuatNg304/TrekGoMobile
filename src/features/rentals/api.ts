@@ -72,6 +72,79 @@ type MediaDelivery = {
   url: string;
 };
 
+type KnownTripDetail = {
+  title: string;
+  type: "PUBLIC" | "PRIVATE";
+  startAt: string;
+  endAt: string;
+};
+
+async function getKnownTripDetails(accessToken: string) {
+  const [bookingResult, privateTripResult] = await Promise.allSettled([
+    apiRequest<Envelope<BookingListResult>>(
+      "/api/v1/bookings?page=1&pageSize=100",
+      { method: "GET", accessToken },
+    ),
+    apiRequest<Envelope<PrivateTripListResult>>(
+      "/api/v1/me/private-trips?page=1&pageSize=100",
+      { method: "GET", accessToken },
+    ),
+  ]);
+
+  const entries: [string, KnownTripDetail][] = [];
+
+  if (bookingResult.status === "fulfilled") {
+    unwrap(bookingResult.value).items.forEach((booking) => {
+      entries.push([
+        booking.trip.id,
+        {
+          title: booking.trip.title,
+          type: "PUBLIC",
+          startAt: booking.trip.startAt,
+          endAt: booking.trip.endAt,
+        },
+      ]);
+    });
+  }
+
+  if (privateTripResult.status === "fulfilled") {
+    unwrap(privateTripResult.value).items.forEach((trip) => {
+      entries.push([
+        trip.id,
+        {
+          title: trip.title,
+          type: "PRIVATE",
+          startAt: trip.startAt,
+          endAt: trip.endAt,
+        },
+      ]);
+    });
+  }
+
+  return new Map(entries);
+}
+
+function attachTripTitle<T extends RentalOrderSummary>(
+  order: T,
+  trips: Map<string, KnownTripDetail>,
+): T {
+  const knownTrip = trips.get(order.tripId);
+  const title = order.trip?.title?.trim() || knownTrip?.title;
+  if (!title) return order;
+
+  return {
+    ...order,
+    trip: {
+      ...order.trip,
+      id: order.trip?.id || order.tripId,
+      title,
+      type: order.trip?.type || knownTrip?.type,
+      startAt: order.trip?.startAt || knownTrip?.startAt,
+      endAt: order.trip?.endAt || knownTrip?.endAt,
+    },
+  };
+}
+
 function unwrap<T>(payload: Envelope<T>): T {
   if (
     payload &&
@@ -99,19 +172,29 @@ async function resolveProductImage(
   product: RentalProduct,
   variant: "CATALOG_CARD" | "CATALOG_DETAIL",
 ) {
-  const mediaId = product.imageMediaIds[0];
-  if (!mediaId) return product;
+  if (!product.imageMediaIds.length) return product;
 
-  try {
-    const response = await apiRequest<Envelope<MediaDelivery>>(
-      `/api/v1/media/${mediaId}/delivery?variant=${variant}&format=AUTO`,
-    );
+  const deliveries = await Promise.allSettled(
+    product.imageMediaIds.map((mediaId) =>
+      apiRequest<Envelope<MediaDelivery>>(
+        `/api/v1/media/${mediaId}/delivery?variant=${variant}&format=AUTO`,
+      ),
+    ),
+  );
+  const imageUrls = deliveries.flatMap((delivery) =>
+    delivery.status === "fulfilled" ? [unwrap(delivery.value).url] : [],
+  );
 
-    return { ...product, imageUrl: unwrap(response).url };
-  } catch {
-    // Catalog remains usable when a legacy/invalid media id cannot be resolved.
-    return product;
-  }
+  return imageUrls.length
+    ? { ...product, imageUrl: imageUrls[0], imageUrls }
+    : product;
+}
+
+async function getResolvedProduct(productId: string) {
+  const response = await apiRequest<Envelope<RentalProduct>>(
+    `/api/v1/rental-products/${productId}`,
+  );
+  return resolveProductImage(unwrap(response), "CATALOG_DETAIL");
 }
 
 async function getEligibility(
@@ -184,11 +267,7 @@ export const rentalApi = {
   },
 
   async getProduct(productId: string) {
-    const response = await apiRequest<Envelope<RentalProduct>>(
-      `/api/v1/rental-products/${productId}`,
-    );
-
-    return resolveProductImage(unwrap(response), "CATALOG_DETAIL");
+    return getResolvedProduct(productId);
   },
 
   async listTripOptions(accessToken: string) {
@@ -324,7 +403,13 @@ export const rentalApi = {
       Envelope<PaginatedResult<RentalOrderSummary>>
     >(`/api/v1/rental-orders?${query}`, { method: "GET", accessToken });
 
-    return unwrap(response);
+    const result = unwrap(response);
+    const trips = await getKnownTripDetails(accessToken);
+
+    return {
+      ...result,
+      items: result.items.map((order) => attachTripTitle(order, trips)),
+    };
   },
 
   async getOrder(orderId: string, accessToken: string) {
@@ -333,7 +418,42 @@ export const rentalApi = {
       { method: "GET", accessToken },
     );
 
-    return unwrap(response);
+    const result = unwrap(response);
+    const trips = await getKnownTripDetails(accessToken);
+
+    const products = await Promise.allSettled(
+      [...new Set(result.items.map((item) => item.productId))].map((productId) =>
+        getResolvedProduct(productId),
+      ),
+    );
+    const productMap = new Map(
+      products.flatMap((entry) =>
+        entry.status === "fulfilled" ? [[entry.value.id, entry.value] as const] : [],
+      ),
+    );
+
+    return {
+      ...result,
+      order: attachTripTitle(result.order, trips),
+      items: result.items.map((item) => {
+        const product = productMap.get(item.productId);
+        return product
+          ? {
+              ...item,
+              name: item.name || product.name,
+              sku: item.sku || product.sku,
+              imageUrl: item.imageUrl || product.imageUrl,
+              product: {
+                ...item.product,
+                id: item.product?.id || product.id,
+                name: item.product?.name || product.name,
+                sku: item.product?.sku || product.sku,
+                imageUrl: item.product?.imageUrl || product.imageUrl,
+              },
+            }
+          : item;
+      }),
+    };
   },
 
   async listDeliveryTasks(
@@ -351,7 +471,52 @@ export const rentalApi = {
       { method: "GET", accessToken },
     );
 
-    return unwrap(response);
+    const result = unwrap(response);
+    const trips = await getKnownTripDetails(accessToken);
+
+    const orderIds = [
+      ...new Set(
+        result.items
+          .filter((task) => !trips.has(task.orderSummary.tripId))
+          .map((task) => task.orderSummary.orderId),
+      ),
+    ].slice(0, 50);
+    const orderResults = await Promise.allSettled(
+      orderIds.map((orderId) =>
+        apiRequest<Envelope<RentalOrderDetail>>(
+          `/api/v1/rental-orders/${encodeURIComponent(orderId)}`,
+          { method: "GET", accessToken },
+        ),
+      ),
+    );
+    orderResults.forEach((orderResult) => {
+      if (orderResult.status !== "fulfilled") return;
+      const order = unwrap(orderResult.value).order;
+      const trip = order.trip;
+      if (!trip?.title || !trip.startAt || !trip.endAt) return;
+      trips.set(order.tripId, {
+        title: trip.title,
+        type: order.bookingId ? "PUBLIC" : "PRIVATE",
+        startAt: trip.startAt,
+        endAt: trip.endAt,
+      });
+    });
+
+    return {
+      ...result,
+      items: result.items.map((task) => {
+        const trip = trips.get(task.orderSummary.tripId);
+        return trip
+          ? {
+              ...task,
+              tripTitle: trip.title,
+              tripType: trip.type,
+              tripStartAt: trip.startAt,
+              tripEndAt: trip.endAt,
+            }
+          : task;
+      }),
+    };
   },
 
   async claimDeliveryTask(
