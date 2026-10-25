@@ -73,6 +73,9 @@ export class TripGpsSocketService {
     this.socket.on('disconnect', (reason) => {
       console.log('[TripGpsSocket] Disconnected:', reason);
       this.callbacks.onDisconnect?.(reason);
+      if (reason === 'io server disconnect') {
+        this.socket?.connect();
+      }
     });
 
     this.socket.on('connect_error', (err) => {
@@ -82,10 +85,12 @@ export class TripGpsSocketService {
 
     // Server Server-to-Client Events
     this.socket.on('gps:member.updated', (event: EventEnvelope<MemberUpdatedEventData>) => {
+      console.log('[TripGpsSocket] Received gps:member.updated:', event.data?.member?.fullName, event.data?.member?.userId);
       this.callbacks.onMemberUpdated?.(event);
     });
 
     this.socket.on('gps:trip.changed', (event: EventEnvelope<TripChangedEventData>) => {
+      console.log('[TripGpsSocket] Received gps:trip.changed');
       this.callbacks.onTripChanged?.(event);
     });
 
@@ -118,11 +123,16 @@ export class TripGpsSocketService {
             console.log('[TripGpsSocket] Subscribed to trip:', tripId);
             resolve(true);
           } else {
-            console.warn('[TripGpsSocket] Subscribe failed:', {
+            console.warn('[TripGpsSocket] Subscribe failed, will retry in 2s:', {
               tripId,
               code: ack?.error?.code,
               message: ack?.error?.message,
             });
+            setTimeout(() => {
+              if (this.socket?.connected && this.currentTripId === tripId) {
+                this.subscribe(tripId);
+              }
+            }, 2000);
             resolve(false);
           }
         }
