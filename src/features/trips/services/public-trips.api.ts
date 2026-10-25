@@ -84,21 +84,39 @@ export async function getPublicTrips(
   if (filter.price !== undefined) params.set("price", String(filter.price));
 
   const query = params.toString();
-  const firstRes = await apiRequest<PublicTripsListResponse>(
+  const rawRes = await apiRequest<any>(
     `/api/v1/trips${query ? `?${query}` : ""}`,
   );
 
+  let firstRes = rawRes;
+  if (rawRes && typeof rawRes === "object" && "data" in rawRes && rawRes.data) {
+    firstRes = rawRes.data;
+  }
+  if (Array.isArray(firstRes)) {
+    firstRes = {
+      items: firstRes,
+      total: firstRes.length,
+      page: targetPage,
+      pageSize: targetPageSize,
+    };
+  }
+
   // Lấy hết tất cả nếu còn các trang tiếp theo
-  if (firstRes.total > (firstRes.items?.length ?? 0)) {
+  if (firstRes?.total > (firstRes?.items?.length ?? 0)) {
     let allItems = [...(firstRes.items ?? [])];
     const totalPages = Math.ceil(firstRes.total / targetPageSize);
     for (let p = targetPage + 1; p <= totalPages; p++) {
       params.set("page", String(p));
-      const nextRes = await apiRequest<PublicTripsListResponse>(
+      const nextRaw = await apiRequest<any>(
         `/api/v1/trips?${params.toString()}`,
       );
-      if (nextRes.items && nextRes.items.length > 0) {
-        allItems = allItems.concat(nextRes.items);
+      let nextRes = nextRaw;
+      if (nextRaw && typeof nextRaw === "object" && "data" in nextRaw && nextRaw.data) {
+        nextRes = nextRaw.data;
+      }
+      const nextItems = Array.isArray(nextRes) ? nextRes : nextRes?.items;
+      if (nextItems && nextItems.length > 0) {
+        allItems = allItems.concat(nextItems);
       }
     }
     return {
@@ -108,10 +126,19 @@ export async function getPublicTrips(
     };
   }
 
-  return firstRes;
+  return {
+    items: Array.isArray(firstRes?.items) ? firstRes.items : [],
+    total: typeof firstRes?.total === "number" ? firstRes.total : (firstRes?.items?.length || 0),
+    page: firstRes?.page || targetPage,
+    pageSize: firstRes?.pageSize || targetPageSize,
+  };
 }
 
 /** GET /api/v1/public-trips/:id — Trip detail for user (no internal priceExplanation) */
 export async function getPublicTripById(id: string): Promise<PublicTrip> {
-  return apiRequest<PublicTrip>(`/api/v1/trips/${id}`);
+  const res = await apiRequest<any>(`/api/v1/trips/${id}`);
+  if (res && res.data && typeof res.data === "object" && !Array.isArray(res.data)) {
+    return res.data as PublicTrip;
+  }
+  return res as PublicTrip;
 }

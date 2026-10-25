@@ -55,7 +55,7 @@ const completedTrip = {
 
 export default function TripsScreen() {
   const router = useRouter();
-  const { trips, activeTrip, user } = useApp();
+  const { trips: appTrips, activeTrip, user } = useApp();
   const { user: authUser, accessToken } = useAuth();
   const isLeader = authUser?.role === "LEADER" || user?.role === "LEADER";
 
@@ -71,7 +71,7 @@ export default function TripsScreen() {
   } = useMyBookings();
 
   const {
-    trips: privateTrips,
+    trips: backendPrivateTrips,
     loading: loadingPrivateTrips,
     refetch: refetchPrivateTrips,
   } = useMyPrivateTrips(true);
@@ -184,20 +184,52 @@ export default function TripsScreen() {
     [bookings],
   );
 
-  // Split private trips by status
+  // Map local private trips from AppContext (e.g. offline/mock trips)
+  const localPrivateTrips = useMemo(() => {
+    return (appTrips || [])
+      .filter((t) => t.type === "PRIVATE")
+      .map(
+        (t) =>
+          ({
+            id: t.id,
+            title: t.name,
+            description: (t as any).description || null,
+            startAt: t.startDate || new Date().toISOString(),
+            endAt: t.endDate || new Date().toISOString(),
+            maxPax: t.capacity || 10,
+            pickupPointId: "",
+            destinationId: t.destination || "",
+            status: (t.status === "UPCOMING" ? "OPEN" : t.status) as any,
+            version: 1,
+            inviteCode: t.inviteCode,
+          }) as PrivateTrip,
+      );
+  }, [appTrips]);
+
+  // Combined private trips (backend API taking precedence, local fallback)
+  const privateTrips = useMemo(() => {
+    const map = new Map<string, PrivateTrip>();
+    localPrivateTrips.forEach((pt) => map.set(pt.id, pt));
+    backendPrivateTrips.forEach((pt) => map.set(pt.id, pt));
+    return Array.from(map.values());
+  }, [localPrivateTrips, backendPrivateTrips]);
+
+  // Split private trips by status (Tất cả chuyến riêng chưa hoàn thành/chưa hủy đều thuộc chuyến sắp tới)
   const upcomingPrivateTrips = useMemo(
     () =>
-      privateTrips.filter(
-        (t) => t.status === "OPEN" || t.status === "IN_PROGRESS",
-      ),
+      privateTrips.filter((t) => {
+        const s = (t.status || "").toUpperCase();
+        return s !== "COMPLETED" && s !== "CANCELLED";
+      }),
     [privateTrips],
   );
 
   const historyPrivateTrips = useMemo(
     () =>
-      privateTrips.filter(
-        (t) => t.status === "COMPLETED" || t.status === "CANCELLED",
-      ),
+      privateTrips.filter((t) => {
+        const s = (t.status || "").toUpperCase();
+        return s === "COMPLETED" || s === "CANCELLED";
+      }),
     [privateTrips],
   );
 
@@ -525,33 +557,79 @@ export default function TripsScreen() {
 
     return (
       <View style={{ paddingHorizontal: 16 }}>
-        {confirmedBookings.map((b) => (
-          <View key={b.id} style={{ marginBottom: 14 }}>
-            <BookingCard
-              booking={b}
-              onPress={() =>
-                router.push({
-                  pathname: "/bookings/[id]",
-                  params: { id: b.id },
-                } as any)
-              }
-            />
+        {/* Nhóm Chuyến đi công khai (Public Trips) */}
+        {confirmedBookings.length > 0 && (
+          <View style={{ marginBottom: 16 }}>
+            {upcomingPrivateTrips.length > 0 && (
+              <View style={styles.upcomingSectionHeader}>
+                <Ionicons name="compass-outline" size={16} color={Colors.primaryDark} />
+                <Text style={styles.upcomingSectionTitle}>Chuyến đi công khai</Text>
+                <View style={styles.upcomingSectionBadge}>
+                  <Text style={styles.upcomingSectionBadgeText}>{confirmedBookings.length}</Text>
+                </View>
+              </View>
+            )}
+            {confirmedBookings.map((b) => {
+              const tripId = b.trip?.id || (b as any).tripId;
+              return (
+                <View key={b.id} style={{ marginBottom: 14 }}>
+                  <BookingCard
+                    booking={b}
+                    onPress={() => {
+                      if (tripId) {
+                        router.push({
+                          pathname: "/trips/[id]",
+                          params: { id: tripId },
+                        } as any);
+                      } else {
+                        router.push({
+                          pathname: "/bookings/[id]",
+                          params: { id: b.id },
+                        } as any);
+                      }
+                    }}
+                  />
+                </View>
+              );
+            })}
           </View>
-        ))}
+        )}
 
-        {upcomingPrivateTrips.map((pt) => (
-          <View key={pt.id} style={{ marginBottom: 14 }}>
-            <PrivateTripCard
-              trip={pt}
-              onPress={() =>
-                router.push({
-                  pathname: "/private-trips/[id]/room",
-                  params: { id: pt.id },
-                } as any)
-              }
-            />
+        {/* Nhóm Chuyến đi riêng tư (Private Trips) */}
+        {upcomingPrivateTrips.length > 0 && (
+          <View style={{ marginBottom: 16 }}>
+            {confirmedBookings.length > 0 && (
+              <View style={styles.upcomingSectionHeader}>
+                <Ionicons name="lock-closed" size={15} color="#854d0e" />
+                <Text style={[styles.upcomingSectionTitle, { color: "#854d0e" }]}>
+                  Chuyến đi riêng tư
+                </Text>
+                <View style={[styles.upcomingSectionBadge, { backgroundColor: "#fef9c3" }]}>
+                  <Text style={[styles.upcomingSectionBadgeText, { color: "#854d0e" }]}>
+                    {upcomingPrivateTrips.length}
+                  </Text>
+                </View>
+              </View>
+            )}
+            {upcomingPrivateTrips.map((pt) => (
+              <View key={pt.id} style={{ marginBottom: 14 }}>
+                <PrivateTripCard
+                  trip={pt}
+                  onPress={() => {
+                    if (pt.id.startsWith("trip-")) {
+                      openTripDetail(pt.id);
+                    } else {
+                      router.push({
+                        pathname: "/private-trips/[id]",
+                        params: { id: pt.id },
+                      } as any);
+                    }
+                  }}
+                />
+              </View>
+            ))}
           </View>
-        ))}
+        )}
 
         <TouchableOpacity
           style={styles.createTripBanner}
@@ -808,30 +886,44 @@ export default function TripsScreen() {
 
     return (
       <View style={{ paddingHorizontal: 16 }}>
-        {historyBookings.map((b) => (
-          <View key={b.id} style={{ marginBottom: 14 }}>
-            <BookingCard
-              booking={b}
-              onPress={() =>
-                router.push({
-                  pathname: "/bookings/[id]",
-                  params: { id: b.id },
-                } as any)
-              }
-            />
-          </View>
-        ))}
+        {historyBookings.map((b) => {
+          const tripId = b.trip?.id || (b as any).tripId;
+          return (
+            <View key={b.id} style={{ marginBottom: 14 }}>
+              <BookingCard
+                booking={b}
+                onPress={() => {
+                  if (tripId) {
+                    router.push({
+                      pathname: "/trips/[id]",
+                      params: { id: tripId },
+                    } as any);
+                  } else {
+                    router.push({
+                      pathname: "/bookings/[id]",
+                      params: { id: b.id },
+                    } as any);
+                  }
+                }}
+              />
+            </View>
+          );
+        })}
 
         {historyPrivateTrips.map((pt) => (
           <View key={pt.id} style={{ marginBottom: 14 }}>
             <PrivateTripCard
               trip={pt}
-              onPress={() =>
-                router.push({
-                  pathname: "/private-trips/[id]/room",
-                  params: { id: pt.id },
-                } as any)
-              }
+              onPress={() => {
+                if (pt.id.startsWith("trip-")) {
+                  openTripDetail(pt.id);
+                } else {
+                  router.push({
+                    pathname: "/private-trips/[id]",
+                    params: { id: pt.id },
+                  } as any);
+                }
+              }}
             />
           </View>
         ))}
@@ -938,12 +1030,16 @@ export default function TripsScreen() {
           <View key={pt.id} style={{ marginBottom: 14 }}>
             <PrivateTripCard
               trip={pt}
-              onPress={() =>
-                router.push({
-                  pathname: "/private-trips/[id]/room",
-                  params: { id: pt.id },
-                } as any)
-              }
+              onPress={() => {
+                if (pt.id.startsWith("trip-")) {
+                  openTripDetail(pt.id);
+                } else {
+                  router.push({
+                    pathname: "/private-trips/[id]",
+                    params: { id: pt.id },
+                  } as any);
+                }
+              }}
             />
           </View>
         ))}
@@ -2022,5 +2118,28 @@ const styles = StyleSheet.create({
     color: Colors.primaryDark,
     fontWeight: "500",
     flex: 1,
+  },
+  upcomingSectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 10,
+    marginTop: 4,
+  },
+  upcomingSectionTitle: {
+    fontSize: 13.5,
+    fontWeight: "800",
+    color: Colors.onSurface,
+  },
+  upcomingSectionBadge: {
+    backgroundColor: Colors.primaryPale,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: Radius.full,
+  },
+  upcomingSectionBadgeText: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: Colors.primaryDark,
   },
 });

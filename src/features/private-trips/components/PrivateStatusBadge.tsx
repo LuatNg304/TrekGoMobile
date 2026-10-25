@@ -14,14 +14,19 @@ export function PrivateStatusBadge({
   showPrivatePill = true,
 }: PrivateStatusBadgeProps) {
   function getStatusLabel() {
-    switch (status) {
+    switch (status as string) {
       case "OPEN":
+      case "UPCOMING":
+      case "FULL":
+      case "CLOSED":
+      case "DRAFT":
         return "SẮP DIỄN RA";
       case "IN_PROGRESS":
         return "ĐANG DIỄN RA";
       case "COMPLETED":
         return "ĐÃ HOÀN THÀNH";
       case "CANCELLED":
+      case "CANCEL_PENDING":
         return "ĐÃ HỦY";
       default:
         return status;

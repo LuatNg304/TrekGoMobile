@@ -201,7 +201,11 @@ export const bookingApiService = {
    * Xem chi tiết đặt chỗ và thông tin thanh toán / vé
    */
   getBookingDetail: async (bookingId: string): Promise<BookingDetail> => {
-    return apiRequest<BookingDetail>(`/api/v1/bookings/${bookingId}`);
+    const res = await apiRequest<any>(`/api/v1/bookings/${bookingId}`);
+    if (res && res.data && typeof res.data === "object" && !Array.isArray(res.data)) {
+      return res.data as BookingDetail;
+    }
+    return res as BookingDetail;
   },
 
   /**
@@ -213,13 +217,34 @@ export const bookingApiService = {
   ): Promise<PageResponse<BookingSummary>> => {
     const params = new URLSearchParams();
     if (query.page) params.set("page", String(query.page));
-    if (query.pageSize) params.set("pageSize", String(query.pageSize));
+    params.set("pageSize", String(query.pageSize || 50));
     if (query.status) params.set("status", query.status);
 
     const q = params.toString();
-    return apiRequest<PageResponse<BookingSummary>>(
+    const res = await apiRequest<any>(
       `/api/v1/bookings${q ? `?${q}` : ""}`,
     );
+
+    let unwrapped = res;
+    if (res && typeof res === "object" && "data" in res && res.data) {
+      unwrapped = res.data;
+    }
+
+    if (Array.isArray(unwrapped)) {
+      return {
+        items: unwrapped,
+        total: unwrapped.length,
+        page: query.page || 1,
+        pageSize: query.pageSize || 50,
+      };
+    }
+
+    return {
+      items: Array.isArray(unwrapped?.items) ? unwrapped.items : [],
+      total: typeof unwrapped?.total === "number" ? unwrapped.total : (unwrapped?.items?.length || 0),
+      page: unwrapped?.page || query.page || 1,
+      pageSize: unwrapped?.pageSize || query.pageSize || 50,
+    };
   },
 
   /**

@@ -36,8 +36,9 @@ export function BookingCard({ booking, onPress }: BookingCardProps) {
     return () => clearInterval(t);
   }, [status, expiresAt]);
 
-  const startDate = trip?.startAt ? new Date(trip.startAt) : null;
-  const formattedDate = startDate
+  const rawStartAt = trip?.startAt || (booking as any)?.startAt || (booking as any)?.startDate;
+  const startDate = rawStartAt ? new Date(rawStartAt) : null;
+  const formattedDate = startDate && !isNaN(startDate.getTime())
     ? startDate.toLocaleDateString("vi-VN", {
         day: "2-digit",
         month: "2-digit",
@@ -100,7 +101,7 @@ export function BookingCard({ booking, onPress }: BookingCardProps) {
       <View style={styles.topRow}>
         <View style={styles.titleWrap}>
           <Text style={styles.title} numberOfLines={2}>
-            {trip?.title || "Chuyến đi TrekGo"}
+            {trip?.title || (booking as any)?.tripTitle || (booking as any)?.name || "Chuyến đi TrekGo"}
           </Text>
         </View>
         {renderStatusBadge()}
@@ -139,7 +140,7 @@ export function BookingCard({ booking, onPress }: BookingCardProps) {
         </View>
         <View style={styles.actionPill}>
           <Text style={styles.actionText}>
-            {status === "PENDING_PAYMENT" ? "Thanh toán ngay" : "Xem chi tiết"}
+            {status === "PENDING_PAYMENT" ? "Thanh toán ngay" : "Xem chi tiết chuyến đi"}
           </Text>
           <Ionicons
             name="chevron-forward"
