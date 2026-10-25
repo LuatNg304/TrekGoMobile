@@ -1,6 +1,6 @@
-import { io, Socket } from 'socket.io-client';
-import { API_BASE_URL } from '@/lib/api-client';
+import { API_BASE_URL, refreshSessionOnce } from '@/lib/api-client';
 import { generateUUID } from '@/services/storage/recordingDatabase';
+import { io, Socket } from 'socket.io-client';
 import type {
   AccessRevokedEventData,
   EventEnvelope,
@@ -19,6 +19,8 @@ export interface TripGpsSocketCallbacks {
   onRouteFailed?: (data: EventEnvelope<RouteFailedEventData>) => void;
   onAccessRevoked?: (data: EventEnvelope<AccessRevokedEventData>) => void;
   onConnect?: () => void;
+  /** Called only after the server has accepted the trip-room subscription. */
+  onSubscribed?: () => void;
   onDisconnect?: (reason: string) => void;
   onError?: (err: any) => void;
 }
@@ -28,6 +30,7 @@ export class TripGpsSocketService {
   private currentTripId: string | null = null;
   private token: string | null = null;
   private callbacks: TripGpsSocketCallbacks = {};
+  private isRefreshing: boolean = false;
 
   constructor() {}
 
@@ -45,7 +48,9 @@ export class TripGpsSocketService {
     try {
       this.socket = io(`${apiOrigin}/gps`, {
         path: '/socket.io',
-        auth: { token },
+        auth: (cb) => {
+          cb({ token: this.token });
+        },
         reconnection: true,
         reconnectionAttempts: 10,
         reconnectionDelay: 2000,
@@ -66,26 +71,69 @@ export class TripGpsSocketService {
       console.log('[TripGpsSocket] Connected to /gps namespace');
       this.callbacks.onConnect?.();
       if (this.currentTripId) {
-        this.subscribe(this.currentTripId);
+        this.subscribe(this.currentTripId).then((subscribed) => {
+          if (subscribed) this.callbacks.onSubscribed?.();
+        });
       }
     });
 
     this.socket.on('disconnect', (reason: string) => {
       console.log('[TripGpsSocket] Disconnected:', reason);
       this.callbacks.onDisconnect?.(reason);
+      if (reason === 'io server disconnect') {
+        this.socket?.connect();
+      }
     });
 
     this.socket.on('connect_error', (err: any) => {
-      console.warn('[TripGpsSocket] Connect error:', err?.message || err);
+      const serverCode = err?.data?.error?.code;
+      const serverMsg = err?.data?.error?.message;
+      const details = serverCode || serverMsg ? ` [${serverCode || ''}: ${serverMsg || ''}]` : '';
+      console.warn('[TripGpsSocket] Connect error:', (err?.message || err) + details);
+
+      const errorMessage = typeof err?.message === 'string' ? err.message : '';
+      const isAuthError =
+        errorMessage.includes('authentication failed') ||
+        errorMessage.includes('Invalid or expired token') ||
+        errorMessage.includes('jwt') ||
+        errorMessage.includes('Unauthorized') ||
+        serverCode === 'UNAUTHENTICATED' ||
+        serverCode === 'GPS_AUTH_FAILED' ||
+        serverCode === 'AUTH_FAILED';
+
+      if (isAuthError && !this.isRefreshing) {
+        this.isRefreshing = true;
+        console.log('[TripGpsSocket] Auth error encountered. Auto-refreshing session token...');
+        refreshSessionOnce()
+          .then((renewed) => {
+            if (renewed?.accessToken) {
+              console.log('[TripGpsSocket] Session refreshed. Updating socket auth & reconnecting...');
+              this.token = renewed.accessToken;
+              if (this.socket) {
+                this.socket.auth = { token: renewed.accessToken };
+                this.socket.connect();
+              }
+            }
+          })
+          .catch((refreshErr) => {
+            console.warn('[TripGpsSocket] Auto-refresh session for socket failed:', refreshErr);
+          })
+          .finally(() => {
+            this.isRefreshing = false;
+          });
+      }
+
       this.callbacks.onError?.(err);
     });
 
     // Server Server-to-Client Events
     this.socket.on('gps:member.updated', (event: EventEnvelope<MemberUpdatedEventData>) => {
+      console.log('[TripGpsSocket] Received gps:member.updated:', event.data?.member?.fullName, event.data?.member?.userId);
       this.callbacks.onMemberUpdated?.(event);
     });
 
     this.socket.on('gps:trip.changed', (event: EventEnvelope<TripChangedEventData>) => {
+      console.log('[TripGpsSocket] Received gps:trip.changed');
       this.callbacks.onTripChanged?.(event);
     });
 
@@ -118,11 +166,18 @@ export class TripGpsSocketService {
             console.log('[TripGpsSocket] Subscribed to trip:', tripId);
             resolve(true);
           } else {
-            console.warn('[TripGpsSocket] Subscribe failed:', {
+            console.warn('[TripGpsSocket] Subscribe failed, will retry in 2s:', {
               tripId,
               code: ack?.error?.code,
               message: ack?.error?.message,
             });
+            setTimeout(() => {
+              if (this.socket?.connected && this.currentTripId === tripId) {
+                this.subscribe(tripId).then((subscribed) => {
+                  if (subscribed) this.callbacks.onSubscribed?.();
+                });
+              }
+            }, 2000);
             resolve(false);
           }
         }
@@ -149,6 +204,7 @@ export class TripGpsSocketService {
   }
 
   public disconnect() {
+    this.isRefreshing = false;
     if (this.currentTripId && this.socket?.connected) {
       this.unsubscribe(this.currentTripId).catch(() => {});
     }

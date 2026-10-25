@@ -47,6 +47,25 @@ import type {
   TripCheckpointDto,
 } from '../types';
 
+/** A REST snapshot must never replace a member state received at a newer Socket.IO version. */
+function mergeGpsState(current: GpsStateResponse | null, incoming: GpsStateResponse): GpsStateResponse {
+  if (!current || current.tripId !== incoming.tripId) return incoming;
+
+  const currentByUserId = new Map(current.members.map((member) => [member.userId, member]));
+  const incomingUserIds = new Set(incoming.members.map((member) => member.userId));
+  const members = incoming.members.map((member) => {
+    const existing = currentByUserId.get(member.userId);
+    return existing && existing.memberVersion > member.memberVersion ? existing : member;
+  });
+
+  // Do not let an older roster snapshot remove a member already displayed on the map.
+  if (current.rosterVersion > incoming.rosterVersion) {
+    members.push(...current.members.filter((member) => !incomingUserIds.has(member.userId)));
+  }
+
+  return { ...incoming, rosterVersion: Math.max(current.rosterVersion, incoming.rosterVersion), members };
+}
+
 export function useTripGps(tripId?: string) {
   const { accessToken, isLoading: authLoading } = useAuth();
 
@@ -78,8 +97,78 @@ export function useTripGps(tripId?: string) {
   const syncTimerRef = useRef<any>(null);
   const pollTimerRef = useRef<any>(null);
   const isSyncingRef = useRef(false);
+  const syncPendingRef = useRef(false);
   const gpsProcessorRef = useRef<GpsProcessor>(new GpsProcessor());
   const simulatorRef = useRef<TripGpsSimulator | null>(null);
+
+  const immediateSyncNeededRef = useRef(false);
+  const gpsStateRef = useRef<GpsStateResponse | null>(null);
+  const sessionRef = useRef<SessionDto | null>(session);
+  sessionRef.current = session;
+  const policyRef = useRef<GpsPolicyDto | null>(policy);
+  policyRef.current = policy;
+  const selfUserIdRef = useRef<string | undefined>(gpsState?.selfUserId);
+  selfUserIdRef.current = gpsState?.selfUserId;
+  const processOutboxSyncRef = useRef<() => Promise<void>>(() => Promise.resolve());
+
+  // Local Stopwatch & Accumulated Duration (bù trừ lệch giờ giữa thiết bị và server)
+  const accumulatedDurationMsRef = useRef<number>(0);
+  const localSegmentStartMsRef = useRef<number | null>(null);
+  const [clockNow, setClockNow] = useState(Date.now());
+
+  const syncLocalDurationFromSession = useCallback((sess: SessionDto | null) => {
+    if (!sess) {
+      accumulatedDurationMsRef.current = 0;
+      localSegmentStartMsRef.current = null;
+      return;
+    }
+
+    const intervals = sess.recordingIntervals;
+    if (intervals && intervals.length > 0) {
+      // 1. Tính tổng thời gian của các khoảng đã đóng (đã Pause trước đó)
+      const closedMs = intervals
+        .filter((i) => i.end != null)
+        .reduce((sum, i) => sum + Math.max(0, Date.parse(i.end!) - Date.parse(i.start)), 0);
+
+      accumulatedDurationMsRef.current = closedMs;
+
+      // 2. Nếu phiên đang ACTIVE, xác định khoảng đang chạy
+      if (sess.status === 'ACTIVE') {
+        const ongoing = intervals.find((i) => !i.end);
+        const ongoingStart = ongoing ? Date.parse(ongoing.start) : Date.parse(sess.startedAt);
+        // Nếu thiết bị chưa có localSegmentStart (ví dụ vừa mở lại app), khởi tạo từ ongoingStart
+        if (localSegmentStartMsRef.current == null) {
+          const elapsedOngoing = Math.max(0, Date.now() - ongoingStart);
+          localSegmentStartMsRef.current = Date.now() - elapsedOngoing;
+        }
+      } else {
+        localSegmentStartMsRef.current = null;
+      }
+    } else {
+      // Fallback khi chưa có intervals từ server
+      if (sess.status === 'ACTIVE') {
+        if (localSegmentStartMsRef.current == null) {
+          const elapsed = sess.startedAt ? Math.max(0, Date.now() - Date.parse(sess.startedAt)) : 0;
+          localSegmentStartMsRef.current = Date.now() - elapsed;
+        }
+      } else {
+        localSegmentStartMsRef.current = null;
+        if (sess.endedAt && sess.startedAt) {
+          accumulatedDurationMsRef.current = Math.max(0, Date.parse(sess.endedAt) - Date.parse(sess.startedAt));
+        }
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    syncLocalDurationFromSession(session);
+  }, [session, syncLocalDurationFromSession]);
+
+  const applyGpsState = useCallback((incoming: GpsStateResponse) => {
+    const next = mergeGpsState(gpsStateRef.current, incoming);
+    gpsStateRef.current = next;
+    setGpsState(next);
+  }, []);
 
   const canViewGps = Boolean(accessToken && context?.tripId === tripId && context?.permissions.canViewGroupLocations);
 
@@ -123,6 +212,7 @@ export function useTripGps(tripId?: string) {
       setLoading(true);
       setError(null);
       setContext(null);
+      gpsStateRef.current = null;
       setGpsState(null);
 
       // Tải Context từ server
@@ -146,7 +236,7 @@ export function useTripGps(tripId?: string) {
 
       // Tải State hiện hành của cả đoàn
       const st = await getGpsState(tripId);
-      setGpsState(st);
+      applyGpsState(st);
 
       // Tìm session của bản thân trong state nếu local chưa có
       if (!localActive && st.selfUserId) {
@@ -169,6 +259,7 @@ export function useTripGps(tripId?: string) {
         message: err?.message,
       });
       setContext(null);
+      gpsStateRef.current = null;
       setGpsState(null);
       setError(err instanceof ApiError && err.code === 'GPS_TEMPORARILY_UNAVAILABLE'
         ? err.message === 'An effective GPS policy is required'
@@ -180,7 +271,7 @@ export function useTripGps(tripId?: string) {
     } finally {
       setLoading(false);
     }
-  }, [tripId, accessToken, authLoading]);
+  }, [tripId, accessToken, authLoading, applyGpsState]);
 
   useEffect(() => {
     loadContextAndActiveSession();
@@ -206,32 +297,44 @@ export function useTripGps(tripId?: string) {
     if (!tripId || !accessToken || !canViewGps) return;
 
     tripGpsSocket.connect(accessToken, tripId, {
-      onConnect: () => setSocketConnected(true),
+      onConnect: () => {
+        // A namespace connection is not yet a room subscription.
+        setSocketConnected(false);
+      },
+      onSubscribed: () => {
+        setSocketConnected(true);
+        getGpsState(tripId).then(applyGpsState).catch(() => {});
+      },
       onDisconnect: () => setSocketConnected(false),
       onError: (err) => console.warn('[useTripGps] Socket error:', err?.message || err),
       onMemberUpdated: (event) => {
-        const updatedMember = event.data.member;
-        setGpsState((prev) => {
-          if (!prev) return prev;
-          const exists = prev.members.some((m) => m.userId === updatedMember.userId);
+        const updatedMember = event.data?.member;
+        if (!updatedMember) return;
+        const previous = gpsStateRef.current;
+        if (!previous) {
+          getGpsState(tripId).then(applyGpsState).catch(() => {});
+          return;
+        }
+        const exists = previous.members.some((m) => m.userId === updatedMember.userId);
           const newMembers = exists
-            ? prev.members.map((m) =>
-                m.userId === updatedMember.userId && updatedMember.memberVersion >= m.memberVersion
-                  ? updatedMember
+            ? previous.members.map((m) =>
+                m.userId === updatedMember.userId && (updatedMember.memberVersion ?? 0) >= (m.memberVersion ?? 0)
+                  ? { ...m, ...updatedMember }
                   : m
               )
-            : [...prev.members, updatedMember];
-          return { ...prev, members: newMembers };
-        });
+            : [...previous.members, updatedMember];
+        const next = { ...previous, members: newMembers };
+        gpsStateRef.current = next;
+        setGpsState(next);
       },
       onTripChanged: () => {
         if (tripId) {
-          getGpsState(tripId).then(setGpsState).catch(() => {});
+          getGpsState(tripId).then(applyGpsState).catch(() => {});
           getGpsContext(tripId).then(setContext).catch(() => {});
         }
       },
       onRouteReady: (event) => {
-        if (tripId && event.data.userId === gpsState?.selfUserId) {
+        if (tripId && event.data.userId === selfUserIdRef.current) {
           getMyActualRoute(tripId).then(setActualRoute).catch(() => {});
         }
       },
@@ -244,7 +347,7 @@ export function useTripGps(tripId?: string) {
       tripGpsSocket.disconnect();
       setSocketConnected(false);
     };
-  }, [tripId, accessToken, canViewGps, gpsState?.selfUserId]);
+  }, [tripId, accessToken, canViewGps, applyGpsState]);
 
   useEffect(() => {
     if (!tripId || !context || ['OPEN', 'FULL', 'CLOSED', 'IN_PROGRESS'].includes(context.tripStatus)) return;
@@ -263,7 +366,7 @@ export function useTripGps(tripId?: string) {
       try {
         setContext(await getGpsContext(tripId));
         const freshState = await getGpsState(tripId);
-        setGpsState(freshState);
+        applyGpsState(freshState);
       } catch {
         // Silent catch for background poll
       }
@@ -272,7 +375,7 @@ export function useTripGps(tripId?: string) {
     return () => {
       if (pollTimerRef.current) clearInterval(pollTimerRef.current);
     };
-  }, [tripId, canViewGps]);
+  }, [tripId, canViewGps, applyGpsState]);
 
   // 4. Theo dõi GPS Thiết bị hoặc Fake GPS khi Session đang ACTIVE
   useEffect(() => {
@@ -360,6 +463,12 @@ export function useTripGps(tripId?: string) {
         });
 
         setLiveRouteCoords((prev) => [...prev, [sample.longitude, sample.latitude]]);
+
+        // Tải lên ngay lập tức mẫu tọa độ đầu tiên của phiên ghi (thay vì đợi hết 10s timer)
+        if (immediateSyncNeededRef.current) {
+          immediateSyncNeededRef.current = false;
+          processOutboxSyncRef.current?.();
+        }
       };
 
       try {
@@ -416,7 +525,12 @@ export function useTripGps(tripId?: string) {
 
   // 5. Chu kỳ Đồng bộ SQLite -> Backend (Mỗi syncIntervalSeconds)
   const processOutboxSync = useCallback(async () => {
-    if (!tripId || !session || isSyncingRef.current) return;
+    const curSession = sessionRef.current;
+    if (!tripId || !curSession) return;
+    if (isSyncingRef.current) {
+      syncPendingRef.current = true;
+      return;
+    }
     isSyncingRef.current = true;
     setSyncing(true);
 
@@ -424,23 +538,23 @@ export function useTripGps(tripId?: string) {
       const deviceId = await getOrCreateDeviceId();
 
       // a. Xử lý các lệnh Pending (Pause, Resume, Finish)
-      const pendingCmds = await getPendingCommands(session.id);
+      const pendingCmds = await getPendingCommands(curSession.id);
       for (const cmd of pendingCmds) {
         try {
           if (cmd.action === 'PAUSE') {
-            await pauseGpsSession(tripId, session.id, {
+            await pauseGpsSession(tripId, curSession.id, {
               commandId: cmd.commandId,
               expectedVersion: cmd.expectedVersion,
               occurredAt: cmd.occurredAt,
             }, deviceId);
           } else if (cmd.action === 'RESUME') {
-            await resumeGpsSession(tripId, session.id, {
+            await resumeGpsSession(tripId, curSession.id, {
               commandId: cmd.commandId,
               expectedVersion: cmd.expectedVersion,
               occurredAt: cmd.occurredAt,
             }, deviceId);
           } else if (cmd.action === 'FINISH') {
-            await finishGpsSession(tripId, session.id, {
+            await finishGpsSession(tripId, curSession.id, {
               commandId: cmd.commandId,
               expectedVersion: cmd.expectedVersion,
               occurredAt: cmd.occurredAt,
@@ -454,51 +568,63 @@ export function useTripGps(tripId?: string) {
       }
 
       // b. Xử lý upload các điểm GPS theo batch
-      const maxBatch = policy?.maxBatchSamples || 100;
+      const maxBatch = policyRef.current?.maxBatchSamples || 100;
+      let hasUploadedAny = false;
       for (const pendingSessionId of await getTripSessionsWithPendingSamples(tripId)) {
-      try {
-      const pendingSamples = await getPendingSamples(pendingSessionId, maxBatch);
-      if (pendingSamples.length > 0) {
-        const uploadPayload: SamplesRequest = {
-          samples: pendingSamples.map((s) => ({
-            clientSampleId: s.clientSampleId.toLowerCase(),
-            recordedAt: new Date(s.recordedAt).toISOString(),
-            latitude: Number(s.latitude),
-            longitude: Number(s.longitude),
-            accuracyM: Math.max(0, Number(s.accuracyM)),
-            altitudeM: s.altitudeM != null ? Number(s.altitudeM) : null,
-            speedMps: s.speedMps != null ? Math.max(0, Number(s.speedMps)) : null,
-            headingDeg:
-              s.headingDeg != null
-                ? Math.min(359.99, Math.max(0, ((Number(s.headingDeg) % 360) + 360) % 360))
-                : null,
-          })),
-        };
+        try {
+          const pendingSamples = await getPendingSamples(pendingSessionId, maxBatch);
+          if (pendingSamples.length > 0) {
+            const uploadPayload: SamplesRequest = {
+              samples: pendingSamples.map((s) => ({
+                clientSampleId: s.clientSampleId.toLowerCase(),
+                recordedAt: new Date(s.recordedAt).toISOString(),
+                latitude: Number(s.latitude),
+                longitude: Number(s.longitude),
+                accuracyM: Math.max(0, Number(s.accuracyM)),
+                altitudeM: s.altitudeM != null ? Number(s.altitudeM) : null,
+                speedMps: s.speedMps != null ? Math.max(0, Number(s.speedMps)) : null,
+                headingDeg:
+                  s.headingDeg != null
+                    ? Math.min(359.99, Math.max(0, ((Number(s.headingDeg) % 360) + 360) % 360))
+                    : null,
+              })),
+            };
 
-        const res = await uploadGpsSamples(tripId, pendingSessionId, uploadPayload, deviceId);
-        await markSamplesAccepted(pendingSessionId, [...res.acceptedSampleIds, ...res.duplicateSampleIds]);
-        if (res.rejectedSamples?.length) {
-          await markSamplesRejected(pendingSessionId, res.rejectedSamples);
+            const res = await uploadGpsSamples(tripId, pendingSessionId, uploadPayload, deviceId);
+            await markSamplesAccepted(pendingSessionId, [...res.acceptedSampleIds, ...res.duplicateSampleIds]);
+            if (res.rejectedSamples?.length) {
+              await markSamplesRejected(pendingSessionId, res.rejectedSamples);
+            }
+
+            if (pendingSessionId === curSession.id && res.totalDistanceMeters != null) {
+              setSession((prev) => (prev ? { ...prev, totalDistanceMeters: res.totalDistanceMeters, sampleCount: res.sampleCount } : prev));
+            }
+            hasUploadedAny = true;
+          }
+        } catch (err) {
+          // An expired old session must not block uploads from the new recording.
+          console.warn('[useTripGps] Session sample sync failed:', pendingSessionId, err);
         }
+      }
+      await pruneSyncedCommands(curSession.id);
 
-        if (pendingSessionId === session.id && res.totalDistanceMeters != null) {
-          setSession((prev) => (prev ? { ...prev, totalDistanceMeters: res.totalDistanceMeters, sampleCount: res.sampleCount } : prev));
-        }
+      // Nếu vừa tải lên thành công, cập nhật ngay gpsState để có vị trí mới nhất của toàn đoàn
+      if (hasUploadedAny) {
+        getGpsState(tripId).then(applyGpsState).catch(() => {});
       }
-
-      } catch (err) {
-        // An expired old session must not block uploads from the new recording.
-        console.warn('[useTripGps] Session sample sync failed:', pendingSessionId, err);
-      }
-      }
-      await pruneSyncedCommands(session.id);
     } catch (err: any) {
       console.warn('[useTripGps] Outbox sync error:', err?.message || err);
     } finally {
       isSyncingRef.current = false;
       setSyncing(false);
+      if (syncPendingRef.current) {
+        syncPendingRef.current = false;
+        void processOutboxSyncRef.current();
+      }
     }
-  }, [tripId, session, policy]);
+  }, [tripId, applyGpsState]);
+
+  processOutboxSyncRef.current = processOutboxSync;
 
   useEffect(() => {
     const syncSec = policy?.syncIntervalSeconds || 10;
@@ -524,14 +650,21 @@ export function useTripGps(tripId?: string) {
       const deviceId = await getOrCreateDeviceId();
 
       const res = await startGpsSession(tripId, { clientSessionId, deviceId }, deviceId);
+      accumulatedDurationMsRef.current = 0;
+      localSegmentStartMsRef.current = Date.now();
+      setClockNow(Date.now());
       setSession(res.session);
       setPolicy(res.policy);
       gpsProcessorRef.current.reset(Date.parse(res.session.startedAt));
+
+      // Đánh dấu cần sync ngay mẫu đầu tiên
+      immediateSyncNeededRef.current = true;
 
       await saveLocalTripSession(res.session, res.policy);
       setLiveRouteCoords([]);
       setActualRoute(null);
       getGpsContext(tripId).then(setContext).catch(() => {});
+      getGpsState(tripId).then(applyGpsState).catch(() => {});
     } catch (err: any) {
       console.warn('[useTripGps] Start session error:', err?.message || err);
       setError(err?.message || 'Không thể bắt đầu phiên ghi GPS.');
@@ -553,6 +686,12 @@ export function useTripGps(tripId?: string) {
         simulatorRef.current.pause();
       }
 
+      if (localSegmentStartMsRef.current != null) {
+        accumulatedDurationMsRef.current += Math.max(0, Date.now() - localSegmentStartMsRef.current);
+        localSegmentStartMsRef.current = null;
+      }
+      setClockNow(Date.now());
+
       const res = await pauseGpsSession(
         tripId,
         session.id,
@@ -560,7 +699,7 @@ export function useTripGps(tripId?: string) {
         deviceId
       );
       setSession(res.session);
-      await updateLocalSessionStatus(session.id, 'PAUSED', res.session.version);
+      await updateLocalSessionStatus(session.id, 'PAUSED', res.session.version, null, res.session.recordingIntervals);
     } catch (err: any) {
       console.warn('[useTripGps] Pause session error:', err?.message || err);
       setError(err?.message || 'Lỗi khi tạm dừng phiên.');
@@ -581,6 +720,9 @@ export function useTripGps(tripId?: string) {
         simulatorRef.current.resume();
       }
 
+      localSegmentStartMsRef.current = Date.now();
+      setClockNow(Date.now());
+
       const res = await resumeGpsSession(
         tripId,
         session.id,
@@ -588,7 +730,7 @@ export function useTripGps(tripId?: string) {
         deviceId
       );
       setSession(res.session);
-      await updateLocalSessionStatus(session.id, 'ACTIVE', res.session.version);
+      await updateLocalSessionStatus(session.id, 'ACTIVE', res.session.version, null, res.session.recordingIntervals);
     } catch (err: any) {
       console.warn('[useTripGps] Resume session error:', err?.message || err);
       setError(err?.message || 'Lỗi khi tiếp tục phiên.');
@@ -610,6 +752,12 @@ export function useTripGps(tripId?: string) {
       }
       gpsProcessorRef.current.reset();
 
+      if (localSegmentStartMsRef.current != null) {
+        accumulatedDurationMsRef.current += Math.max(0, Date.now() - localSegmentStartMsRef.current);
+        localSegmentStartMsRef.current = null;
+      }
+      setClockNow(Date.now());
+
       const res = await finishGpsSession(
         tripId,
         session.id,
@@ -617,7 +765,7 @@ export function useTripGps(tripId?: string) {
         deviceId
       );
       setSession(res.session);
-      await updateLocalSessionStatus(session.id, 'STOPPED', res.session.version, res.session.endedAt);
+      await updateLocalSessionStatus(session.id, 'STOPPED', res.session.version, res.session.endedAt, res.session.recordingIntervals);
       await pruneCompletedSessionSamples(session.id);
 
       // Tải lại đường đi thực tế cuối cùng
@@ -680,7 +828,6 @@ export function useTripGps(tripId?: string) {
   }, [myMemberState]);
 
   // Thống kê di chuyển
-  const [clockNow, setClockNow] = useState(Date.now());
   useEffect(() => {
     setClockNow(Date.now());
     if (session?.status !== 'ACTIVE') return;
@@ -689,16 +836,18 @@ export function useTripGps(tripId?: string) {
   }, [session?.id, session?.status]);
 
   const stats = useMemo(() => {
-    const intervals = session?.recordingIntervals;
-    const durationMs = intervals?.reduce((sum, interval) => {
-      const end = interval.end ? Date.parse(interval.end)
-        : session?.status === 'ACTIVE' ? clockNow : Date.parse(session?.endedAt || interval.start);
-      return sum + Math.max(0, end - Date.parse(interval.start));
-    }, 0);
-    const seconds = Math.floor((durationMs ?? 0) / 1000);
-    const recordingTime = session && !intervals ? '--:--:--'
+    let totalDurationMs = accumulatedDurationMsRef.current;
+    if (session?.status === 'ACTIVE' && localSegmentStartMsRef.current != null) {
+      totalDurationMs += Math.max(0, clockNow - localSegmentStartMsRef.current);
+    }
+
+    const seconds = Math.floor(totalDurationMs / 1000);
+    const recordingTime = !session && seconds === 0
+      ? '00:00:00'
       : [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60]
-          .map(value => String(value).padStart(2, '0')).join(':');
+          .map((value) => String(value).padStart(2, '0'))
+          .join(':');
+
     const distanceM = session?.totalDistanceMeters ?? myMemberState?.session?.totalDistanceMeters ?? 0;
     const distanceKm = (distanceM / 1000).toFixed(2);
     const speedKmh = currentLocation?.speedMps != null ? (currentLocation.speedMps * 3.6).toFixed(1) : '0.0';

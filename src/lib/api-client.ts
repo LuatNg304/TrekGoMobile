@@ -196,7 +196,7 @@ async function refreshStoredSession(): Promise<StoredAuthState> {
   }
 }
 
-function refreshSessionOnce(): Promise<StoredAuthState> {
+export function refreshSessionOnce(): Promise<StoredAuthState> {
   if (!refreshPromise) {
     refreshPromise = refreshStoredSession().finally(() => {
       refreshPromise = null;

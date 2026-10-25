@@ -5,85 +5,151 @@ import {
   Text,
   TouchableOpacity,
   View,
+  ActivityIndicator,
+  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Radius, Shadows } from '@/constants/theme';
 import type { ActualRouteResponse } from '../types';
+import { TripGpsRouteArt } from './TripGpsRouteArt';
 
 interface TripGpsResultModalProps {
   visible: boolean;
   actualRoute: ActualRouteResponse | null;
+  liveRouteCoords?: [number, number][];
+  stats?: {
+    recordingTime?: string;
+    distanceKm?: string;
+    speedKmh?: string;
+    altitudeM?: number | string;
+  };
   onClose: () => void;
 }
 
 export function TripGpsResultModal({
   visible,
   actualRoute,
+  liveRouteCoords,
+  stats,
   onClose,
 }: TripGpsResultModalProps) {
-  if (!actualRoute) return null;
-
-  const distanceKm = actualRoute.totalDistanceMeters
+  // Khoảng cách ưu tiên từ actualRoute, fallback về stats
+  const distanceKm = actualRoute?.totalDistanceMeters != null
     ? (actualRoute.totalDistanceMeters / 1000).toFixed(2)
-    : '0.00';
+    : stats?.distanceKm ?? '0.00';
 
-  const cpPassed = actualRoute.checkpointProgress?.passed ?? 0;
-  const cpTotal = actualRoute.checkpointProgress?.total ?? 0;
+  const cpPassed = actualRoute?.checkpointProgress?.passed ?? 0;
+  const cpTotal = actualRoute?.checkpointProgress?.total ?? 0;
+  const pointCount = actualRoute?.pointCount ?? (actualRoute ? 0 : (liveRouteCoords?.length ?? '--'));
+  const duration = stats?.recordingTime || '--:--:--';
+  const isReady = actualRoute?.resultStatus === 'READY';
+
+  // Toạ độ vẽ Strava: ưu tiên actualRoute GeoJSON, fallback sang liveRouteCoords ghi nhận thực tế
+  const routeCoords = (actualRoute?.routeGeojson && actualRoute.routeGeojson.type === 'LineString' && Array.isArray(actualRoute.routeGeojson.coordinates))
+    ? (actualRoute.routeGeojson.coordinates as [number, number][])
+    : liveRouteCoords;
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.backdrop}>
         <View style={styles.card}>
-          {/* Header Icon */}
-          <View style={styles.iconCircle}>
-            <Ionicons name="trophy" size={36} color={Colors.primaryDark} />
-          </View>
-
-          <Text style={styles.title}>Hành Trình Hoàn Tất!</Text>
-          <Text style={styles.subtitle}>
-            Dữ liệu GPS của bạn đã được lưu trữ an toàn trong TripActualRoute.
-          </Text>
-
-          {/* Metric Highlights */}
-          <View style={styles.metricsGrid}>
-            <View style={styles.metricItem}>
-              <Text style={styles.metricVal}>{distanceKm}</Text>
-              <Text style={styles.metricLabel}>QUÃNG ĐƯỜNG (KM)</Text>
+          <ScrollView
+            style={styles.scrollView}
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+          >
+            {/* Header Trophy Badge with Wise Primary Accent */}
+            <View style={styles.iconCircleOuter}>
+              <View style={styles.iconCircleInner}>
+                <Ionicons name="trophy" size={32} color={Colors.inkDeep} />
+              </View>
             </View>
 
-            <View style={styles.metricDivider} />
-
-            <View style={styles.metricItem}>
-              <Text style={styles.metricVal}>
-                {cpPassed}/{cpTotal}
-              </Text>
-              <Text style={styles.metricLabel}>MỐC CHECKPOINT</Text>
-            </View>
-
-            <View style={styles.metricDivider} />
-
-            <View style={styles.metricItem}>
-              <Text style={styles.metricVal}>{actualRoute.pointCount}</Text>
-              <Text style={styles.metricLabel}>ĐIỂM HỢP LỆ</Text>
-            </View>
-          </View>
-
-          {/* Status info */}
-          <View style={styles.statusBox}>
-            <Ionicons
-              name={actualRoute.resultStatus === 'READY' ? 'checkmark-circle' : 'hourglass-outline'}
-              size={18}
-              color={actualRoute.resultStatus === 'READY' ? Colors.positive : Colors.warning}
-            />
-            <Text style={styles.statusBoxText}>
-              Trạng thái tuyến: {actualRoute.resultStatus === 'READY' ? 'Đã dựng hoàn tất (LineString)' : 'Đang xử lý tổng hợp'}
+            <Text style={styles.title}>Hành Trình Hoàn Tất!</Text>
+            <Text style={styles.subtitle}>
+              Dữ liệu GPS của bạn đã được ghi nhận và lưu trữ an toàn trong TripActualRoute.
             </Text>
-          </View>
 
-          {/* Wise Green Primary CTA Button */}
-          <TouchableOpacity style={styles.finishBtn} activeOpacity={0.85} onPress={onClose}>
-            <Text style={styles.finishBtnText}>Hoàn Tất & Xem Bản Đồ</Text>
-          </TouchableOpacity>
+            {/* Strava Minimalist GPS Route Art Canvas */}
+            <View style={styles.routeArtWrapper}>
+              <TripGpsRouteArt
+                coordinates={routeCoords}
+                distanceKm={distanceKm}
+                height={165}
+                theme="dark"
+              />
+            </View>
+
+            {/* Wise 2x2 Metric Grid */}
+            <View style={styles.metricsGrid}>
+              {/* Tile 1: Quãng đường */}
+              <View style={styles.metricTile}>
+                <View style={styles.metricHeader}>
+                  <Ionicons name="navigate-circle-outline" size={14} color={Colors.mute} />
+                  <Text style={styles.metricLabel}>QUÃNG ĐƯỜNG</Text>
+                </View>
+                <View style={styles.metricValRow}>
+                  <Text style={styles.metricVal}>{distanceKm}</Text>
+                  <Text style={styles.metricUnit}>km</Text>
+                </View>
+              </View>
+
+              {/* Tile 2: Thời gian ghi */}
+              <View style={styles.metricTile}>
+                <View style={styles.metricHeader}>
+                  <Ionicons name="time-outline" size={14} color={Colors.mute} />
+                  <Text style={styles.metricLabel}>THỜI GIAN GHI</Text>
+                </View>
+                <View style={styles.metricValRow}>
+                  <Text style={styles.metricVal}>{duration}</Text>
+                </View>
+              </View>
+
+              {/* Tile 3: Checkpoint */}
+              <View style={styles.metricTile}>
+                <View style={styles.metricHeader}>
+                  <Ionicons name="flag-outline" size={14} color={Colors.mute} />
+                  <Text style={styles.metricLabel}>CHECKPOINT</Text>
+                </View>
+                <View style={styles.metricValRow}>
+                  <Text style={styles.metricVal}>
+                    {cpPassed}/{cpTotal}
+                  </Text>
+                  <Text style={styles.metricUnit}>mốc</Text>
+                </View>
+              </View>
+
+              {/* Tile 4: Điểm GPS hợp lệ */}
+              <View style={styles.metricTile}>
+                <View style={styles.metricHeader}>
+                  <Ionicons name="analytics-outline" size={14} color={Colors.mute} />
+                  <Text style={styles.metricLabel}>ĐIỂM HỢP LỆ</Text>
+                </View>
+                <View style={styles.metricValRow}>
+                  <Text style={styles.metricVal}>{pointCount}</Text>
+                  <Text style={styles.metricUnit}>mẫu</Text>
+                </View>
+              </View>
+            </View>
+
+            {/* Status Badge according to Wise Badge Tokens */}
+            <View style={[styles.statusBadge, isReady ? styles.statusBadgeReady : styles.statusBadgeProcessing]}>
+              {isReady ? (
+                <Ionicons name="checkmark-circle" size={16} color={Colors.positiveDeep} />
+              ) : (
+                <ActivityIndicator size="small" color={Colors.tertiary} style={{ marginRight: 2 }} />
+              )}
+              <Text style={[styles.statusText, isReady ? styles.statusTextReady : styles.statusTextProcessing]}>
+                {isReady ? 'Tuyến đường GPS đã dựng hoàn tất (LineString)' : 'Đang xử lý và tổng hợp dữ liệu tuyến...'}
+              </Text>
+            </View>
+
+            {/* Wise Signature Primary CTA Button */}
+            <TouchableOpacity style={styles.primaryBtn} activeOpacity={0.85} onPress={onClose}>
+              <Text style={styles.primaryBtnText}>Hoàn Tất & Xem Bản Đồ</Text>
+              <Ionicons name="arrow-forward" size={18} color={Colors.onPrimary} style={{ marginLeft: 6 }} />
+            </TouchableOpacity>
+          </ScrollView>
         </View>
       </View>
     </Modal>
@@ -93,33 +159,55 @@ export function TripGpsResultModal({
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(14, 15, 12, 0.65)',
+    backgroundColor: 'rgba(14, 15, 12, 0.72)',
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 20,
   },
   card: {
     width: '100%',
+    maxWidth: 420,
+    maxHeight: '90%',
     backgroundColor: '#ffffff',
-    borderRadius: Radius.xl, // 24px signature card radius
-    padding: 24,
-    alignItems: 'center',
+    borderRadius: Radius.xl, // 24px signature Wise card radius
+    paddingHorizontal: 20,
+    paddingVertical: 18,
     ...Shadows.modal,
   },
-  iconCircle: {
-    width: 68,
-    height: 68,
+  scrollView: {
+    width: '100%',
+  },
+  scrollContent: {
+    alignItems: 'center',
+    paddingBottom: 6,
+  },
+  routeArtWrapper: {
+    width: '100%',
+    marginBottom: 16,
+  },
+  iconCircleOuter: {
+    width: 76,
+    height: 76,
     borderRadius: Radius.full,
-    backgroundColor: Colors.primaryPale,
+    backgroundColor: Colors.primaryPale, // #e2f6d5
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 16,
+  },
+  iconCircleInner: {
+    width: 58,
+    height: 58,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.primary, // Wise #9fe870
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   title: {
     fontSize: 22,
     fontWeight: '900',
     color: Colors.ink,
     textAlign: 'center',
+    letterSpacing: -0.4,
   },
   subtitle: {
     fontSize: 13,
@@ -128,67 +216,96 @@ const styles = StyleSheet.create({
     marginTop: 6,
     marginBottom: 20,
     lineHeight: 18,
+    paddingHorizontal: 8,
   },
   metricsGrid: {
-    flexDirection: 'row',
     width: '100%',
-    backgroundColor: '#f8faf7',
-    borderRadius: Radius.lg,
-    paddingVertical: 16,
-    paddingHorizontal: 10,
-    alignItems: 'center',
-    justifyContent: 'space-around',
-    borderWidth: 1,
-    borderColor: '#e8ebe6',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    gap: 10,
     marginBottom: 18,
   },
-  metricItem: {
+  metricTile: {
+    width: '48%',
+    backgroundColor: '#f5f7f4', // Canvas-soft tint
+    borderRadius: Radius.lg, // 16px
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: '#e4e7e1',
+  },
+  metricHeader: {
+    flexDirection: 'row',
     alignItems: 'center',
-    flex: 1,
+    gap: 5,
+    marginBottom: 6,
+  },
+  metricLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: Colors.mute,
+    letterSpacing: 0.6,
+  },
+  metricValRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 4,
   },
   metricVal: {
     fontSize: 20,
     fontWeight: '900',
     color: Colors.ink,
   },
-  metricLabel: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: Colors.mute,
-    marginTop: 4,
-    letterSpacing: 0.5,
+  metricUnit: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: Colors.body,
   },
-  metricDivider: {
-    width: 1,
-    height: 30,
-    backgroundColor: '#d1d5db',
-  },
-  statusBox: {
+  statusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: '#e8ebe6',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
     borderRadius: Radius.pill,
     marginBottom: 22,
+    width: '100%',
+    justifyContent: 'center',
+    borderWidth: 1,
   },
-  statusBoxText: {
+  statusBadgeReady: {
+    backgroundColor: Colors.primaryPale, // #e2f6d5
+    borderColor: Colors.primaryNeutral,
+  },
+  statusBadgeProcessing: {
+    backgroundColor: '#f5f7f4',
+    borderColor: '#e4e7e1',
+  },
+  statusText: {
     fontSize: 12,
-    fontWeight: '700',
-    color: Colors.ink,
+    flexShrink: 1,
   },
-  finishBtn: {
+  statusTextReady: {
+    fontWeight: '800',
+    color: Colors.inkDeep,
+  },
+  statusTextProcessing: {
+    fontWeight: '600',
+    color: Colors.body,
+  },
+  primaryBtn: {
     width: '100%',
     height: 52,
-    borderRadius: Radius.xl, // 24px pill-rectangle
-    backgroundColor: Colors.primary, // Wise lime green
+    borderRadius: Radius.xl, // 24px signature Wise pill-rectangle
+    backgroundColor: Colors.primary, // Wise #9fe870
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  finishBtnText: {
+  primaryBtnText: {
     fontSize: 16,
     fontWeight: '900',
-    color: Colors.onPrimary,
+    color: Colors.onPrimary, // #0e0f0c
   },
 });
