@@ -84,9 +84,14 @@ function getErrorMessage(
     return rawMessage.join(", ") || "Dữ liệu không hợp lệ.";
   }
 
-  if (Array.isArray(payload?.details)) {
-    const detailMsgs = payload.details
-      .map((d: any) => (typeof d === "string" ? d : d?.message))
+  const details = payload?.error?.details ?? payload?.details;
+  if (Array.isArray(details) && details.length > 0) {
+    const detailMsgs = details
+      .map((d: any) => {
+        if (typeof d === "string") return d;
+        if (d?.field && d?.message) return `${d.field}: ${d.message}`;
+        return d?.message || d?.field || d?.code || JSON.stringify(d);
+      })
       .filter(Boolean);
     if (detailMsgs.length > 0) return detailMsgs.join(", ");
   }

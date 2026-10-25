@@ -12,7 +12,7 @@ const achievements = [
   { id: "distance-100", icon: "navigate", title: "Centurion", description: "Tích lũy 100 km trekking", required: 100, metric: "DISTANCE" },
   { id: "trail-maker", icon: "map", title: "Trail Maker", description: "Tạo ít nhất 1 cung đường cá nhân", required: 1, metric: "TRAILS" },
   { id: "community", icon: "people", title: "Community Voice", description: "Đăng ít nhất 3 bài chia sẻ", required: 3, metric: "POSTS" },
-  { id: "points-1000", icon: "sparkles", title: "Mountain Legend", description: "Đạt 1.000 điểm thành tích", required: 1000, metric: "POINTS" },
+  { id: "points-1000", icon: "ribbon", title: "Mountain Legend", description: "Đạt 1.000 điểm thành tích", required: 1000, metric: "POINTS" },
 ] as const;
 
 export default function TrekkerAchievementsScreen() {

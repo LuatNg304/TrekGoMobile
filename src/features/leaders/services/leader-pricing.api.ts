@@ -56,6 +56,7 @@ export interface CostPlanSummary {
 
 export interface CostPlanResponse {
   tripId: string;
+  version?: number;
   tripVersion?: number;
   costPlanStatus?: string;
   status?: string;
@@ -352,35 +353,42 @@ export async function saveTripCostPlan(
   payload: SaveCostPlanPayload,
   accessToken: string,
 ): Promise<CostPlanResponse> {
-  const formattedBody = {
+  const formattedBody: any = {
     expectedVersion: payload.expectedVersion,
     targetPax: Math.max(3, Number(payload.targetPax) || 10),
     targetMarginBps: Number(payload.targetMarginBps) || 2000,
     contingencyBps: Number(payload.contingencyBps) || 500,
-    selectedPrice:
-      payload.selectedPrice != null
-        ? String(Math.round(Number(payload.selectedPrice) || 0))
-        : null,
-    selectedMinPax:
-      payload.selectedMinPax != null ? Number(payload.selectedMinPax) : null,
-    items: payload.items.map((it) => ({
-      category: formatCategoryForBackend(it.category),
-      name: it.name.trim(),
-      kind: it.kind,
-      basis: it.basis,
-      unitPrice: String(Math.round(Number(it.unitPrice) || 0)),
-      quantity: Math.max(1, Math.round(Number(it.quantity) || 1)),
-      durationUnits: Math.max(1, Math.round(Number(it.durationUnits) || 1)),
-      capacityPerUnit:
-        it.kind === "STEP"
-          ? Math.max(1, Math.round(Number(it.capacityPerUnit) || 15))
-          : null,
-      extraNonPayingPax: Math.max(0, Math.round(Number(it.extraNonPayingPax) || 0)),
-      includedInPrice: Boolean(it.includedInPrice),
-      isEnabled: Boolean(it.isEnabled),
-      sourceNote: it.sourceNote ? it.sourceNote.trim() : null,
-      stepTiers: Array.isArray(it.stepTiers) ? it.stepTiers : [],
-    })),
+    ...(payload.selectedPrice != null && Number(payload.selectedPrice) > 0
+      ? { selectedPrice: String(Math.round(Number(payload.selectedPrice))) }
+      : {}),
+    ...(payload.selectedMinPax != null && Number(payload.selectedMinPax) >= 1
+      ? { selectedMinPax: Number(payload.selectedMinPax) }
+      : {}),
+    items: payload.items.map((it) => {
+      const item: any = {
+        category: formatCategoryForBackend(it.category),
+        name: it.name.trim(),
+        kind: it.kind,
+        basis: it.basis,
+        unitPrice: String(Math.round(Number(it.unitPrice) || 0)),
+        quantity: Math.max(1, Math.round(Number(it.quantity) || 1)),
+        durationUnits: Math.max(1, Math.round(Number(it.durationUnits) || 1)),
+        capacityPerUnit:
+          it.kind === "STEP"
+            ? Math.max(1, Math.round(Number(it.capacityPerUnit) || 15))
+            : null,
+        extraNonPayingPax: Math.max(0, Math.round(Number(it.extraNonPayingPax) || 0)),
+        includedInPrice: Boolean(it.includedInPrice),
+        isEnabled: Boolean(it.isEnabled),
+        sourceNote: it.sourceNote ? it.sourceNote.trim() : null,
+      };
+
+      if (it.kind === "STEP" && Array.isArray(it.stepTiers) && it.stepTiers.length > 0) {
+        item.stepTiers = it.stepTiers;
+      }
+
+      return item;
+    }),
   };
 
   return apiRequest<CostPlanResponse>(
@@ -403,33 +411,41 @@ export async function previewTripPricing(
   accessToken: string,
 ): Promise<PricingPreviewResponse> {
   try {
-    const formattedBody = {
+    const formattedBody: any = {
       targetPax: Math.max(3, Number(payload.targetPax) || 10),
       targetMarginBps: Number(payload.targetMarginBps) || 2000,
       contingencyBps: Number(payload.contingencyBps) || 500,
-      selectedPrice:
-        payload.selectedPrice != null
-          ? String(Math.round(Number(payload.selectedPrice) || 0))
-          : null,
-      selectedMinPax:
-        payload.selectedMinPax != null ? Number(payload.selectedMinPax) : null,
-      items: (payload.items || []).map((it) => ({
-        category: formatCategoryForBackend(it.category),
-        name: it.name.trim(),
-        kind: it.kind,
-        basis: it.basis,
-        unitPrice: String(Math.round(Number(it.unitPrice) || 0)),
-        quantity: Math.max(1, Math.round(Number(it.quantity) || 1)),
-        durationUnits: Math.max(1, Math.round(Number(it.durationUnits) || 1)),
-        capacityPerUnit:
-          it.kind === "STEP"
-            ? Math.max(1, Math.round(Number(it.capacityPerUnit) || 15))
-            : null,
-        extraNonPayingPax: Math.max(0, Math.round(Number(it.extraNonPayingPax) || 0)),
-        includedInPrice: Boolean(it.includedInPrice),
-        isEnabled: Boolean(it.isEnabled),
-        sourceNote: it.sourceNote ? it.sourceNote.trim() : null,
-      })),
+      ...(payload.selectedPrice != null && Number(payload.selectedPrice) > 0
+        ? { selectedPrice: String(Math.round(Number(payload.selectedPrice))) }
+        : {}),
+      ...(payload.selectedMinPax != null && Number(payload.selectedMinPax) >= 1
+        ? { selectedMinPax: Number(payload.selectedMinPax) }
+        : {}),
+      items: (payload.items || []).map((it) => {
+        const item: any = {
+          category: formatCategoryForBackend(it.category),
+          name: it.name.trim(),
+          kind: it.kind,
+          basis: it.basis,
+          unitPrice: String(Math.round(Number(it.unitPrice) || 0)),
+          quantity: Math.max(1, Math.round(Number(it.quantity) || 1)),
+          durationUnits: Math.max(1, Math.round(Number(it.durationUnits) || 1)),
+          capacityPerUnit:
+            it.kind === "STEP"
+              ? Math.max(1, Math.round(Number(it.capacityPerUnit) || 15))
+              : null,
+          extraNonPayingPax: Math.max(0, Math.round(Number(it.extraNonPayingPax) || 0)),
+          includedInPrice: Boolean(it.includedInPrice),
+          isEnabled: Boolean(it.isEnabled),
+          sourceNote: it.sourceNote ? it.sourceNote.trim() : null,
+        };
+
+        if (it.kind === "STEP" && Array.isArray(it.stepTiers) && it.stepTiers.length > 0) {
+          item.stepTiers = it.stepTiers;
+        }
+
+        return item;
+      }),
     };
 
     return await apiRequest<PricingPreviewResponse>(

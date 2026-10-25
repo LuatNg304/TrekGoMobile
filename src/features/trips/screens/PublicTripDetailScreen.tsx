@@ -4,7 +4,9 @@ import { BookingParticipantsModal } from "@/features/bookings/components";
 import { bookingApiService } from "@/features/bookings/services/booking.api";
 import type { BookingDetail, BookingSummary } from "@/features/bookings/types";
 import {
+  TripConfirmedBookingCard,
   TripCostBreakdown,
+  TripDescriptionSection,
   TripHeroSection,
   TripLeaderInfo,
   TripPickupInfo,
@@ -197,6 +199,11 @@ export function PublicTripDetailScreen({
   }
 
   const isBookable = trip.status === "OPEN" && trip.remainingSlots > 0;
+  const isConfirmedBooking =
+    existingBooking &&
+    ["CONFIRMED", "PARTIAL_CHECKIN", "CHECKED_IN", "COMPLETED"].includes(
+      existingBooking.status
+    );
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -222,19 +229,40 @@ export function PublicTripDetailScreen({
         {/* 1. Hero Section */}
         <TripHeroSection trip={trip} />
 
-        {/* 2. Leader Info */}
+        {/* 2. Thẻ Bạn đã tham gia chuyến đi này! (Hiển thị khi đã đặt vé thành công như trên web) */}
+        {isConfirmedBooking && (
+          <TripConfirmedBookingCard
+            booking={existingBooking}
+            onViewTicket={() =>
+              router.push({
+                pathname: "/bookings/[id]",
+                params: { id: existingBooking.id },
+              } as any)
+            }
+            onViewAllTrips={() => router.push("/(tabs)/trips" as any)}
+          />
+        )}
+
+        {/* 3. Giới thiệu & Kế hoạch chuyến đi (Matching Web) */}
+        <TripDescriptionSection
+          description={trip.description}
+          tripTitle={trip.title}
+          destinationName={trip.destination.name}
+        />
+
+        {/* 4. Leader Info */}
         <TripLeaderInfo leader={trip.leader} />
 
-        {/* 3. Pickup Point */}
+        {/* 5. Pickup Point */}
         <TripPickupInfo pickup={trip.pickup} startAt={trip.startAt} />
 
-        {/* 4. Route Timeline & Checkpoints */}
+        {/* 6. Route Timeline & Checkpoints */}
         <TripRouteTimeline
           routes={trip.routes}
           checkpoints={trip.checkpoints}
         />
 
-        {/* 5. Transparent Cost Breakdown (TG-PTR-PRICING-01) */}
+        {/* 7. Transparent Cost Breakdown (TG-PTR-PRICING-01) */}
         <TripCostBreakdown currency={trip.currency} />
 
         {/* Bottom padding for fixed bar */}
@@ -258,7 +286,7 @@ export function PublicTripDetailScreen({
             <ActivityIndicator size="small" color="#ffffff" />
             <Text style={styles.bookingBtnText}>Đang chờ xác nhận...</Text>
           </View>
-        ) : existingBooking?.status === "CONFIRMED" ? (
+        ) : isConfirmedBooking ? (
           <TouchableOpacity
             style={[styles.bookingBtn, styles.bookingBtnConfirmed]}
             onPress={() =>
@@ -269,8 +297,8 @@ export function PublicTripDetailScreen({
             }
             activeOpacity={0.85}
           >
-            <Ionicons name="checkmark-circle" size={18} color="#ffffff" />
-            <Text style={styles.bookingBtnText}>Đã đặt chỗ thành công</Text>
+            <Ionicons name="ticket-outline" size={18} color="#ffffff" />
+            <Text style={styles.bookingBtnText}>Xem chi tiết vé</Text>
           </TouchableOpacity>
         ) : existingBooking?.status === "PENDING_PAYMENT" ? (
           <TouchableOpacity

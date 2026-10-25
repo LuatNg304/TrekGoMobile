@@ -18,6 +18,7 @@ import { Ionicons } from "@expo/vector-icons";
 import React, { useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -32,6 +33,10 @@ export interface LeaderTripFormData {
   pickupPointId: string;
   startDate: string;
   endDate: string;
+  departureTime?: string;
+  bookingGateDays?: string;
+  registrationOpenAt?: string;
+  registrationDeadlineAt?: string;
   slots: string;
   minPax?: string;
   price: string;
@@ -100,6 +105,20 @@ export function LeaderTripFormStep({
   }, [form.endDate]);
 
   const quickPresets = useMemo(() => getQuickDatePresets(), []);
+
+  const gateDays = parseInt(form.bookingGateDays || "2", 10) || 2;
+  const departureTime = form.departureTime || "05:30";
+
+  const calculatedDeadline = useMemo(() => {
+    if (!form.startDate) return "Chưa chọn ngày khởi hành";
+    const d = parseVnDate(form.startDate);
+    if (!d) return "Chưa chọn ngày khởi hành";
+    const deadlineDate = new Date(d.getTime() - gateDays * 24 * 60 * 60 * 1000);
+    const day = String(deadlineDate.getDate()).padStart(2, "0");
+    const month = String(deadlineDate.getMonth() + 1).padStart(2, "0");
+    const year = deadlineDate.getFullYear();
+    return `${day}/${month}/${year} ${departureTime}`;
+  }, [form.startDate, gateDays, departureTime]);
 
   const slotNum = parseInt(form.slots, 10) || 15;
   const minPaxNum = parseInt(form.minPax || "5", 10) || 5;
@@ -333,6 +352,7 @@ export function LeaderTripFormStep({
           </View>
 
           <View style={styles.dateGrid}>
+
             {/* Start Date */}
             <View style={styles.dateCol}>
               <Text style={styles.dateSubLabel}>Ngày khởi hành *</Text>
@@ -364,7 +384,7 @@ export function LeaderTripFormStep({
                   />
                 </View>
                 {startDay ? (
-                  <Text style={styles.dayOfWeekText}>{startDay} • Xuất phát 05:30</Text>
+                  <Text style={styles.dayOfWeekText}>{startDay} • Xuất phát {departureTime}</Text>
                 ) : (
                   <Text style={styles.dayOfWeekSubHint}>Chạm để cuộn chọn ngày</Text>
                 )}
@@ -411,6 +431,152 @@ export function LeaderTripFormStep({
                 )}
               </TouchableOpacity>
               {errors.endDate && <Text style={styles.fieldError}>{errors.endDate}</Text>}
+            </View>
+          </View>
+
+          {/* Departure Time Input & Quick Presets */}
+          <View style={styles.timeSection}>
+            <View style={styles.timeSectionHeader}>
+              <Text style={styles.dateSubLabel}>Giờ tập trung xuất phát *</Text>
+              <Text style={styles.timePresetHint}>Gợi ý giờ khởi hành phổ biến</Text>
+            </View>
+            <View style={styles.timeRow}>
+              <View style={styles.timeInputBox}>
+                <Ionicons name="time-outline" size={18} color="#125238" />
+                <TextInput
+                  value={form.departureTime || "05:30"}
+                  onChangeText={(val) => onUpdateField("departureTime", val)}
+                  placeholder="05:30"
+                  placeholderTextColor="#707972"
+                  style={styles.timeInputText}
+                />
+              </View>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.timeChipsRow}>
+                {["05:00", "05:30", "06:00", "07:00", "13:00"].map((timeVal) => {
+                  const isSelected = (form.departureTime || "05:30") === timeVal;
+                  return (
+                    <TouchableOpacity
+                      key={timeVal}
+                      style={[styles.timeChip, isSelected && styles.timeChipActive]}
+                      onPress={() => onUpdateField("departureTime", timeVal)}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[styles.timeChipText, isSelected && styles.timeChipTextActive]}>
+                        {timeVal}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          </View>
+
+          {/* Booking Gate Configuration (Mở & Đóng Form Đăng ký) */}
+          <View style={styles.bookingGateCard}>
+            <View style={styles.bookingGateHeader}>
+              <Ionicons name="timer-outline" size={18} color="#125238" />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.bookingGateTitle}>
+                  Thời gian Mở & Đóng Form Đăng Ký (Booking Gate)
+                </Text>
+                <Text style={styles.bookingGateSub}>
+                  Mặc định đóng form trước 2 ngày (48h) so với giờ khởi hành. Tối đa cho phép chỉnh sát nhất là trước 1 ngày (24h).
+                </Text>
+              </View>
+            </View>
+
+            {/* 3 Booking Gate Presets */}
+            <View style={styles.gatePresetsRow}>
+              {[
+                { label: "Trước 3 ngày", value: "3" },
+                { label: "Trước 2 ngày (Mặc định)", value: "2" },
+                { label: "Trước 1 ngày (Tối đa)", value: "1" },
+              ].map((p) => {
+                const isActive = (form.bookingGateDays || "2") === p.value;
+                return (
+                  <TouchableOpacity
+                    key={p.value}
+                    style={[styles.gatePresetBtn, isActive && styles.gatePresetBtnActive]}
+                    onPress={() => onUpdateField("bookingGateDays", p.value)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.gatePresetBtnText, isActive && styles.gatePresetBtnTextActive]}>
+                      {p.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* Inputs: Registration Open & Registration Deadline */}
+            <View style={styles.gateInputsGrid}>
+              <View style={styles.gateInputCol}>
+                <Text style={styles.gateInputLabel}>Giờ mở nhận đăng ký (Tùy chọn)</Text>
+                <View style={styles.gateInputBox}>
+                  <Ionicons name="calendar-outline" size={16} color="#707972" />
+                  <TextInput
+                    value={form.registrationOpenAt || ""}
+                    onChangeText={(val) => onUpdateField("registrationOpenAt", val)}
+                    placeholder="Ngay khi xuất bản"
+                    placeholderTextColor="#707972"
+                    style={styles.gateInputText}
+                  />
+                </View>
+                <Text style={styles.gateInputHint}>
+                  Bỏ trống nếu muốn mở đăng ký ngay lập tức khi Publish chuyến đi.
+                </Text>
+              </View>
+
+              <View style={styles.gateInputCol}>
+                <Text style={styles.gateInputLabel}>Hạn chót đóng form đăng ký *</Text>
+                <View style={[styles.gateInputBox, styles.gateInputBoxLocked]}>
+                  <Ionicons name="hourglass-outline" size={16} color="#125238" />
+                  <Text style={styles.gateDeadlineText} numberOfLines={1}>
+                    {form.registrationDeadlineAt || calculatedDeadline}
+                  </Text>
+                </View>
+                <Text style={styles.gateInputHint}>
+                  Sau mốc này sẽ chặn tạo đơn mới. Khách đã giữ chỗ trước khi đóng form vẫn được thanh toán nốt.
+                </Text>
+              </View>
+            </View>
+          </View>
+
+          {/* VFRS Safety Standards Box */}
+          <View style={styles.vfrsRuleBox}>
+            <Ionicons name="shield-checkmark-outline" size={18} color="#b45309" />
+            <Text style={styles.vfrsRuleText}>
+              <Text style={{ fontWeight: "800" }}>Quy chuẩn an toàn VFRS: </Text>
+              Chuyến đi ghép đoàn cần mở trước ngày khởi hành tối thiểu 3 ngày để đảm bảo thời gian gom đoàn, xử lý các đơn thuê trang bị (Rental Cutoff 24h) và nộp danh sách khai báo kiểm lâm.
+            </Text>
+          </View>
+
+          {/* Quy tắc 3 Điều kiện Mở/Đóng Đăng ký */}
+          <View style={styles.rulesCard}>
+            <View style={styles.rulesCardHeader}>
+              <Ionicons name="checkmark-done-circle-outline" size={18} color="#125238" />
+              <Text style={styles.rulesCardTitle}>Quy tắc 3 Điều kiện Mở/Đóng Đăng Ký</Text>
+            </View>
+            <View style={styles.ruleItemRow}>
+              <Ionicons name="checkmark" size={14} color="#125238" style={{ marginTop: 2 }} />
+              <Text style={styles.ruleItemText}>
+                <Text style={{ fontWeight: "700" }}>Hạn chót đăng ký: </Text>
+                Tự động đóng form trước giờ khởi hành {form.bookingGateDays || 2} ngày (có thể chỉnh tối đa sát nhất trước 1 ngày).
+              </Text>
+            </View>
+            <View style={styles.ruleItemRow}>
+              <Ionicons name="checkmark" size={14} color="#125238" style={{ marginTop: 2 }} />
+              <Text style={styles.ruleItemText}>
+                <Text style={{ fontWeight: "700" }}>Bảo vệ giữ chỗ: </Text>
+                Khách đã vào form giữ chỗ trước giờ đóng sổ vẫn được hoàn tất thanh toán trong thời gian giữ chỗ (15 phút).
+              </Text>
+            </View>
+            <View style={styles.ruleItemRow}>
+              <Ionicons name="checkmark" size={14} color="#125238" style={{ marginTop: 2 }} />
+              <Text style={styles.ruleItemText}>
+                <Text style={{ fontWeight: "700" }}>Sức chứa tối đa: </Text>
+                Đủ số người tối đa (maxPax) hệ thống sẽ tự động chuyển trạng thái Đủ chỗ (FULL).
+              </Text>
             </View>
           </View>
 
@@ -1608,5 +1774,221 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "800",
     letterSpacing: 0.5,
+  },
+  timeSection: {
+    marginTop: 14,
+    backgroundColor: "#ffffff",
+    borderRadius: Radius.sm,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "#e0e7f1",
+  },
+  timeSectionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  timePresetHint: {
+    color: "#707972",
+    fontSize: 10,
+  },
+  timeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  timeInputBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#eff4ff",
+    borderRadius: Radius.sm,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: "#ccd9ea",
+    minWidth: 100,
+  },
+  timeInputText: {
+    color: "#125238",
+    fontSize: 14,
+    fontWeight: "800",
+    padding: 0,
+    minWidth: 50,
+  },
+  timeChipsRow: {
+    flexDirection: "row",
+    gap: 6,
+    alignItems: "center",
+  },
+  timeChip: {
+    backgroundColor: "#eff4ff",
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: Radius.sm,
+    borderWidth: 1,
+    borderColor: "#ccd9ea",
+  },
+  timeChipActive: {
+    backgroundColor: "#125238",
+    borderColor: "#125238",
+  },
+  timeChipText: {
+    color: "#121c2a",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  timeChipTextActive: {
+    color: "#ffffff",
+    fontWeight: "800",
+  },
+  bookingGateCard: {
+    marginTop: 14,
+    backgroundColor: "#ffffff",
+    borderRadius: Radius.sm,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "#ccd9ea",
+  },
+  bookingGateHeader: {
+    flexDirection: "row",
+    gap: 10,
+    alignItems: "flex-start",
+    marginBottom: 12,
+  },
+  bookingGateTitle: {
+    color: "#125238",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  bookingGateSub: {
+    color: "#404943",
+    fontSize: 11,
+    marginTop: 2,
+    lineHeight: 16,
+  },
+  gatePresetsRow: {
+    flexDirection: "row",
+    gap: 6,
+    marginBottom: 12,
+  },
+  gatePresetBtn: {
+    flex: 1,
+    backgroundColor: "#f5f7fa",
+    paddingVertical: 8,
+    paddingHorizontal: 6,
+    borderRadius: Radius.sm,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#ccd9ea",
+  },
+  gatePresetBtnActive: {
+    backgroundColor: "#125238",
+    borderColor: "#125238",
+  },
+  gatePresetBtnText: {
+    color: "#404943",
+    fontSize: 11,
+    fontWeight: "600",
+    textAlign: "center",
+  },
+  gatePresetBtnTextActive: {
+    color: "#ffffff",
+    fontWeight: "800",
+  },
+  gateInputsGrid: {
+    gap: 10,
+  },
+  gateInputCol: {
+    marginBottom: 4,
+  },
+  gateInputLabel: {
+    color: "#121c2a",
+    fontSize: 11,
+    fontWeight: "700",
+    marginBottom: 4,
+  },
+  gateInputBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#eff4ff",
+    borderRadius: Radius.sm,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderWidth: 1,
+    borderColor: "#ccd9ea",
+  },
+  gateInputBoxLocked: {
+    backgroundColor: "#f0fdf4",
+    borderColor: "#bbf7d0",
+  },
+  gateInputText: {
+    flex: 1,
+    color: "#121c2a",
+    fontSize: 12,
+    fontWeight: "600",
+    padding: 0,
+  },
+  gateDeadlineText: {
+    flex: 1,
+    color: "#125238",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  gateInputHint: {
+    color: "#707972",
+    fontSize: 10,
+    marginTop: 4,
+    lineHeight: 14,
+  },
+  vfrsRuleBox: {
+    flexDirection: "row",
+    gap: 10,
+    backgroundColor: "#fffbeb",
+    borderRadius: Radius.sm,
+    padding: 12,
+    marginTop: 14,
+    borderWidth: 1,
+    borderColor: "#fde68a",
+  },
+  vfrsRuleText: {
+    flex: 1,
+    color: "#92400e",
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  rulesCard: {
+    backgroundColor: "#f8fafc",
+    borderRadius: Radius.sm,
+    padding: 12,
+    marginTop: 14,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+  },
+  rulesCardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 8,
+  },
+  rulesCardTitle: {
+    color: "#125238",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  ruleItemRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 6,
+    marginBottom: 4,
+  },
+  ruleItemText: {
+    flex: 1,
+    color: "#475569",
+    fontSize: 11,
+    lineHeight: 16,
   },
 });

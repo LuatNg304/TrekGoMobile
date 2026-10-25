@@ -105,6 +105,24 @@ export default function UserNotificationsScreen() {
           </View>
         </View>
 
+        {/* Banner Lời mời vé bạn bè gửi tặng (Milestone 6 Companion Flow) */}
+        <TouchableOpacity
+          style={styles.invitationBanner}
+          onPress={() => router.push("/invitations" as any)}
+          activeOpacity={0.88}
+        >
+          <View style={styles.invitationIconBox}>
+            <Ionicons name="mail-unread" size={22} color="#FFFFFF" />
+          </View>
+          <View style={styles.flexOne}>
+            <Text style={styles.invitationBannerTitle}>Hộp thư Lời mời Vé Trekking</Text>
+            <Text style={styles.invitationBannerText}>
+              Xem và chấp nhận các vé trekking được bạn bè gửi tặng
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={Colors.primary} />
+        </TouchableOpacity>
+
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
           {filters.map((item) => {
             const selected = filter === item.value;
@@ -202,4 +220,35 @@ const styles = StyleSheet.create({
   emptyTitle: { marginTop: 10, color: Colors.onSurface, fontSize: 12, fontWeight: "900" },
   emptyText: { marginTop: 4, color: Colors.onSurfaceMuted, fontSize: 8 },
   hintText: { marginTop: 10, color: Colors.onSurfaceMuted, fontSize: 7, textAlign: "center" },
+  invitationBanner: {
+    marginTop: 12,
+    padding: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderRadius: Radius.xl,
+    backgroundColor: "#E0F2F1",
+    borderWidth: 1.5,
+    borderColor: "#80CBC4",
+    ...Shadows.card,
+  },
+  invitationIconBox: {
+    width: 42,
+    height: 42,
+    borderRadius: Radius.lg,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Colors.primary,
+  },
+  invitationBannerTitle: {
+    fontSize: 13,
+    fontWeight: "900",
+    color: Colors.primary,
+  },
+  invitationBannerText: {
+    fontSize: 10,
+    color: Colors.onSurfaceVariant,
+    marginTop: 2,
+    lineHeight: 14,
+  },
 });

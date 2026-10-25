@@ -23,7 +23,7 @@ import {
 import { validateTripDates } from "@/features/leaders/utils/tripDateUtils";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ScrollView, StyleSheet } from "react-native";
+import { Alert, BackHandler, ScrollView, StyleSheet } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 function formatIsoToVnDate(isoStr?: string | null): string {
@@ -101,6 +101,7 @@ export function LeaderCreateTripScreen({ onNavigateTab }: LeaderCreateTripScreen
 
   const [draftTripId, setDraftTripId] = useState<string | null>(initialTripId || null);
   const [draftTripVersion, setDraftTripVersion] = useState<number>(1);
+  const [lastSavedDestinationId, setLastSavedDestinationId] = useState<string | null>(null);
   const [readinessIssues, setReadinessIssues] = useState<string[]>([]);
   const [canPublish, setCanPublish] = useState<boolean>(false);
 
@@ -116,6 +117,10 @@ export function LeaderCreateTripScreen({ onNavigateTab }: LeaderCreateTripScreen
     pickupPointId: "",
     startDate: "",
     endDate: "",
+    departureTime: "05:30",
+    bookingGateDays: "2",
+    registrationOpenAt: "",
+    registrationDeadlineAt: "",
     slots: "15",
     minPax: "5",
     price: "2850000",
@@ -139,9 +144,19 @@ export function LeaderCreateTripScreen({ onNavigateTab }: LeaderCreateTripScreen
       .then((existing: any) => {
         setDraftTripId(existing.id);
         setDraftTripVersion(existing.version);
+        setLastSavedDestinationId(existing.destination?.id || existing.destinationId || null);
         if (existing.priceExplanation) {
           setIsPriceConfirmed(true);
           setConfirmedPriceExplanation(existing.priceExplanation);
+        }
+        let depTime = "05:30";
+        if (existing.startAt) {
+          try {
+            const dt = new Date(existing.startAt);
+            if (!isNaN(dt.getTime())) {
+              depTime = `${String(dt.getHours()).padStart(2, "0")}:${String(dt.getMinutes()).padStart(2, "0")}`;
+            }
+          } catch {}
         }
         setForm((prev) => ({
           ...prev,
@@ -151,6 +166,10 @@ export function LeaderCreateTripScreen({ onNavigateTab }: LeaderCreateTripScreen
           pickupPointId: existing.pickupPoint?.id || existing.pickupPointId || prev.pickupPointId,
           startDate: formatIsoToVnDate(existing.startAt) || prev.startDate,
           endDate: formatIsoToVnDate(existing.endAt) || prev.endDate,
+          departureTime: depTime,
+          bookingGateDays: "2",
+          registrationOpenAt: existing.registrationOpenAt || "",
+          registrationDeadlineAt: existing.registrationDeadlineAt || "",
           slots: String(existing.capacity || prev.slots),
           minPax: String(existing.minPax || prev.minPax || "5"),
           price: existing.pricePerPax || existing.price || prev.price,
@@ -287,8 +306,26 @@ export function LeaderCreateTripScreen({ onNavigateTab }: LeaderCreateTripScreen
     setIsSubmitting(true);
 
     try {
-      const startIso = parseDateToIso(form.startDate, "06:00:00");
+      const depTime = form.departureTime || "05:30";
+      const [depHour, depMin] = depTime.split(":");
+      const timeStr = `${(depHour || "05").padStart(2, "0")}:${(depMin || "30").padStart(2, "0")}:00`;
+      const startIso = parseDateToIso(form.startDate, timeStr);
       const endIso = parseDateToIso(form.endDate, "18:00:00");
+
+      const startDateObj = new Date(startIso);
+      const gateDays = parseInt(form.bookingGateDays || "2", 10) || 2;
+      const registrationDeadlineIso = new Date(
+        startDateObj.getTime() - gateDays * 24 * 60 * 60 * 1000,
+      ).toISOString();
+
+      let registrationOpenIso = new Date().toISOString();
+      if (form.registrationOpenAt?.trim()) {
+        try {
+          registrationOpenIso = parseDateToIso(form.registrationOpenAt.trim(), "00:00:00");
+        } catch {
+          registrationOpenIso = new Date().toISOString();
+        }
+      }
 
       let activeDraftId = draftTripId;
       let activeVersion = draftTripVersion;
@@ -323,12 +360,40 @@ export function LeaderCreateTripScreen({ onNavigateTab }: LeaderCreateTripScreen
           capacity: Number(form.slots),
           minPax: Number(form.minPax || 5),
           price: form.price.trim() || "2850000",
+          registrationDeadlineAt: registrationDeadlineIso,
+          registrationOpenAt: registrationOpenIso,
         });
         activeDraftId = draft.id;
         activeVersion = draft.version;
         setDraftTripId(draft.id);
         setDraftTripVersion(draft.version);
+        setLastSavedDestinationId(form.destinationId);
       } else {
+        // Ràng buộc BE: Checkpoints và Trails phải thuộc đúng destinationId.
+        // Nếu Leader đổi destinationId trên bản nháp đã có, phải reset checkpoints và trails rỗng trước:
+        if (lastSavedDestinationId && form.destinationId !== lastSavedDestinationId) {
+          try {
+            const cpReset = await assignCheckpoints(activeDraftId, {
+              expectedVersion: activeVersion,
+              checkpointIds: [],
+            });
+            activeVersion = cpReset.version;
+            setDraftTripVersion(activeVersion);
+
+            const trailReset = await assignTrails(activeDraftId, {
+              expectedVersion: activeVersion,
+              trailIds: [],
+            });
+            activeVersion = trailReset.version;
+            setDraftTripVersion(activeVersion);
+
+            setSelectedTrail(null);
+            setForm((prev) => ({ ...prev, checkpointIds: [] }));
+          } catch (resetErr) {
+            console.warn("Lỗi khi reset checkpoints/trails cũ trước khi đổi điểm đến:", resetErr);
+          }
+        }
+
         const updated = await updateTrip(activeDraftId, {
           expectedVersion: activeVersion,
           title: form.name.trim(),
@@ -340,9 +405,12 @@ export function LeaderCreateTripScreen({ onNavigateTab }: LeaderCreateTripScreen
           minPax: Number(form.minPax || 5),
           price: form.price.trim() || "2850000",
           destinationId: form.destinationId,
+          registrationDeadlineAt: registrationDeadlineIso,
+          registrationOpenAt: registrationOpenIso,
         });
         activeVersion = updated.version;
         setDraftTripVersion(updated.version);
+        setLastSavedDestinationId(form.destinationId);
       }
 
       // 2. Tải danh sách System Trail suggestions & Checkpoints của Destination
@@ -527,15 +595,43 @@ export function LeaderCreateTripScreen({ onNavigateTab }: LeaderCreateTripScreen
     }
   };
 
-  const handleSafeGoBack = () => {
-    if (router.canGoBack()) {
-      router.back();
-    } else if (onNavigateTab) {
+  const handleSafeGoBack = useCallback(() => {
+    if (onNavigateTab) {
       onNavigateTab("dashboard");
+    } else if (router.canGoBack()) {
+      router.back();
     } else {
       router.replace("/(tabs)" as any);
     }
-  };
+  }, [onNavigateTab, router]);
+
+  useEffect(() => {
+    const onHardwareBack = () => {
+      if (publishedTrip) {
+        if (onNavigateTab) {
+          setPublishedTrip(null);
+          setStep("form");
+          onNavigateTab("dashboard");
+        } else {
+          router.replace("/field-operations" as any);
+        }
+        return true;
+      }
+      if (step === "review") {
+        setStep("route");
+        return true;
+      }
+      if (step === "route") {
+        setStep("form");
+        return true;
+      }
+      handleSafeGoBack();
+      return true;
+    };
+
+    const sub = BackHandler.addEventListener("hardwareBackPress", onHardwareBack);
+    return () => sub.remove();
+  }, [step, publishedTrip, onNavigateTab, handleSafeGoBack]);
 
   if (!canCreatePublicTrip) {
     return (
@@ -572,6 +668,26 @@ export function LeaderCreateTripScreen({ onNavigateTab }: LeaderCreateTripScreen
     );
   }
 
+  const handleSaveDraft = () => {
+    Alert.alert(
+      "Đã lưu bản nháp",
+      "Chuyến đi và toàn bộ cấu hình đã được lưu an toàn. Bạn có thể quay lại duyệt hoặc xuất bản bất kỳ lúc nào.",
+      [
+        { text: "Tiếp tục chỉnh sửa", style: "cancel" },
+        {
+          text: "Về danh sách",
+          onPress: () => {
+            if (onNavigateTab) {
+              onNavigateTab("trips");
+            } else {
+              router.replace("/field-operations" as any);
+            }
+          },
+        },
+      ],
+    );
+  };
+
   // BƯỚC 3: XEM LẠI & XUẤT BẢN
   if (step === "review") {
     return (
@@ -596,10 +712,13 @@ export function LeaderCreateTripScreen({ onNavigateTab }: LeaderCreateTripScreen
             apiLoading={apiLoading}
             onPublish={() => void handlePublish()}
             onBackToForm={() => setStep("route")}
+            onBackToStep1={() => setStep("form")}
             onPriceConfirmed={handlePriceConfirmed}
             isPriceConfirmed={isPriceConfirmed}
             confirmedPriceExplanation={confirmedPriceExplanation}
             onVersionUpdated={(newVer) => setDraftTripVersion(newVer)}
+            onUpdateDescription={(desc) => updateField("description", desc)}
+            onSaveDraft={handleSaveDraft}
           />
         </ScrollView>
       </SafeAreaView>
@@ -633,6 +752,7 @@ export function LeaderCreateTripScreen({ onNavigateTab }: LeaderCreateTripScreen
                   .finally(() => setIsLoadingRouteData(false));
               }
             }}
+            onSaveDraft={handleSaveDraft}
           />
         </ScrollView>
       </SafeAreaView>

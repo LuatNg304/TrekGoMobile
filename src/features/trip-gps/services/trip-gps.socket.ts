@@ -1,6 +1,6 @@
-import { io, Socket } from 'socket.io-client';
 import { API_BASE_URL, refreshSessionOnce } from '@/lib/api-client';
 import { generateUUID } from '@/services/storage/recordingDatabase';
+import { io, Socket } from 'socket.io-client';
 import type {
   AccessRevokedEventData,
   EventEnvelope,
@@ -77,7 +77,7 @@ export class TripGpsSocketService {
       }
     });
 
-    this.socket.on('disconnect', (reason) => {
+    this.socket.on('disconnect', (reason: string) => {
       console.log('[TripGpsSocket] Disconnected:', reason);
       this.callbacks.onDisconnect?.(reason);
       if (reason === 'io server disconnect') {

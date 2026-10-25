@@ -33,6 +33,7 @@ export interface PublicTripCheckpoint {
 export interface PublicTrip {
   id: string;
   title: string;
+  description?: string | null;
   status: PublicTripStatus;
   startAt: string;
   endAt: string;
