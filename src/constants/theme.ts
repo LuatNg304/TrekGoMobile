@@ -34,6 +34,8 @@ export const Colors = {
   inverseOnSurface: '#f2f1eb',
   
   // Functional & Semantic
+  positive: '#2ead4b',
+  positiveDeep: '#054d28',
   secondary: '#47672d',
   secondaryContainer: '#c5eba3',
   onSecondaryContainer: '#4b6c31',
@@ -98,6 +100,7 @@ export const Radius = {
   md: 12,
   lg: 16,
   xl: 24,      // Signature 24px rounded card
+  pill: 9999,  // Signature pill buttons per DESIGN-wise.md
   full: 9999,  // Signature pill buttons
 };
 
@@ -122,5 +125,12 @@ export const Shadows = {
     shadowOpacity: 0.35,
     shadowRadius: 12,
     elevation: 6,
+  },
+  modal: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 24,
+    elevation: 8,
   },
 };

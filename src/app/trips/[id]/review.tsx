@@ -103,7 +103,7 @@ export default function TripReviewScreen() {
           </View>
 
           <View style={styles.pointsCard}>
-            <Ionicons name="sparkles" size={23} color="#725C00" />
+            <Ionicons name="ribbon-outline" size={23} color="#725C00" />
 
             <View style={styles.flexOne}>
               <Text style={styles.pointsTitle}>+50 TrekGo Points</Text>

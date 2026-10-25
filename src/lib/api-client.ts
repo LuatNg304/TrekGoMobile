@@ -35,7 +35,6 @@ export class ApiError extends Error {
     readonly status: number,
     readonly code?: string,
     readonly details?: unknown,
-    readonly retryable = false,
   ) {
     super(message);
     this.name = "ApiError";
@@ -75,17 +74,29 @@ const defaultMessages: Record<number, string> = {
 };
 
 function getErrorMessage(
-  payload: ApiErrorEnvelope | null,
+  payload: any,
   status: number,
   fallbackMessages?: Partial<Record<number, string>>,
 ) {
   const rawMessage = payload?.error?.message ?? payload?.message;
 
   if (Array.isArray(rawMessage)) {
-    return rawMessage[0] || "Dữ liệu không hợp lệ.";
+    return rawMessage.join(", ") || "Dữ liệu không hợp lệ.";
   }
 
-  if (rawMessage) return rawMessage;
+  const details = payload?.error?.details ?? payload?.details;
+  if (Array.isArray(details) && details.length > 0) {
+    const detailMsgs = details
+      .map((d: any) => {
+        if (typeof d === "string") return d;
+        if (d?.field && d?.message) return `${d.field}: ${d.message}`;
+        return d?.message || d?.field || d?.code || JSON.stringify(d);
+      })
+      .filter(Boolean);
+    if (detailMsgs.length > 0) return detailMsgs.join(", ");
+  }
+
+  if (rawMessage && typeof rawMessage === "string") return rawMessage;
 
   return (
     fallbackMessages?.[status] ??
@@ -113,13 +124,21 @@ async function parseResponse<T>(
   }
 
   if (!response.ok) {
-    const errorPayload = payload as ApiErrorEnvelope | null;
+    const errorPayload = payload as any;
+    const errorCode =
+      errorPayload?.error?.code ??
+      errorPayload?.code ??
+      errorPayload?.details?.code ??
+      (typeof errorPayload?.error === "string" && errorPayload?.error !== "Bad Request"
+        ? errorPayload?.error
+        : undefined);
+    const errorDetails = errorPayload?.error?.details ?? errorPayload?.details;
+
     throw new ApiError(
       getErrorMessage(errorPayload, response.status, fallbackMessages),
       response.status,
-      errorPayload?.error?.code,
-      errorPayload?.error?.details,
-      errorPayload?.error?.retryable === true,
+      errorCode,
+      errorDetails,
     );
   }
 
@@ -177,7 +196,7 @@ async function refreshStoredSession(): Promise<StoredAuthState> {
   }
 }
 
-function refreshSessionOnce(): Promise<StoredAuthState> {
+export function refreshSessionOnce(): Promise<StoredAuthState> {
   if (!refreshPromise) {
     refreshPromise = refreshStoredSession().finally(() => {
       refreshPromise = null;

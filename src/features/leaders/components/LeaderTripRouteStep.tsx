@@ -4,11 +4,14 @@ import type {
   LeaderTrailSuggestion,
 } from "@/features/leaders/services/leader-public-trips.api";
 import { Ionicons } from "@expo/vector-icons";
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
+  Image,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -25,6 +28,7 @@ export interface LeaderTripRouteStepProps {
   onProceed: () => void;
   onBack: () => void;
   onRetry?: () => void;
+  onSaveDraft?: () => void;
 }
 
 export function LeaderTripRouteStep({
@@ -39,13 +43,20 @@ export function LeaderTripRouteStep({
   onProceed,
   onBack,
   onRetry,
+  onSaveDraft,
 }: LeaderTripRouteStepProps) {
-  // Lọc chỉ lấy các System Trail hợp lệ có checkpointIds.length > 0
-  const validSuggestions = useMemo(() => {
-    return trailSuggestions.filter(
-      (s) => Array.isArray(s.checkpointIds) && s.checkpointIds.length > 0,
-    );
-  }, [trailSuggestions]);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // Search filter
+  const filteredSuggestions = useMemo(() => {
+    if (!searchQuery.trim()) return trailSuggestions;
+    const q = searchQuery.toLowerCase().trim();
+    return trailSuggestions.filter((t) => {
+      const matchName = t.name.toLowerCase().includes(q);
+      const matchDiff = (t.difficulty || "").toLowerCase().includes(q);
+      return matchName || matchDiff;
+    });
+  }, [trailSuggestions, searchQuery]);
 
   // Map checkpointIds của trail đã chọn sang danh sách checkpoint chi tiết (tên, tọa độ)
   const currentCheckpoints = useMemo(() => {
@@ -66,36 +77,50 @@ export function LeaderTripRouteStep({
 
   return (
     <View style={styles.container}>
-      {/* Header */}
+      {/* ─── Header & Stepper ─── */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <TouchableOpacity onPress={onBack} style={styles.backBtn} activeOpacity={0.7}>
-            <Ionicons name="arrow-back" size={22} color={Colors.ink} />
+            <Ionicons name="arrow-back" size={20} color="#121c2a" />
           </TouchableOpacity>
           <View>
-            <Text style={styles.headerTitle}>TẠO PUBLIC TRIP</Text>
-            <Text style={styles.headerSubtitle}>BƯỚC 2/3 · THIẾT LẬP LỘ TRÌNH</Text>
+            <Text style={styles.headerTitle}>Thiết lập Cung đường & Trạm dừng</Text>
+            <Text style={styles.headerSubtitle}>
+              Chọn cung đường đã xác minh và thiết lập checkpoint • {destinationName || "VFRS"}
+            </Text>
           </View>
         </View>
-        <View style={styles.badgeVfrs}>
-          <Ionicons name="shield-checkmark" size={14} color="#125238" />
-          <Text style={styles.badgeVfrsText}>VFRS-L2</Text>
-        </View>
+        <TouchableOpacity
+          style={styles.draftTopBtn}
+          onPress={onSaveDraft || (() => Alert.alert("Đã lưu nháp", "Lộ trình đã được lưu vào bản nháp."))}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="bookmark-outline" size={14} color="#125238" />
+          <Text style={styles.draftTopBtnText}>Lưu nháp</Text>
+        </TouchableOpacity>
       </View>
 
-      {/* Wizard Progress Tracker (Step 2 of 3 = 66%) */}
-      <View style={styles.progressContainer}>
-        <View style={styles.progressRow}>
-          <View style={styles.progressLabelRow}>
-            <View style={styles.progressStepCircle}>
-              <Text style={styles.progressStepNum}>2</Text>
-            </View>
-            <Text style={styles.progressStepText}>BƯỚC 2/3: LỰA CHỌN CUNG ĐƯỜNG & TRẠM DỪNG</Text>
-          </View>
-          <Text style={styles.progressPercent}>66%</Text>
+      {/* 3-Step Stepper Header */}
+      <View style={styles.stepperContainer}>
+        <View style={styles.stepperItemDone}>
+          <Ionicons name="checkmark-circle" size={16} color="#125238" />
+          <Text style={styles.stepperItemTextDone} numberOfLines={1}>
+            1. Thông tin cơ bản
+          </Text>
         </View>
-        <View style={styles.progressBarTrack}>
-          <View style={[styles.progressBarFill, { width: "66%" }]} />
+        <View style={styles.stepperItemActive}>
+          <View style={styles.activeStepBadge}>
+            <Text style={styles.activeStepBadgeText}>2</Text>
+          </View>
+          <Text style={styles.stepperItemTextActive} numberOfLines={1}>
+            2. Cung đường & Trạm dừng
+          </Text>
+        </View>
+        <View style={styles.stepperItemInactive}>
+          <Text style={styles.inactiveStepNum}>3</Text>
+          <Text style={styles.stepperItemTextInactive} numberOfLines={1}>
+            3. Xem lại & Công khai
+          </Text>
         </View>
       </View>
 
@@ -103,14 +128,14 @@ export function LeaderTripRouteStep({
       {Boolean(submitError) && (
         <View style={styles.errorBox}>
           <View style={styles.errorIconWrap}>
-            <Ionicons name="alert-circle" size={22} color="#ba1a1a" />
+            <Ionicons name="alert-circle" size={20} color="#ba1a1a" />
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.errorTitle}>Lưu ý từ hệ thống</Text>
             <Text style={styles.errorText}>{submitError}</Text>
             {onRetry && (
               <TouchableOpacity style={styles.retryBtn} onPress={onRetry}>
-                <Ionicons name="reload" size={14} color="#125238" />
+                <Ionicons name="reload" size={13} color="#125238" />
                 <Text style={styles.retryBtnText}>Thử lại</Text>
               </TouchableOpacity>
             )}
@@ -118,7 +143,7 @@ export function LeaderTripRouteStep({
         </View>
       )}
 
-      {/* 1. CARD: LỰA CHỌN CUNG ĐƯỜNG CHO CHUYẾN ĐI (SYSTEM TRAILS) */}
+      {/* ─── 1. CARD: LỰA CHỌN CUNG ĐƯỜNG (SYSTEM TRAILS) ─── */}
       <View style={styles.card}>
         <View style={styles.cardHeader}>
           <View style={styles.cardHeaderIcon}>
@@ -126,7 +151,7 @@ export function LeaderTripRouteStep({
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.cardTitle}>
-              1. LỰA CHỌN CUNG ĐƯỜNG CHO CHUYẾN ĐI (System Trails)
+              1. Lựa chọn Cung đường cho Chuyến đi (System Trails)
             </Text>
             <Text style={styles.cardSubtitle}>
               Sử dụng kho dữ liệu GPS đã thẩm định và xác minh theo chuẩn VFRS.
@@ -134,14 +159,35 @@ export function LeaderTripRouteStep({
           </View>
         </View>
 
-        <View style={styles.verifiedBadgeRow}>
+        {/* Cung đường đã thẩm định Box */}
+        <View style={styles.verifiedBadgeBox}>
           <View style={styles.verifiedPill}>
             <Ionicons name="shield-checkmark" size={14} color="#125238" />
             <Text style={styles.verifiedPillText}>Cung đường đã thẩm định</Text>
+            <View style={styles.verifiedTag}>
+              <Text style={styles.verifiedTagText}>VFRS Verified</Text>
+            </View>
           </View>
           <Text style={styles.verifiedSubText}>
             Dữ liệu trắc diện, nguồn nước và tọa độ cứu hộ đã được chuẩn hóa.
           </Text>
+        </View>
+
+        {/* Search Bar matching Web */}
+        <View style={styles.searchBox}>
+          <Ionicons name="search-outline" size={16} color="#707972" />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Tìm cung đường, cấp độ khó..."
+            placeholderTextColor="#707972"
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
+          {Boolean(searchQuery) && (
+            <TouchableOpacity onPress={() => setSearchQuery("")}>
+              <Ionicons name="close-circle" size={16} color="#707972" />
+            </TouchableOpacity>
+          )}
         </View>
 
         {isLoading ? (
@@ -149,47 +195,54 @@ export function LeaderTripRouteStep({
             <ActivityIndicator size="large" color="#125238" />
             <Text style={styles.loadingText}>Đang tải danh sách cung đường chuẩn từ hệ thống...</Text>
           </View>
-        ) : validSuggestions.length === 0 ? (
+        ) : filteredSuggestions.length === 0 ? (
           <View style={styles.emptyCard}>
             <Ionicons name="trail-sign-outline" size={32} color="#707972" />
             <Text style={styles.emptyTitle}>Chưa có cung đường phù hợp</Text>
             <Text style={styles.emptySub}>
-              Khu vực {destinationName || "này"} chưa có System Trail hợp lệ có trạm kiểm soát chuẩn.
-              Vui lòng kiểm tra lại điểm đến hoặc liên hệ ban quản trị VFRS.
+              {searchQuery
+                ? `Không tìm thấy cung đường phù hợp với từ khóa "${searchQuery}".`
+                : `Khu vực ${destinationName || "này"} chưa có System Trail hợp lệ.`}
             </Text>
           </View>
         ) : (
           <View style={styles.trailsList}>
-            {validSuggestions.map((trail) => {
+            {filteredSuggestions.map((trail) => {
               const isSelected = selectedTrail?.id === trail.id;
               const cpCount = trail.checkpointIds?.length || 0;
+              const hasNoCp = cpCount === 0;
               const dist = trail.distanceKm || trail.lengthKm || "5.0";
-              const elevation = trail.elevationGainM ? `+${trail.elevationGainM}m` : "+450m";
+              const elevation = trail.elevationGainM ? `+${trail.elevationGainM}m` : "+500m";
               const difficulty = trail.difficulty || "MEDIUM";
+              const hashId = trail.id ? `#${trail.id.slice(0, 8)}` : "#2a48e61f";
 
               return (
                 <TouchableOpacity
                   key={trail.id}
-                  style={[styles.trailItem, isSelected && styles.trailItemSelected]}
+                  style={[
+                    styles.trailItem,
+                    isSelected && styles.trailItemSelected,
+                    hasNoCp && styles.trailItemDisabled,
+                  ]}
                   onPress={() => onSelectTrail(trail)}
                   activeOpacity={0.8}
                 >
                   <View style={styles.trailItemContent}>
-                    {/* Thumbnail / Icon Badge */}
-                    <View
-                      style={[
-                        styles.trailThumbnail,
-                        isSelected && styles.trailThumbnailSelected,
-                      ]}
-                    >
-                      <Ionicons
-                        name="trail-sign"
-                        size={22}
-                        color={isSelected ? "#125238" : "#707972"}
+                    {/* Thumbnail Image matching Web */}
+                    <View style={styles.thumbWrap}>
+                      <Image
+                        source={{
+                          uri: "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=300&q=80",
+                        }}
+                        style={styles.trailThumbImg}
                       />
+                      <View style={styles.thumbHashBadge}>
+                        <Text style={styles.thumbHashText}>{hashId}</Text>
+                      </View>
                     </View>
 
                     <View style={{ flex: 1, minWidth: 0 }}>
+                      {/* Title + CP badge */}
                       <View style={styles.trailNameRow}>
                         <Text
                           style={[
@@ -200,17 +253,31 @@ export function LeaderTripRouteStep({
                         >
                           {trail.name}
                         </Text>
-                        <Text style={styles.trailCpCount}>• {cpCount} checkpoint</Text>
+                        {hasNoCp ? (
+                          <View style={styles.noCpBadge}>
+                            <Text style={styles.noCpBadgeText}>Không có checkpoint</Text>
+                          </View>
+                        ) : (
+                          <View style={styles.cpBadge}>
+                            <Text style={styles.cpBadgeText}>{cpCount} Checkpoints</Text>
+                          </View>
+                        )}
                       </View>
 
-                      {/* Metrics Badges */}
+                      <Text style={styles.trailSubText}>
+                        {hasNoCp
+                          ? "+ Cung đường không có checkpoint"
+                          : `+ Đi qua ${cpCount} checkpoint`}
+                      </Text>
+
+                      {/* 3 Metrics Columns */}
                       <View style={styles.trailMetricsRow}>
                         <View style={styles.metricChip}>
                           <Text style={styles.metricLabel}>Cự ly</Text>
                           <Text style={styles.metricVal}>{dist} km</Text>
                         </View>
                         <View style={styles.metricChip}>
-                          <Text style={styles.metricLabel}>Độ dốc/Cao</Text>
+                          <Text style={styles.metricLabel}>Độ dốc/Cao độ</Text>
                           <Text style={styles.metricVal}>{elevation}</Text>
                         </View>
                         <View style={[styles.metricChip, styles.diffChip]}>
@@ -220,12 +287,12 @@ export function LeaderTripRouteStep({
                       </View>
                     </View>
 
-                    {/* Radio Checkmark */}
+                    {/* Radio Checkmark on right */}
                     <View style={styles.radioWrap}>
                       <Ionicons
                         name={isSelected ? "checkmark-circle" : "ellipse-outline"}
                         size={22}
-                        color={isSelected ? "#125238" : "#a2aba3"}
+                        color={isSelected ? "#125238" : "#cbd5e1"}
                       />
                     </View>
                   </View>
@@ -235,73 +302,75 @@ export function LeaderTripRouteStep({
           </View>
         )}
 
-        {/* Selected Trail Overview */}
+        {/* ─── Selected Trail Overview & 3D Map Preview ─── */}
         {selectedTrail && (
           <View style={styles.trailOverviewBox}>
             <View style={styles.overviewHeader}>
-              <View style={{ flex: 1, minWidth: 0, marginRight: 8 }}>
+              <View style={{ flex: 1, minWidth: 0 }}>
                 <Text style={styles.overviewTitle} numberOfLines={1}>
-                  Tổng quan: {selectedTrail.name}
+                  Tổng quan {selectedTrail.name}
                 </Text>
                 <Text style={styles.overviewSubTitle}>
-                  Hành trình {destinationName || "khám phá"} · Chuẩn an toàn VFRS
+                  Lộ trình chuẩn hóa theo tiêu chuẩn an toàn VFRS
                 </Text>
               </View>
               <View style={styles.peakBadge}>
-                <Ionicons name="trending-up" size={12} color="#125238" />
                 <Text style={styles.peakBadgeText}>
                   {selectedTrail.elevationGainM ? `${selectedTrail.elevationGainM}m Peak` : "500m Peak"}
                 </Text>
               </View>
             </View>
 
-            {/* Stats Summary Grid */}
-            <View style={styles.statsGrid}>
-              <View style={styles.statCell}>
-                <Text style={styles.statLabel}>Tổng cự ly</Text>
-                <Text style={styles.statValue}>
-                  {selectedTrail.distanceKm || selectedTrail.lengthKm || "5.0"} km
+            {/* 5 Stats Strip matching Web */}
+            <View style={styles.statsStripGrid}>
+              <View style={styles.statStripCell}>
+                <Text style={styles.statStripLabel}>Tổng cự ly</Text>
+                <Text style={styles.statStripVal}>
+                  {selectedTrail.distanceKm || selectedTrail.lengthKm || "5"} km
                 </Text>
               </View>
-              <View style={styles.statCell}>
-                <Text style={styles.statLabel}>Độ cao đỉnh</Text>
-                <Text style={styles.statValue}>
+              <View style={styles.statStripCell}>
+                <Text style={styles.statStripLabel}>Độ cao đỉnh</Text>
+                <Text style={styles.statStripVal}>
                   {selectedTrail.elevationGainM ? `${selectedTrail.elevationGainM}m` : "500m"}
                 </Text>
               </View>
-              <View style={styles.statCell}>
-                <Text style={styles.statLabel}>Độ khó</Text>
-                <Text style={[styles.statValue, { color: "#b76e00" }]}>
+              <View style={styles.statStripCell}>
+                <Text style={styles.statStripLabel}>Độ khó</Text>
+                <Text style={[styles.statStripVal, { color: "#b45309" }]}>
                   {selectedTrail.difficulty || "MEDIUM"}
                 </Text>
               </View>
-              <View style={styles.statCell}>
-                <Text style={styles.statLabel}>Trạm an toàn</Text>
-                <Text style={styles.statValue}>{currentCheckpoints.length} mốc</Text>
+              <View style={styles.statStripCell}>
+                <Text style={styles.statStripLabel}>Trạm bắt buộc</Text>
+                <Text style={styles.statStripVal}>{currentCheckpoints.length} mốc</Text>
+              </View>
+              <View style={styles.statStripCell}>
+                <Text style={styles.statStripLabel}>Thời gian</Text>
+                <Text style={styles.statStripVal}>
+                  ~{Math.round(Number(selectedTrail.distanceKm || 5) * 0.8) || 4} giờ
+                </Text>
               </View>
             </View>
 
             {/* Safety Rules Box */}
             <View style={styles.safetyBox}>
               <View style={styles.safetyHeader}>
-                <Ionicons name="shield-outline" size={15} color="#125238" />
+                <Ionicons name="shield-outline" size={14} color="#125238" />
                 <Text style={styles.safetyTitle}>Quy chuẩn An toàn Trạm dừng VFRS</Text>
               </View>
               <Text style={styles.safetyText}>
                 • Mốc kiểm soát bắt buộc: Toàn đoàn phải quét GPS và đồng bộ trạng thái tại mỗi checkpoint đã định.
               </Text>
               <Text style={styles.safetyText}>
-                • Định vị khẩn cấp SOS: Hệ thống kích hoạt giám sát thời gian thực khi bắt đầu chuyến đi.
-              </Text>
-              <Text style={styles.safetyTextHotline}>
-                • Cứu hộ phản ứng nhanh VFRS: 1800 9988
+                • Giám sát hành trình: Hệ thống kích hoạt giám sát an toàn thời gian thực khi bắt đầu chuyến đi.
               </Text>
             </View>
           </View>
         )}
       </View>
 
-      {/* 2. CARD: TRẠM DỪNG & CHECKPOINTS AN TOÀN THEO THỨ TỰ CỦA TRAIL */}
+      {/* ─── 2. CARD: TRẠM DỪNG & CHECKPOINTS AN TOÀN ─── */}
       <View style={styles.card}>
         <View style={styles.cardHeader}>
           <View style={styles.cardHeaderIcon}>
@@ -309,17 +378,17 @@ export function LeaderTripRouteStep({
           </View>
           <View style={{ flex: 1, minWidth: 0 }}>
             <View style={styles.checkpointHeaderTitleRow}>
-              <Text style={styles.cardTitle}>2. TRẠM DỪNG & CHECKPOINTS AN TOÀN</Text>
+              <Text style={styles.cardTitle}>2. Trạm dừng & Checkpoints An toàn</Text>
               {currentCheckpoints.length > 0 && (
-                <View style={styles.reqCpBadge}>
-                  <Text style={styles.reqCpBadgeText}>
-                    {currentCheckpoints.length} MỐC
+                <View style={styles.reqCpBadgeDark}>
+                  <Text style={styles.reqCpBadgeDarkText}>
+                    {currentCheckpoints.length} MỐC BẮT BUỘC
                   </Text>
                 </View>
               )}
             </View>
             <Text style={styles.cardSubtitle}>
-              Danh sách mốc kiểm soát đoàn bắt buộc theo đúng thứ tự hành trình của cung đường.
+              Danh sách các mốc kiểm soát đoàn bắt buộc theo thứ tự hành trình của cung đường.
             </Text>
           </View>
         </View>
@@ -346,24 +415,22 @@ export function LeaderTripRouteStep({
 
               return (
                 <View key={cp.id || idx} style={styles.checkpointCard}>
-                  <View style={styles.cpLeft}>
-                    {/* Sequence Badge */}
-                    <View style={styles.cpSeqCircle}>
-                      <Text style={styles.cpSeqNum}>{idx + 1}</Text>
-                    </View>
-
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.cpName}>{cp.name}</Text>
-                      <Text style={styles.cpSub}>Mốc kiểm soát vệ tinh an toàn</Text>
-                      <Text style={styles.cpCoords}>
-                        Tọa độ: {latStr}, {lngStr} · Bán kính quét: 50m
-                      </Text>
-                    </View>
+                  {/* Square sequence badge matching Web */}
+                  <View style={styles.cpSeqSquare}>
+                    <Text style={styles.cpSeqNum}>{idx + 1}</Text>
                   </View>
 
-                  <View style={styles.cpBadgeBắtBuộc}>
-                    <Ionicons name="shield-checkmark" size={13} color="#125238" />
-                    <Text style={styles.cpBadgeText}>Bắt buộc</Text>
+                  <View style={{ flex: 1 }}>
+                    <View style={styles.cpTitleRow}>
+                      <Text style={styles.cpName}>{cp.name}</Text>
+                      <View style={styles.cpBadgeRequired}>
+                        <Text style={styles.cpBadgeRequiredText}>• Bắt buộc</Text>
+                      </View>
+                    </View>
+                    <Text style={styles.cpSub}>Mốc kiểm soát vệ tinh an toàn</Text>
+                    <Text style={styles.cpCoords}>
+                      Tọa độ: {latStr}, {lngStr}   Bán kính quét: 50m
+                    </Text>
                   </View>
                 </View>
               );
@@ -372,28 +439,34 @@ export function LeaderTripRouteStep({
         )}
       </View>
 
-      {/* Bottom Action Buttons */}
-      <View style={styles.actionRow}>
-        <TouchableOpacity style={styles.secondaryBtn} onPress={onBack} activeOpacity={0.8}>
-          <Ionicons name="arrow-back" size={16} color="#125238" />
-          <Text style={styles.secondaryBtnText}>Quay lại</Text>
+      {/* ─── Bottom Actions matching Web ─── */}
+      <View style={styles.bottomActionsRow}>
+        <TouchableOpacity style={styles.backStep1Btn} onPress={onBack} activeOpacity={0.8}>
+          <Text style={styles.backStep1BtnText}>← Quay lại Bước 1</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[styles.primaryBtn, !canProceed && styles.primaryBtnDisabled]}
-          onPress={onProceed}
-          disabled={!canProceed}
-          activeOpacity={0.88}
-        >
-          {isLoading ? (
-            <ActivityIndicator size="small" color="#fff" />
-          ) : (
-            <>
-              <Text style={styles.primaryBtnText}>Tiếp tục: Xem lại & Xuất bản</Text>
-              <Ionicons name="arrow-forward" size={18} color="#fff" />
-            </>
-          )}
-        </TouchableOpacity>
+        <View style={styles.rightActionsGroup}>
+          <TouchableOpacity
+            style={styles.saveDraftBtn}
+            onPress={onSaveDraft || (() => Alert.alert("Đã lưu nháp", "Lộ trình đã được lưu vào bản nháp."))}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.saveDraftBtnText}>Lưu bản nháp</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.primaryProceedBtn, !canProceed && styles.primaryProceedBtnDisabled]}
+            onPress={onProceed}
+            disabled={!canProceed}
+            activeOpacity={0.88}
+          >
+            {isLoading ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Text style={styles.primaryProceedBtnText}>Tiếp tục: Xem lại & Công khai →</Text>
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
     </View>
   );
@@ -407,452 +480,470 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 16,
+    marginBottom: 12,
   },
   headerLeft: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 10,
+    flex: 1,
   },
   backBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: "#ffffff",
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#eff4ff",
     alignItems: "center",
     justifyContent: "center",
-    ...Shadows.card,
   },
   headerTitle: {
+    fontSize: 15,
+    fontWeight: "800",
     color: "#121c2a",
-    fontSize: 16,
-    fontWeight: "900",
-    letterSpacing: 0.5,
   },
   headerSubtitle: {
-    color: "#125238",
-    fontSize: 11,
-    fontWeight: "700",
-    letterSpacing: 0.8,
+    fontSize: 10,
+    fontWeight: "600",
+    color: "#707972",
+    marginTop: 1,
   },
-  badgeVfrs: {
+  draftTopBtn: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    backgroundColor: "#d1e8d5",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  badgeVfrsText: {
-    fontSize: 10,
-    fontWeight: "800",
-    color: "#125238",
-  },
-  progressContainer: {
-    backgroundColor: "#ffffff",
-    borderRadius: Radius.lg,
-    padding: 14,
-    marginBottom: 16,
+    backgroundColor: "#eff4ff",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: Radius.sm,
     borderWidth: 1,
-    borderColor: "#e1e9e2",
-    ...Shadows.card,
+    borderColor: "#ccd9ea",
   },
-  progressRow: {
+  draftTopBtnText: {
+    color: "#125238",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  stepperContainer: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 8,
+    gap: 6,
+    marginBottom: 16,
   },
-  progressLabelRow: {
+  stepperItemDone: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 4,
+    backgroundColor: "#f0fdf4",
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    borderRadius: Radius.sm,
+    borderWidth: 1,
+    borderColor: "#bbf7d0",
   },
-  progressStepCircle: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+  stepperItemTextDone: {
+    color: "#125238",
+    fontSize: 10,
+    fontWeight: "700",
+    flex: 1,
+  },
+  stepperItemActive: {
+    flex: 1.1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#eff4ff",
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    borderRadius: Radius.sm,
+    borderWidth: 1.5,
+    borderColor: "#125238",
+  },
+  activeStepBadge: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
     backgroundColor: "#125238",
     alignItems: "center",
     justifyContent: "center",
   },
-  progressStepNum: {
-    color: "#ffffff",
-    fontSize: 12,
-    fontWeight: "900",
-  },
-  progressStepText: {
-    fontSize: 11,
+  activeStepBadgeText: {
+    color: "#fff",
+    fontSize: 10,
     fontWeight: "800",
-    color: "#121c2a",
-    letterSpacing: 0.3,
   },
-  progressPercent: {
-    fontSize: 12,
-    fontWeight: "900",
+  stepperItemTextActive: {
     color: "#125238",
-  },
-  progressBarTrack: {
-    height: 6,
-    backgroundColor: "#e8ede9",
-    borderRadius: 3,
-    overflow: "hidden",
-  },
-  progressBarFill: {
-    height: "100%",
-    backgroundColor: "#125238",
-    borderRadius: 3,
-  },
-  errorBox: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 12,
-    backgroundColor: "#fff8f7",
-    borderWidth: 1,
-    borderColor: "#ffdad6",
-    borderRadius: Radius.md,
-    padding: 14,
-    marginBottom: 16,
-  },
-  errorIconWrap: {
-    marginTop: 2,
-  },
-  errorTitle: {
-    fontSize: 13,
+    fontSize: 10,
     fontWeight: "800",
-    color: "#ba1a1a",
-    marginBottom: 2,
+    flex: 1,
   },
-  errorText: {
-    fontSize: 12,
-    color: "#410002",
-    lineHeight: 18,
-  },
-  retryBtn: {
+  stepperItemInactive: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    marginTop: 8,
-    alignSelf: "flex-start",
-    backgroundColor: "#e8f5e9",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 6,
+    gap: 4,
+    backgroundColor: "#f8fafc",
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    borderRadius: Radius.sm,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
   },
-  retryBtnText: {
-    fontSize: 12,
+  inactiveStepNum: {
+    fontSize: 10,
     fontWeight: "700",
-    color: "#125238",
+    color: "#94a3b8",
+  },
+  stepperItemTextInactive: {
+    fontSize: 10,
+    color: "#94a3b8",
+    fontWeight: "600",
+    flex: 1,
   },
   card: {
     backgroundColor: "#ffffff",
-    borderRadius: Radius.lg,
-    padding: 16,
+    borderRadius: Radius.md,
+    padding: 14,
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: "#e1e9e2",
+    borderColor: "#e0e7f1",
     ...Shadows.card,
   },
   cardHeader: {
     flexDirection: "row",
-    alignItems: "flex-start",
     gap: 10,
-    marginBottom: 14,
+    alignItems: "flex-start",
+    marginBottom: 12,
   },
   cardHeaderIcon: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: "#d1e8d5",
+    backgroundColor: "#eff4ff",
     alignItems: "center",
     justifyContent: "center",
     marginTop: 2,
   },
   cardTitle: {
     fontSize: 13,
-    fontWeight: "900",
+    fontWeight: "800",
     color: "#121c2a",
-    letterSpacing: 0.5,
   },
   cardSubtitle: {
-    fontSize: 11,
+    fontSize: 10,
     color: "#707972",
     marginTop: 2,
-    lineHeight: 16,
+    lineHeight: 14,
   },
-  verifiedBadgeRow: {
-    backgroundColor: "#f4fbf4",
+  verifiedBadgeBox: {
+    backgroundColor: "#f0fdf4",
+    borderRadius: Radius.sm,
+    padding: 10,
     borderWidth: 1,
-    borderColor: "#d1e8d5",
-    borderRadius: Radius.md,
-    padding: 12,
-    marginBottom: 16,
+    borderColor: "#bbf7d0",
+    marginBottom: 12,
   },
   verifiedPill: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    marginBottom: 4,
   },
   verifiedPillText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "800",
     color: "#125238",
   },
+  verifiedTag: {
+    backgroundColor: "#125238",
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 4,
+    marginLeft: "auto",
+  },
+  verifiedTagText: {
+    color: "#ffffff",
+    fontSize: 9,
+    fontWeight: "800",
+  },
   verifiedSubText: {
+    fontSize: 10,
+    color: "#374151",
+    marginTop: 3,
+    lineHeight: 14,
+  },
+  searchBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#f8fafc",
+    borderRadius: Radius.sm,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    marginBottom: 12,
+  },
+  searchInput: {
+    flex: 1,
     fontSize: 11,
-    color: "#414942",
-    lineHeight: 16,
+    color: "#121c2a",
+    padding: 0,
   },
   loadingBox: {
-    padding: 28,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 12,
-  },
-  loadingText: {
-    fontSize: 12,
-    color: "#707972",
-  },
-  emptyCard: {
     padding: 24,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#fcfdfc",
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    borderColor: "#e1e9e2",
-    gap: 8,
+  },
+  loadingText: {
+    fontSize: 11,
+    color: "#707972",
+    marginTop: 8,
+  },
+  emptyCard: {
+    padding: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#f8fafc",
+    borderRadius: Radius.sm,
   },
   emptyTitle: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: "800",
     color: "#121c2a",
+    marginTop: 6,
   },
   emptySub: {
-    fontSize: 12,
+    fontSize: 10,
     color: "#707972",
     textAlign: "center",
-    lineHeight: 18,
+    marginTop: 4,
+    lineHeight: 14,
   },
   trailsList: {
     gap: 10,
-    marginBottom: 16,
   },
   trailItem: {
-    backgroundColor: "#fbfcfb",
-    borderWidth: 1.5,
-    borderColor: "#e1e9e2",
-    borderRadius: Radius.md,
-    padding: 12,
+    backgroundColor: "#ffffff",
+    borderRadius: Radius.sm,
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    padding: 10,
   },
   trailItemSelected: {
-    backgroundColor: "#f1f8f3",
     borderColor: "#125238",
+    borderWidth: 1.5,
+    backgroundColor: "#f0fdf4",
+  },
+  trailItemDisabled: {
+    opacity: 0.7,
   },
   trailItemContent: {
     flexDirection: "row",
-    alignItems: "center",
     gap: 10,
-  },
-  trailThumbnail: {
-    width: 42,
-    height: 42,
-    borderRadius: 8,
-    backgroundColor: "#e8ede9",
     alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
   },
-  trailThumbnailSelected: {
-    backgroundColor: "#d1e8d5",
+  thumbWrap: {
+    position: "relative",
+  },
+  trailThumbImg: {
+    width: 60,
+    height: 60,
+    borderRadius: 6,
+    backgroundColor: "#e2e8f0",
+  },
+  thumbHashBadge: {
+    position: "absolute",
+    bottom: 2,
+    left: 2,
+    backgroundColor: "rgba(0,0,0,0.65)",
+    paddingHorizontal: 3,
+    paddingVertical: 1,
+    borderRadius: 3,
+  },
+  thumbHashText: {
+    color: "#ffffff",
+    fontSize: 7,
+    fontWeight: "700",
   },
   trailNameRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    marginBottom: 6,
-    flexWrap: "wrap",
   },
   trailName: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "800",
     color: "#121c2a",
-    flexShrink: 1,
+    flex: 1,
   },
   trailNameSelected: {
     color: "#125238",
   },
-  trailCpCount: {
-    fontSize: 11,
-    color: "#707972",
-  },
-  trailMetricsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    flexWrap: "wrap",
-    gap: 6,
-  },
-  metricChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: "#ffffff",
-    borderWidth: 1,
-    borderColor: "#e1e9e2",
+  cpBadge: {
+    backgroundColor: "#dcfce7",
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
   },
+  cpBadgeText: {
+    fontSize: 9,
+    fontWeight: "700",
+    color: "#15803d",
+  },
+  noCpBadge: {
+    backgroundColor: "#ffedd5",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  noCpBadgeText: {
+    fontSize: 9,
+    fontWeight: "700",
+    color: "#c2410c",
+  },
+  trailSubText: {
+    fontSize: 10,
+    color: "#707972",
+    marginTop: 2,
+  },
+  trailMetricsRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 4,
+  },
+  metricChip: {
+    flexDirection: "row",
+    gap: 3,
+    alignItems: "center",
+  },
   metricLabel: {
     fontSize: 9,
     color: "#707972",
-    textTransform: "uppercase",
   },
   metricVal: {
-    fontSize: 10,
-    fontWeight: "800",
+    fontSize: 9,
+    fontWeight: "700",
     color: "#121c2a",
   },
-  diffChip: {
-    backgroundColor: "#fef7ed",
-    borderColor: "#fde68a",
-  },
+  diffChip: {},
   diffVal: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: "800",
     color: "#b45309",
   },
   radioWrap: {
     paddingLeft: 4,
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
   },
   trailOverviewBox: {
-    marginTop: 8,
-    backgroundColor: "#ffffff",
-    borderRadius: Radius.md,
+    marginTop: 14,
+    backgroundColor: "#f8fafc",
+    borderRadius: Radius.sm,
+    padding: 12,
     borderWidth: 1,
-    borderColor: "#d1e8d5",
-    padding: 14,
+    borderColor: "#e2e8f0",
   },
   overviewHeader: {
     flexDirection: "row",
-    alignItems: "flex-start",
     justifyContent: "space-between",
-    marginBottom: 10,
+    alignItems: "center",
+    marginBottom: 8,
   },
   overviewTitle: {
-    fontSize: 14,
-    fontWeight: "900",
+    fontSize: 12,
+    fontWeight: "800",
     color: "#121c2a",
   },
   overviewSubTitle: {
-    fontSize: 11,
+    fontSize: 10,
     color: "#707972",
     marginTop: 1,
   },
   peakBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: "#d1e8d5",
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-    flexShrink: 0,
+    backgroundColor: "#125238",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
   },
   peakBadgeText: {
-    fontSize: 10,
+    color: "#ffffff",
+    fontSize: 9,
     fontWeight: "800",
-    color: "#125238",
   },
-  statsGrid: {
+  statsStripGrid: {
     flexDirection: "row",
-    backgroundColor: "#f8faf7",
-    borderRadius: 8,
-    padding: 10,
-    marginBottom: 12,
+    backgroundColor: "#ffffff",
+    borderRadius: Radius.sm,
+    padding: 8,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    marginBottom: 8,
   },
-  statCell: {
+  statStripCell: {
     flex: 1,
     alignItems: "center",
   },
-  statLabel: {
-    fontSize: 10,
+  statStripLabel: {
+    fontSize: 8,
     color: "#707972",
-    marginBottom: 2,
+    fontWeight: "600",
   },
-  statValue: {
-    fontSize: 12,
-    fontWeight: "900",
+  statStripVal: {
+    fontSize: 10,
+    fontWeight: "800",
     color: "#121c2a",
+    marginTop: 2,
   },
   safetyBox: {
-    backgroundColor: "#fbfcfb",
-    borderRadius: 8,
+    backgroundColor: "#f0fdf4",
+    borderRadius: Radius.sm,
+    padding: 8,
     borderWidth: 1,
-    borderColor: "#e1e9e2",
-    padding: 10,
-    gap: 4,
+    borderColor: "#bbf7d0",
   },
   safetyHeader: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    marginBottom: 2,
+    gap: 4,
+    marginBottom: 4,
   },
   safetyTitle: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "800",
     color: "#125238",
   },
   safetyText: {
-    fontSize: 10.5,
-    color: "#414942",
-    lineHeight: 15,
-  },
-  safetyTextHotline: {
-    fontSize: 10.5,
-    fontWeight: "800",
-    color: "#ba1a1a",
-    lineHeight: 15,
+    fontSize: 9,
+    color: "#374151",
+    lineHeight: 13,
+    marginBottom: 2,
   },
   checkpointHeaderTitleRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    flexWrap: "wrap",
     gap: 6,
   },
-  reqCpBadge: {
+  reqCpBadgeDark: {
     backgroundColor: "#125238",
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-    flexShrink: 0,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: Radius.pill,
   },
-  reqCpBadgeText: {
-    fontSize: 10,
-    fontWeight: "800",
+  reqCpBadgeDarkText: {
     color: "#ffffff",
+    fontSize: 9,
+    fontWeight: "800",
   },
   disabledPromptBox: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    backgroundColor: "#f8faf7",
-    borderWidth: 1,
-    borderColor: "#e1e9e2",
-    borderRadius: Radius.md,
-    padding: 14,
+    backgroundColor: "#f8fafc",
+    padding: 12,
+    borderRadius: Radius.sm,
   },
   disabledPromptText: {
-    fontSize: 12,
+    fontSize: 11,
     color: "#707972",
-    lineHeight: 18,
     flex: 1,
   },
   checkpointList: {
@@ -861,103 +952,139 @@ const styles = StyleSheet.create({
   checkpointCard: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: "#fbfcfb",
+    gap: 10,
+    backgroundColor: "#ffffff",
+    borderRadius: Radius.sm,
+    padding: 10,
     borderWidth: 1,
-    borderColor: "#e1e9e2",
-    borderRadius: Radius.md,
-    padding: 12,
+    borderColor: "#e2e8f0",
   },
-  cpLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    flex: 1,
-  },
-  cpSeqCircle: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+  cpSeqSquare: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
     backgroundColor: "#125238",
     alignItems: "center",
     justifyContent: "center",
   },
   cpSeqNum: {
     color: "#ffffff",
-    fontSize: 12,
-    fontWeight: "900",
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  cpTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
   },
   cpName: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "800",
     color: "#121c2a",
   },
+  cpBadgeRequired: {
+    backgroundColor: "#dcfce7",
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  cpBadgeRequiredText: {
+    fontSize: 9,
+    fontWeight: "700",
+    color: "#15803d",
+  },
   cpSub: {
-    fontSize: 11,
+    fontSize: 10,
     color: "#707972",
     marginTop: 1,
   },
   cpCoords: {
-    fontSize: 10,
-    color: "#8a938c",
+    fontSize: 9,
+    color: "#64748b",
     marginTop: 2,
   },
-  cpBadgeBắtBuộc: {
+  bottomActionsRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 8,
+  },
+  backStep1Btn: {
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+  },
+  backStep1BtnText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#125238",
+  },
+  rightActionsGroup: {
+    flexDirection: "row",
+    gap: 6,
+    alignItems: "center",
+  },
+  saveDraftBtn: {
+    backgroundColor: "#eff4ff",
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    borderRadius: Radius.sm,
+    borderWidth: 1,
+    borderColor: "#ccd9ea",
+  },
+  saveDraftBtnText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#121c2a",
+  },
+  primaryProceedBtn: {
+    backgroundColor: "#125238",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: Radius.sm,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  primaryProceedBtnDisabled: {
+    backgroundColor: "#94a3b8",
+  },
+  primaryProceedBtnText: {
+    color: "#ffffff",
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  errorBox: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    backgroundColor: "#fff1f2",
+    borderRadius: Radius.sm,
+    padding: 10,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "#fecdd3",
+  },
+  errorIconWrap: {
+    marginTop: 2,
+  },
+  errorTitle: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#ba1a1a",
+  },
+  errorText: {
+    fontSize: 10,
+    color: "#9f1239",
+    marginTop: 2,
+  },
+  retryBtn: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    backgroundColor: "#d1e8d5",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
+    marginTop: 4,
   },
-  cpBadgeText: {
+  retryBtnText: {
     fontSize: 10,
-    fontWeight: "800",
     color: "#125238",
-  },
-  actionRow: {
-    flexDirection: "row",
-    gap: 12,
-    marginTop: 8,
-  },
-  secondaryBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: Radius.md,
-    borderWidth: 1.5,
-    borderColor: "#125238",
-    backgroundColor: "#ffffff",
-  },
-  secondaryBtnText: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#125238",
-  },
-  primaryBtn: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    backgroundColor: "#125238",
-    borderRadius: Radius.md,
-    paddingVertical: 14,
-    ...Shadows.card,
-  },
-  primaryBtnDisabled: {
-    backgroundColor: "#a2aba3",
-    elevation: 0,
-    shadowOpacity: 0,
-  },
-  primaryBtnText: {
-    color: "#ffffff",
-    fontSize: 13,
-    fontWeight: "900",
-    letterSpacing: 0.5,
+    fontWeight: "700",
   },
 });

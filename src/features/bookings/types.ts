@@ -13,6 +13,31 @@ export type BookingStatus =
 export type PaymentMethod = "QR" | "REDIRECT";
 export type PaymentGateway = "momo" | "vnpay";
 
+export type CheckInStatus = "NOT_CHECKED_IN" | "CHECKED_IN" | "NO_SHOW";
+export type LinkageStatus = "UNLINKED" | "INVITATION_PENDING" | "CLAIMED";
+export type InvitationStatus =
+  | "PENDING"
+  | "ACCEPTED"
+  | "DECLINED"
+  | "REVOKED"
+  | "EXPIRED"
+  | "INVALIDATED";
+
+export interface ParticipantInvitation {
+  id: string;
+  status: InvitationStatus;
+  reason?: string | null;
+  version?: number;
+  expiresAt?: string;
+  recipientDisplay?: string;
+}
+
+export interface ParticipantActions {
+  canSelfClaim?: boolean;
+  canInvite?: boolean;
+  canRevoke?: boolean;
+}
+
 export interface Participant {
   id?: string;
   fullName: string;
@@ -20,6 +45,17 @@ export interface Participant {
   dateOfBirth?: string | null; // "YYYY-MM-DD"
   emergencyContactName?: string | null;
   emergencyContactPhone?: string | null;
+  // Trạng thái điểm danh & mã QR thực tế
+  checkinStatus?: CheckInStatus;
+  checkinCode?: string | null; // Chỉ có giá trị nếu Buyer được phép xem QR (chưa bị người khác nhận)
+  checkinMethod?: string | null;
+  checkedInAt?: string | null;
+  // Trạng thái liên kết tài khoản
+  linkageStatus?: LinkageStatus;
+  pendingInvitationId?: string | null;
+  recipientDisplay?: string | null;
+  invitations?: ParticipantInvitation[];
+  actions?: ParticipantActions;
 }
 
 export interface PublicTripRoute {

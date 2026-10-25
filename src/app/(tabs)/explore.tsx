@@ -495,7 +495,6 @@ export default function ExploreScreen() {
 
               <MapLibre3DView
                 height={260}
-                is3D={true}
                 plannedRoute={systemPlannedRoute}
                 checkpoints={systemCheckpoints}
                 interactive={true}
@@ -715,7 +714,6 @@ export default function ExploreScreen() {
                           ]
                         : [108.529, 11.5831]
                     }
-                    is3D={true}
                     dragRotate={true}
                     onMapReady={handlePersonalMapReady}
                     plannedRoute={personalPlannedRoute}

@@ -112,21 +112,12 @@ export const TripPrepModal: React.FC<TripPrepModalProps> = ({
 
       Alert.alert(
         "Check-in thành công",
-        "Staff đã xác nhận bạn có mặt tại điểm tập trung. Chế độ GPS trekking đã được mở.",
+        "Đã cập nhật trạng thái có mặt tại điểm tập trung.",
       );
     }, 1200);
   }
 
   function startNavigation() {
-    if (!checkInConfirmed) {
-      Alert.alert(
-        "GPS đang bị khóa",
-        "Bạn cần được Staff xác nhận check-in trước khi vào chế độ GPS trekking.",
-      );
-
-      return;
-    }
-
     onClose();
     onStartNavigation();
   }
@@ -450,34 +441,30 @@ export const TripPrepModal: React.FC<TripPrepModalProps> = ({
             <TouchableOpacity
               style={[
                 styles.navButton,
-                !checkInConfirmed && styles.navButtonLocked,
               ]}
               onPress={startNavigation}
               activeOpacity={0.85}
             >
               <Ionicons
-                name={checkInConfirmed ? "navigate-circle" : "lock-closed"}
+                name="navigate-circle"
                 size={24}
                 color={
-                  checkInConfirmed ? Colors.onPrimary : Colors.onSurfaceVariant
+                  Colors.onPrimary
                 }
               />
 
               <Text
                 style={[
                   styles.navButtonText,
-                  !checkInConfirmed && styles.navButtonTextLocked,
                 ]}
               >
-                {checkInConfirmed
-                  ? "Vào chế độ GPS trekking"
-                  : "GPS khóa · Chờ Staff check-in"}
+                Vào chế độ GPS trekking
               </Text>
             </TouchableOpacity>
 
             <Text style={styles.gpsNotice}>
-              GPS chỉ được mở sau khi Staff xác nhận bạn đã có mặt tại điểm tập
-              trung.
+              Bạn có thể ghi GPS trước khi chuyến bắt đầu nếu có quyền tham gia.
+              Chuyến đã kết thúc chỉ cho phép xem hành trình.
             </Text>
           </ScrollView>
         </View>

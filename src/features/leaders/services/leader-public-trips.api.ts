@@ -143,11 +143,14 @@ export interface LeaderPublicTrip {
   pickupPointId?: string;
   pickupPoint?: { id: string; name: string; address?: string | null };
   priceExplanation?: string | null;
+  minPax?: number;
   tripType?: "PUBLIC" | string;
   creatorId?: string;
   leaderId?: string;
   checkpoints?: LeaderCheckpointDetail[];
   trails?: LeaderTrailDetail[];
+  registrationOpenAt?: string | null;
+  registrationDeadlineAt?: string | null;
 }
 
 export interface TripDiscoverySlots {
@@ -167,8 +170,11 @@ export interface CreatePublicTripInput {
   endAt: string;
   pickupPointId: string;
   capacity: number;
+  minPax?: number;
   price: string;
   priceExplanation?: string | null;
+  registrationOpenAt?: string | null;
+  registrationDeadlineAt?: string | null;
 }
 
 export interface UpdatePublicTripInput {
@@ -180,8 +186,11 @@ export interface UpdatePublicTripInput {
   endAt?: string;
   pickupPointId?: string;
   capacity?: number;
+  minPax?: number;
   price?: string;
   destinationId?: string;
+  registrationOpenAt?: string | null;
+  registrationDeadlineAt?: string | null;
 }
 
 export interface SetCheckpointsInput {

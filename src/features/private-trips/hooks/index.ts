@@ -14,3 +14,6 @@ export * from "./useSystemTrailAccesses";
 export * from "./useTripInvitation";
 export * from "./useUpdatePrivateTrip";
 export * from "./useTrailAccess";
+export * from "./useDirectMemberInvitations";
+export * from "./useMyReceivedInvitations";
+

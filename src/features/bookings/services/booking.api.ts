@@ -351,4 +351,79 @@ export const bookingApiService = {
     delete bookingPaymentSessions[bookingId];
     return res;
   },
+
+  /**
+   * POST /api/v1/bookings/{id}/participants/{pid}/self-claim
+   * Người mua tự nhận vé cho chính mình
+   */
+  selfClaimParticipant: async (
+    bookingId: string,
+    participantId: string,
+  ): Promise<{
+    ticketId: string;
+    tripId: string;
+    alreadyClaimed: boolean;
+    participantStatus: string;
+    bookingVersion: number;
+  }> => {
+    return apiRequest(
+      `/api/v1/bookings/${bookingId}/participants/${participantId}/self-claim`,
+      {
+        method: "POST",
+        body: JSON.stringify({ confirmParticipantIdentity: true }),
+      },
+    );
+  },
+
+  /**
+   * POST /api/v1/bookings/{id}/participants/{pid}/invitations
+   * Gửi vé cho bạn bè qua email
+   */
+  inviteParticipant: async (
+    bookingId: string,
+    participantId: string,
+    recipientEmail: string,
+    currentUserEmail?: string,
+    idempotencyKey?: string,
+  ): Promise<{
+    id: string;
+    participantId: string;
+    status: string;
+    recipientDisplay: string;
+  }> => {
+    const email = recipientEmail.trim();
+    if (
+      currentUserEmail &&
+      email.toLowerCase() === currentUserEmail.trim().toLowerCase()
+    ) {
+      throw new Error(
+        "Đây là email tài khoản của bạn. Vui lòng bấm 'Tự nhận vé' thay vì gửi lời mời cho chính mình.",
+      );
+    }
+    const key = idempotencyKey || generateIdempotencyKey();
+    return apiRequest(
+      `/api/v1/bookings/${bookingId}/participants/${participantId}/invitations`,
+      {
+        method: "POST",
+        headers: {
+          "Idempotency-Key": key,
+        },
+        body: JSON.stringify({ recipientEmail: email }),
+      },
+    );
+  },
+
+  /**
+   * POST /api/v1/booking-participant-invitations/{id}/revoke
+   * Người mua thu hồi lời mời đang chờ
+   */
+  revokeInvitation: async (invitationId: string): Promise<any> => {
+    return apiRequest(
+      `/api/v1/booking-participant-invitations/${invitationId}/revoke`,
+      {
+        method: "POST",
+        body: JSON.stringify({}),
+      },
+    );
+  },
 };
