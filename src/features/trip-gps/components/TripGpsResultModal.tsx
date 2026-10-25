@@ -6,14 +6,17 @@ import {
   TouchableOpacity,
   View,
   ActivityIndicator,
+  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Radius, Shadows } from '@/constants/theme';
 import type { ActualRouteResponse } from '../types';
+import { TripGpsRouteArt } from './TripGpsRouteArt';
 
 interface TripGpsResultModalProps {
   visible: boolean;
   actualRoute: ActualRouteResponse | null;
+  liveRouteCoords?: [number, number][];
   stats?: {
     recordingTime?: string;
     distanceKm?: string;
@@ -26,6 +29,7 @@ interface TripGpsResultModalProps {
 export function TripGpsResultModal({
   visible,
   actualRoute,
+  liveRouteCoords,
   stats,
   onClose,
 }: TripGpsResultModalProps) {
@@ -36,95 +40,116 @@ export function TripGpsResultModal({
 
   const cpPassed = actualRoute?.checkpointProgress?.passed ?? 0;
   const cpTotal = actualRoute?.checkpointProgress?.total ?? 0;
-  const pointCount = actualRoute?.pointCount ?? (actualRoute ? 0 : '--');
+  const pointCount = actualRoute?.pointCount ?? (actualRoute ? 0 : (liveRouteCoords?.length ?? '--'));
   const duration = stats?.recordingTime || '--:--:--';
   const isReady = actualRoute?.resultStatus === 'READY';
+
+  // Toạ độ vẽ Strava: ưu tiên actualRoute GeoJSON, fallback sang liveRouteCoords ghi nhận thực tế
+  const routeCoords = (actualRoute?.routeGeojson && actualRoute.routeGeojson.type === 'LineString' && Array.isArray(actualRoute.routeGeojson.coordinates))
+    ? (actualRoute.routeGeojson.coordinates as [number, number][])
+    : liveRouteCoords;
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.backdrop}>
         <View style={styles.card}>
-          {/* Header Trophy Badge with Wise Primary Accent */}
-          <View style={styles.iconCircleOuter}>
-            <View style={styles.iconCircleInner}>
-              <Ionicons name="trophy" size={32} color={Colors.inkDeep} />
-            </View>
-          </View>
-
-          <Text style={styles.title}>Hành Trình Hoàn Tất!</Text>
-          <Text style={styles.subtitle}>
-            Dữ liệu GPS của bạn đã được ghi nhận và lưu trữ an toàn trong TripActualRoute.
-          </Text>
-
-          {/* Wise 2x2 Metric Grid */}
-          <View style={styles.metricsGrid}>
-            {/* Tile 1: Quãng đường */}
-            <View style={styles.metricTile}>
-              <View style={styles.metricHeader}>
-                <Ionicons name="navigate-circle-outline" size={14} color={Colors.mute} />
-                <Text style={styles.metricLabel}>QUÃNG ĐƯỜNG</Text>
-              </View>
-              <View style={styles.metricValRow}>
-                <Text style={styles.metricVal}>{distanceKm}</Text>
-                <Text style={styles.metricUnit}>km</Text>
+          <ScrollView
+            style={styles.scrollView}
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+          >
+            {/* Header Trophy Badge with Wise Primary Accent */}
+            <View style={styles.iconCircleOuter}>
+              <View style={styles.iconCircleInner}>
+                <Ionicons name="trophy" size={32} color={Colors.inkDeep} />
               </View>
             </View>
 
-            {/* Tile 2: Thời gian ghi */}
-            <View style={styles.metricTile}>
-              <View style={styles.metricHeader}>
-                <Ionicons name="time-outline" size={14} color={Colors.mute} />
-                <Text style={styles.metricLabel}>THỜI GIAN GHI</Text>
-              </View>
-              <View style={styles.metricValRow}>
-                <Text style={styles.metricVal}>{duration}</Text>
-              </View>
-            </View>
-
-            {/* Tile 3: Checkpoint */}
-            <View style={styles.metricTile}>
-              <View style={styles.metricHeader}>
-                <Ionicons name="flag-outline" size={14} color={Colors.mute} />
-                <Text style={styles.metricLabel}>CHECKPOINT</Text>
-              </View>
-              <View style={styles.metricValRow}>
-                <Text style={styles.metricVal}>
-                  {cpPassed}/{cpTotal}
-                </Text>
-                <Text style={styles.metricUnit}>mốc</Text>
-              </View>
-            </View>
-
-            {/* Tile 4: Điểm GPS hợp lệ */}
-            <View style={styles.metricTile}>
-              <View style={styles.metricHeader}>
-                <Ionicons name="analytics-outline" size={14} color={Colors.mute} />
-                <Text style={styles.metricLabel}>ĐIỂM HỢP LỆ</Text>
-              </View>
-              <View style={styles.metricValRow}>
-                <Text style={styles.metricVal}>{pointCount}</Text>
-                <Text style={styles.metricUnit}>mẫu</Text>
-              </View>
-            </View>
-          </View>
-
-          {/* Status Badge according to Wise Badge Tokens */}
-          <View style={[styles.statusBadge, isReady ? styles.statusBadgeReady : styles.statusBadgeProcessing]}>
-            {isReady ? (
-              <Ionicons name="checkmark-circle" size={16} color={Colors.positiveDeep} />
-            ) : (
-              <ActivityIndicator size="small" color={Colors.tertiary} style={{ marginRight: 2 }} />
-            )}
-            <Text style={[styles.statusText, isReady ? styles.statusTextReady : styles.statusTextProcessing]}>
-              {isReady ? 'Tuyến đường GPS đã dựng hoàn tất (LineString)' : 'Đang xử lý và tổng hợp dữ liệu tuyến...'}
+            <Text style={styles.title}>Hành Trình Hoàn Tất!</Text>
+            <Text style={styles.subtitle}>
+              Dữ liệu GPS của bạn đã được ghi nhận và lưu trữ an toàn trong TripActualRoute.
             </Text>
-          </View>
 
-          {/* Wise Signature Primary CTA Button */}
-          <TouchableOpacity style={styles.primaryBtn} activeOpacity={0.85} onPress={onClose}>
-            <Text style={styles.primaryBtnText}>Hoàn Tất & Xem Bản Đồ</Text>
-            <Ionicons name="arrow-forward" size={18} color={Colors.onPrimary} style={{ marginLeft: 6 }} />
-          </TouchableOpacity>
+            {/* Strava Minimalist GPS Route Art Canvas */}
+            <View style={styles.routeArtWrapper}>
+              <TripGpsRouteArt
+                coordinates={routeCoords}
+                distanceKm={distanceKm}
+                height={165}
+                theme="dark"
+              />
+            </View>
+
+            {/* Wise 2x2 Metric Grid */}
+            <View style={styles.metricsGrid}>
+              {/* Tile 1: Quãng đường */}
+              <View style={styles.metricTile}>
+                <View style={styles.metricHeader}>
+                  <Ionicons name="navigate-circle-outline" size={14} color={Colors.mute} />
+                  <Text style={styles.metricLabel}>QUÃNG ĐƯỜNG</Text>
+                </View>
+                <View style={styles.metricValRow}>
+                  <Text style={styles.metricVal}>{distanceKm}</Text>
+                  <Text style={styles.metricUnit}>km</Text>
+                </View>
+              </View>
+
+              {/* Tile 2: Thời gian ghi */}
+              <View style={styles.metricTile}>
+                <View style={styles.metricHeader}>
+                  <Ionicons name="time-outline" size={14} color={Colors.mute} />
+                  <Text style={styles.metricLabel}>THỜI GIAN GHI</Text>
+                </View>
+                <View style={styles.metricValRow}>
+                  <Text style={styles.metricVal}>{duration}</Text>
+                </View>
+              </View>
+
+              {/* Tile 3: Checkpoint */}
+              <View style={styles.metricTile}>
+                <View style={styles.metricHeader}>
+                  <Ionicons name="flag-outline" size={14} color={Colors.mute} />
+                  <Text style={styles.metricLabel}>CHECKPOINT</Text>
+                </View>
+                <View style={styles.metricValRow}>
+                  <Text style={styles.metricVal}>
+                    {cpPassed}/{cpTotal}
+                  </Text>
+                  <Text style={styles.metricUnit}>mốc</Text>
+                </View>
+              </View>
+
+              {/* Tile 4: Điểm GPS hợp lệ */}
+              <View style={styles.metricTile}>
+                <View style={styles.metricHeader}>
+                  <Ionicons name="analytics-outline" size={14} color={Colors.mute} />
+                  <Text style={styles.metricLabel}>ĐIỂM HỢP LỆ</Text>
+                </View>
+                <View style={styles.metricValRow}>
+                  <Text style={styles.metricVal}>{pointCount}</Text>
+                  <Text style={styles.metricUnit}>mẫu</Text>
+                </View>
+              </View>
+            </View>
+
+            {/* Status Badge according to Wise Badge Tokens */}
+            <View style={[styles.statusBadge, isReady ? styles.statusBadgeReady : styles.statusBadgeProcessing]}>
+              {isReady ? (
+                <Ionicons name="checkmark-circle" size={16} color={Colors.positiveDeep} />
+              ) : (
+                <ActivityIndicator size="small" color={Colors.tertiary} style={{ marginRight: 2 }} />
+              )}
+              <Text style={[styles.statusText, isReady ? styles.statusTextReady : styles.statusTextProcessing]}>
+                {isReady ? 'Tuyến đường GPS đã dựng hoàn tất (LineString)' : 'Đang xử lý và tổng hợp dữ liệu tuyến...'}
+              </Text>
+            </View>
+
+            {/* Wise Signature Primary CTA Button */}
+            <TouchableOpacity style={styles.primaryBtn} activeOpacity={0.85} onPress={onClose}>
+              <Text style={styles.primaryBtnText}>Hoàn Tất & Xem Bản Đồ</Text>
+              <Ionicons name="arrow-forward" size={18} color={Colors.onPrimary} style={{ marginLeft: 6 }} />
+            </TouchableOpacity>
+          </ScrollView>
         </View>
       </View>
     </Modal>
@@ -142,11 +167,23 @@ const styles = StyleSheet.create({
   card: {
     width: '100%',
     maxWidth: 420,
+    maxHeight: '90%',
     backgroundColor: '#ffffff',
     borderRadius: Radius.xl, // 24px signature Wise card radius
-    padding: 24,
-    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 18,
     ...Shadows.modal,
+  },
+  scrollView: {
+    width: '100%',
+  },
+  scrollContent: {
+    alignItems: 'center',
+    paddingBottom: 6,
+  },
+  routeArtWrapper: {
+    width: '100%',
+    marginBottom: 16,
   },
   iconCircleOuter: {
     width: 76,

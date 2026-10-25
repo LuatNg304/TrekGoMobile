@@ -760,6 +760,7 @@ export default function NavigationScreen() {
       <TripGpsResultModal
         visible={resultModalVisible}
         actualRoute={actualRoute}
+        liveRouteCoords={liveRouteCoords}
         stats={stats}
         onClose={() => setResultModalVisible(false)}
       />
