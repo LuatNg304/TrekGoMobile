@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import Svg, { Path, Rect, Defs, RadialGradient, Stop, Circle, G } from 'react-native-svg';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import { Colors, Radius, Shadows } from '@/constants/theme';
 import { Checkpoint } from '@/types';
 
@@ -23,7 +23,7 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
   interactive = true,
 }) => {
   const [mapMode, setMapMode] = useState<'TOPO' | 'SATELLITE'>('TOPO');
-  const [compassBearing, setCompassBearing] = useState<number>(315); // NW
+  const [compassBearing] = useState<number>(315); // NW
 
   // User coordinates on canvas
   const userX = isOnRoute ? 180 : 238;

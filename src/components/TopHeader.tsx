@@ -5,29 +5,30 @@ import { Colors, Radius } from '@/constants/theme';
 import { TrekGoLogo } from './TrekGoLogo';
 import { useApp } from '@/context/AppContext';
 
+import { useRouter } from 'expo-router';
+
 interface TopHeaderProps {
   subtitle?: string;
   onNotificationPress?: () => void;
 }
 
 export const TopHeader: React.FC<TopHeaderProps> = ({ subtitle = 'Home', onNotificationPress }) => {
-  const { user, toggleUserRole } = useApp();
+  const router = useRouter();
+  const { user } = useApp();
 
   return (
     <View style={styles.headerContainer}>
       <View style={styles.leftGroup}>
         <TrekGoLogo size={26} showText={true} />
-        <View style={styles.badgeContainer}>
+        {/* <View style={styles.badgeContainer}>
           <Text style={styles.subtitleText}>{subtitle}</Text>
-        </View>
+        </View> */}
       </View>
 
       <View style={styles.rightGroup}>
-        {/* Role Switcher Pill (Trekker vs Leader mode) */}
-        <TouchableOpacity 
+        {/* Role is supplied by the authenticated API profile. */}
+        <View
           style={[styles.rolePill, user.role === 'LEADER' && styles.rolePillLeader]} 
-          onPress={toggleUserRole}
-          activeOpacity={0.8}
         >
           <Ionicons 
             name={user.role === 'LEADER' ? 'shield-checkmark' : 'walk'} 
@@ -37,6 +38,16 @@ export const TopHeader: React.FC<TopHeaderProps> = ({ subtitle = 'Home', onNotif
           <Text style={[styles.roleText, user.role === 'LEADER' && styles.roleTextLeader]}>
             {user.role === 'LEADER' ? 'LEADER' : 'TREKKER'}
           </Text>
+        </View>
+
+        {/* QR Scanner button */}
+        <TouchableOpacity 
+          style={styles.iconButton} 
+          onPress={() => router.push('/scan-qr' as any)}
+          activeOpacity={0.7}
+          accessibilityLabel="Quét mã QR"
+        >
+          <Ionicons name="qr-code-outline" size={20} color={Colors.onSurfaceVariant} />
         </TouchableOpacity>
 
         {/* Notifications button */}

@@ -10,7 +10,6 @@ interface TrekGoLogoProps {
 
 export const TrekGoLogo: React.FC<TrekGoLogoProps> = ({ size = 32, showText = true }) => {
   const scale = size / 32;
-  const width = showText ? 120 * scale : 36 * scale;
   const height = 36 * scale;
 
   return (

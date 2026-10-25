@@ -5,7 +5,7 @@ export const Colors = {
   primaryActive: '#cdffad',
   primaryNeutral: '#c5edab',
   primaryPale: '#e2f6d5',
-  primaryDark: '#2f6c00',      // Alpine Forest Green
+  primaryDark: '#63ad29',      // Alpine Forest Green
   onPrimaryDark: '#ffffff',
   primaryContainer: '#9fe870',
   onPrimaryContainer: '#2e6900',
@@ -34,6 +34,8 @@ export const Colors = {
   inverseOnSurface: '#f2f1eb',
   
   // Functional & Semantic
+  positive: '#2ead4b',
+  positiveDeep: '#054d28',
   secondary: '#47672d',
   secondaryContainer: '#c5eba3',
   onSecondaryContainer: '#4b6c31',
@@ -66,8 +68,8 @@ export const Colors = {
 
 export const Typography = {
   fontFamily: {
-    display: 'Space Grotesk, Inter, system-ui, sans-serif',
-    body: 'Inter, system-ui, sans-serif',
+    display: 'Roboto, system-ui, sans-serif',
+    body: 'Roboto, system-ui, sans-serif',
   },
   fontSize: {
     displayMega: 44,
@@ -79,6 +81,17 @@ export const Typography = {
     bodySm: 12,
     labelSm: 10,
   },
+  lineHeightMultiplier: 1.5,
+  lineHeight: {
+    displayMega: 66,
+    headlineLg: 48,
+    headlineMd: 33,
+    headlineSm: 27,
+    bodyLg: 24,
+    bodyMd: 21,
+    bodySm: 18,
+    labelSm: 15,
+  },
 };
 
 export const Radius = {
@@ -87,6 +100,7 @@ export const Radius = {
   md: 12,
   lg: 16,
   xl: 24,      // Signature 24px rounded card
+  pill: 9999,  // Signature pill buttons per DESIGN-wise.md
   full: 9999,  // Signature pill buttons
 };
 
@@ -111,5 +125,12 @@ export const Shadows = {
     shadowOpacity: 0.35,
     shadowRadius: 12,
     elevation: 6,
+  },
+  modal: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 24,
+    elevation: 8,
   },
 };
