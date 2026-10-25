@@ -99,7 +99,7 @@ export default function NavigationScreen() {
   const mapGroupMembers = useMemo<MapGroupMember[]>(() => {
     const list = gpsState?.members || [];
     return list
-      .filter((m) => m.lastLocation?.latitude && m.lastLocation?.longitude)
+      .filter((m) => m.lastLocation?.latitude != null && m.lastLocation?.longitude != null)
       .map((m) => ({
         userId: m.userId,
         fullName: m.fullName,
@@ -760,6 +760,8 @@ export default function NavigationScreen() {
       <TripGpsResultModal
         visible={resultModalVisible}
         actualRoute={actualRoute}
+        liveRouteCoords={liveRouteCoords}
+        stats={stats}
         onClose={() => setResultModalVisible(false)}
       />
     </View>

@@ -39,6 +39,7 @@ export async function initTripGpsTables(): Promise<void> {
       started_at TEXT NOT NULL,
       ended_at TEXT,
       policy_json TEXT NOT NULL,
+      intervals_json TEXT,
       created_at TEXT NOT NULL
     );
 
@@ -77,6 +78,12 @@ export async function initTripGpsTables(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_trip_gps_commands_status
       ON trip_gps_commands(session_id, status, occurred_at);
   `);
+
+  try {
+    await db.execAsync(`ALTER TABLE trip_gps_sessions ADD COLUMN intervals_json TEXT;`);
+  } catch {
+    // Column already exists, safe to ignore
+  }
 }
 
 /**
@@ -86,13 +93,15 @@ export async function saveLocalTripSession(session: SessionDto, policy: GpsPolic
   await initTripGpsTables();
   const db = await getDatabase();
   const now = new Date().toISOString();
+  const intervalsJson = session.recordingIntervals ? JSON.stringify(session.recordingIntervals) : null;
   await db.runAsync(
     `INSERT INTO trip_gps_sessions (
-      session_id, trip_id, client_session_id, device_id, status, version, started_at, ended_at, policy_json, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      session_id, trip_id, client_session_id, device_id, status, version, started_at, ended_at, policy_json, intervals_json, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(session_id) DO UPDATE SET
       status = excluded.status, version = excluded.version,
-      ended_at = excluded.ended_at, policy_json = excluded.policy_json`,
+      ended_at = excluded.ended_at, policy_json = excluded.policy_json,
+      intervals_json = coalesce(excluded.intervals_json, trip_gps_sessions.intervals_json)`,
     [
       session.id,
       session.tripId,
@@ -103,6 +112,7 @@ export async function saveLocalTripSession(session: SessionDto, policy: GpsPolic
       session.startedAt,
       session.endedAt,
       JSON.stringify(policy),
+      intervalsJson,
       now,
     ]
   );
@@ -121,6 +131,7 @@ export async function getActiveTripSession(tripId: string): Promise<{ session: S
     started_at: string;
     ended_at: string | null;
     policy_json: string;
+    intervals_json?: string | null;
   }>(
     `SELECT * FROM trip_gps_sessions WHERE trip_id = ? ORDER BY started_at DESC LIMIT 1`,
     [tripId]
@@ -130,6 +141,12 @@ export async function getActiveTripSession(tripId: string): Promise<{ session: S
 
   try {
     const policy: GpsPolicyDto = JSON.parse(row.policy_json);
+    let recordingIntervals: { start: string; end: string | null }[] | undefined;
+    if (row.intervals_json) {
+      try {
+        recordingIntervals = JSON.parse(row.intervals_json);
+      } catch {}
+    }
     const session: SessionDto = {
       id: row.session_id,
       tripId: row.trip_id,
@@ -144,6 +161,7 @@ export async function getActiveTripSession(tripId: string): Promise<{ session: S
       uploadDeadline: null,
       sampleCount: 0,
       totalDistanceMeters: null,
+      recordingIntervals,
     };
     return { session, policy };
   } catch {
@@ -166,12 +184,19 @@ export async function updateLocalSessionStatus(
   sessionId: string,
   status: SessionDto['status'],
   version: number,
-  endedAt?: string | null
+  endedAt?: string | null,
+  intervals?: { start: string; end: string | null }[]
 ): Promise<void> {
   const db = await getDatabase();
+  const intervalsJson = intervals ? JSON.stringify(intervals) : null;
   await db.runAsync(
-    `UPDATE trip_gps_sessions SET status = ?, version = ?, ended_at = coalesce(?, ended_at) WHERE session_id = ?`,
-    [status, version, endedAt || null, sessionId]
+    `UPDATE trip_gps_sessions SET
+      status = ?,
+      version = ?,
+      ended_at = coalesce(?, ended_at),
+      intervals_json = coalesce(?, intervals_json)
+     WHERE session_id = ?`,
+    [status, version, endedAt || null, intervalsJson, sessionId]
   );
 }
 
