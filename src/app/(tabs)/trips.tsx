@@ -303,6 +303,19 @@ export default function TripsScreen() {
         <TouchableOpacity
           style={[
             styles.subFilterChip,
+            { backgroundColor: "#E0F2F1", borderColor: "#80CBC4", borderWidth: 1, gap: 5 },
+          ]}
+          onPress={() => router.push("/invitations" as any)}
+        >
+          <Ionicons name="mail-unread-outline" size={14} color={Colors.primary} />
+          <Text style={[styles.subFilterText, { color: Colors.primary, fontWeight: "800" }]}>
+            Lời mời vé
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            styles.subFilterChip,
             { backgroundColor: Colors.primaryPale, gap: 5 },
           ]}
           onPress={() => setMainTab("PUBLIC_TRIPS")}
@@ -972,7 +985,7 @@ export default function TripsScreen() {
       <View style={{ paddingHorizontal: 16 }}>
         {pendingInvitations.length > 0 && (
           <View style={styles.invitationInboxNotice}>
-            <Ionicons name="sparkles" size={16} color={Colors.primaryDark} />
+            <Ionicons name="mail-unread-outline" size={16} color={Colors.primaryDark} />
             <Text style={styles.invitationInboxNoticeText}>
               Bạn có <Text style={{ fontWeight: "800" }}>{pendingInvitations.length}</Text> lời mời đang chờ bạn phản hồi.
             </Text>

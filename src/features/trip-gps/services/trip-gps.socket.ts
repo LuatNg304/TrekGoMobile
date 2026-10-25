@@ -70,12 +70,12 @@ export class TripGpsSocketService {
       }
     });
 
-    this.socket.on('disconnect', (reason) => {
+    this.socket.on('disconnect', (reason: string) => {
       console.log('[TripGpsSocket] Disconnected:', reason);
       this.callbacks.onDisconnect?.(reason);
     });
 
-    this.socket.on('connect_error', (err) => {
+    this.socket.on('connect_error', (err: any) => {
       console.warn('[TripGpsSocket] Connect error:', err?.message || err);
       this.callbacks.onError?.(err);
     });

@@ -5,3 +5,5 @@ export * from "./TripPickupInfo";
 export * from "./TripRouteTimeline";
 export * from "./TripMapSection";
 export * from "./TripCostBreakdown";
+export * from "./TripDescriptionSection";
+export * from "./TripConfirmedBookingCard";

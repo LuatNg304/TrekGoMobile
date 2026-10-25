@@ -192,17 +192,8 @@ export function CostPlanBuilder({
         </View>
       </View>
 
-      {/* 1-Click Template Button */}
+      {/* Add Item Button */}
       <View style={styles.actionRow}>
-        <TouchableOpacity
-          style={styles.templateBtn}
-          onPress={handleApplyStandardTemplate}
-          activeOpacity={0.8}
-        >
-          <Ionicons name="sparkles" size={15} color="#054d28" />
-          <Text style={styles.templateBtnText}>Áp dụng bộ chi phí chuẩn (1-Click)</Text>
-        </TouchableOpacity>
-
         <TouchableOpacity
           style={styles.addItemBtn}
           onPress={() => setShowAddModal(true)}
@@ -219,7 +210,7 @@ export function CostPlanBuilder({
           <Ionicons name="cube-outline" size={32} color="#868685" />
           <Text style={styles.emptyText}>Chưa có dòng chi phí nào trong bảng dự toán.</Text>
           <Text style={styles.emptySubText}>
-            Nhấn &ldquo;Áp dụng bộ chi phí chuẩn&rdquo; ở trên để tự động điền 4 khoản chi cơ sở.
+            Nhấn &ldquo;Thêm khoản chi&rdquo; ở trên để bắt đầu lập danh sách chi phí.
           </Text>
         </View>
       ) : (
@@ -526,7 +517,7 @@ const styles = StyleSheet.create({
     color: "#054d28",
   },
   addItemBtn: {
-    flex: 0.8,
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",

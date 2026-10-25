@@ -1,5 +1,6 @@
 import { TripGpsButton } from "@/components/trip/TripGpsButton";
 import { Colors, Radius, Shadows } from "@/constants/theme";
+import { useAuth } from "@/features/auth/AuthContext";
 import {
   CancelBookingModal,
   EditParticipantsModal,
@@ -15,23 +16,83 @@ import {
   BOOKING_STATUS_LABELS,
   bookingApiService,
 } from "@/features/bookings/services/booking.api";
-import type { PaymentGateway } from "@/features/bookings/types";
-import { CheckInQrCard } from "@/features/check-in/components/CheckInQrCard";
+import type {
+  CheckInStatus,
+  LinkageStatus,
+  Participant,
+  PaymentGateway,
+} from "@/features/bookings/types";
+import { buildShortCode } from "@/features/check-in/utils/checkInQr";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
   Linking,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
-  View
+  View,
 } from "react-native";
+import QRCode from "react-native-qrcode-svg";
 import { SafeAreaView } from "react-native-safe-area-context";
+
+function getCheckinBadge(status?: CheckInStatus, method?: string | null) {
+  if (status === "CHECKED_IN") {
+    const methodStr = method === "QR" ? "QR" : method === "MANUAL" ? "Thủ công" : "";
+    return {
+      label: methodStr ? `${methodStr} · Đã điểm danh` : "Đã điểm danh",
+      color: "#166534",
+      bg: { backgroundColor: "#dcfce7" },
+      icon: "checkmark-circle" as const,
+    };
+  }
+  if (status === "NO_SHOW") {
+    return {
+      label: "Vắng mặt",
+      color: "#991b1b",
+      bg: { backgroundColor: "#fee2e2" },
+      icon: "close-circle" as const,
+    };
+  }
+  return {
+    label: "Chưa điểm danh",
+    color: "#854d0e",
+    bg: { backgroundColor: "#fef3c7" },
+    icon: "time-outline" as const,
+  };
+}
+
+function getLinkageBadge(status?: LinkageStatus, recipientDisplay?: string | null) {
+  if (status === "CLAIMED") {
+    return {
+      label: "Tài khoản cá nhân",
+      color: "#0369a1",
+      bg: { backgroundColor: "#e0f2fe" },
+      icon: "person-circle" as const,
+    };
+  }
+  if (status === "INVITATION_PENDING") {
+    return {
+      label: `Đang mời: ${recipientDisplay || "..."}`,
+      color: "#6b21a8",
+      bg: { backgroundColor: "#f3e8ff" },
+      icon: "mail-outline" as const,
+    };
+  }
+  return {
+    label: "Chưa liên kết",
+    color: "#475569",
+    bg: { backgroundColor: "#f1f5f9" },
+    icon: "link-outline" as const,
+  };
+}
 
 export interface BookingCheckoutScreenProps {
   bookingId?: string;
@@ -58,6 +119,7 @@ export function BookingCheckoutScreen({
   const { createPayment, isSubmitting } = useBookingMutations();
   const { gateways } = usePaymentOptions();
 
+  const { user } = useAuth();
   const [selectedGateway, setSelectedGateway] = useState<PaymentGateway>("vnpay");
   const [showEditModal, setShowEditModal] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
@@ -65,6 +127,118 @@ export function BookingCheckoutScreen({
   const [paymentWebViewUrl, setPaymentWebViewUrl] = useState<string | null>(null);
   const [showSuccessModal, setShowSuccessModal] = useState<boolean>(false);
   const [isWaitingPaymentConfirmation, setIsWaitingPaymentConfirmation] = useState<boolean>(false);
+
+  // M6 Ticket Management State
+  const [selectedParticipantForQr, setSelectedParticipantForQr] = useState<Participant | null>(null);
+  const [inviteModalParticipant, setInviteModalParticipant] = useState<Participant | null>(null);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [isActionLoading, setIsActionLoading] = useState(false);
+
+  const handleSelfClaim = useCallback(
+    async (p: Participant) => {
+      if (!p.id) return;
+      Alert.alert(
+        "Tự nhận vé này",
+        `Xác nhận nhận vé của "${p.fullName}" gắn với tài khoản ${user?.email || "của bạn"}?\nSau khi nhận, vé sẽ hiển thị trong mục Vé của tôi.`,
+        [
+          { text: "Để sau", style: "cancel" },
+          {
+            text: "Xác nhận nhận",
+            onPress: async () => {
+              setIsActionLoading(true);
+              try {
+                await bookingApiService.selfClaimParticipant(bookingId, p.id!);
+                Alert.alert("Thành công", "Bạn đã tự nhận vé thành công!");
+                void refetch();
+              } catch (err: any) {
+                Alert.alert("Lỗi nhận vé", err?.message || "Không thể tự nhận vé.");
+              } finally {
+                setIsActionLoading(false);
+              }
+            },
+          },
+        ],
+      );
+    },
+    [bookingId, user?.email, refetch],
+  );
+
+  const handleOpenInvite = useCallback((p: Participant) => {
+    setInviteModalParticipant(p);
+    setInviteEmail("");
+  }, []);
+
+  const handleSubmitInvite = useCallback(async () => {
+    if (!inviteModalParticipant?.id) return;
+    const email = inviteEmail.trim();
+    if (!email) {
+      Alert.alert("Lỗi", "Vui lòng nhập email người nhận vé.");
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      Alert.alert("Lỗi", "Email không đúng định dạng.");
+      return;
+    }
+    if (user?.email && email.toLowerCase() === user.email.toLowerCase()) {
+      Alert.alert(
+        "Email không hợp lệ",
+        "Đây là email tài khoản của bạn. Vui lòng bấm 'Tự nhận vé' thay vì gửi lời mời cho chính mình.",
+      );
+      return;
+    }
+
+    setIsActionLoading(true);
+    try {
+      await bookingApiService.inviteParticipant(
+        bookingId,
+        inviteModalParticipant.id,
+        email,
+        user?.email,
+      );
+      Alert.alert(
+        "Đã gửi vé thành công! 🎉",
+        `Lời mời đã được gửi tới ${email}. Bạn của bạn có thể đăng nhập hoặc tạo tài khoản với email này để nhận vé.`,
+      );
+      setInviteModalParticipant(null);
+      setInviteEmail("");
+      void refetch();
+    } catch (err: any) {
+      Alert.alert("Lỗi gửi vé", err?.message || "Không thể gửi lời mời vé.");
+    } finally {
+      setIsActionLoading(false);
+    }
+  }, [bookingId, inviteModalParticipant, inviteEmail, user?.email, refetch]);
+
+  const handleRevoke = useCallback(
+    async (p: Participant) => {
+      const invitationId = p.pendingInvitationId;
+      if (!invitationId) return;
+      Alert.alert(
+        "Thu hồi lời mời",
+        `Bạn có chắc chắn muốn thu hồi lời mời gửi tới "${p.recipientDisplay || "người nhận"}"?`,
+        [
+          { text: "Không", style: "cancel" },
+          {
+            text: "Thu hồi",
+            style: "destructive",
+            onPress: async () => {
+              setIsActionLoading(true);
+              try {
+                await bookingApiService.revokeInvitation(invitationId);
+                Alert.alert("Thành công", "Đã thu hồi lời mời vé thành công.");
+                void refetch();
+              } catch (err: any) {
+                Alert.alert("Lỗi thu hồi", err?.message || "Không thể thu hồi vé.");
+              } finally {
+                setIsActionLoading(false);
+              }
+            },
+          },
+        ],
+      );
+    },
+    [refetch],
+  );
 
   const handlePaymentWebViewComplete = useCallback(
     async (result: PaymentCompleteResult) => {
@@ -142,7 +316,11 @@ export function BookingCheckoutScreen({
   }
 
   const isPending = booking.status === "PENDING_PAYMENT";
-  const isConfirmed = booking.status === "CONFIRMED";
+  const isConfirmed =
+    booking.status === "CONFIRMED" ||
+    booking.status === "PARTIAL_CHECKIN" ||
+    booking.status === "CHECKED_IN" ||
+    booking.status === "COMPLETED";
   const isCancelled = booking.status === "CANCELLED";
   const isExpired = booking.status === "EXPIRED" || (isPending && isHoldExpired);
 
@@ -303,9 +481,6 @@ export function BookingCheckoutScreen({
           </View>
         ) : null}
 
-        {/* QR điểm danh (chỉ hiển thị khi đã xác nhận) */}
-        {isConfirmed ? <CheckInQrCard booking={booking} /> : null}
-
         {/* Trip Overview Card */}
         <View style={styles.card}>
           <View style={styles.cardHeader}>
@@ -419,18 +594,24 @@ export function BookingCheckoutScreen({
           </View>
         ) : null}
 
-        {/* Participants Section */}
+        {/* Participants / Tickets Section */}
         <View style={styles.card}>
           <View style={styles.sectionHeaderRow}>
             <View style={styles.iconCircle}>
-              <Ionicons name="people-outline" size={18} color={Colors.primaryDark} />
+              <Ionicons
+                name={isConfirmed ? "ticket-outline" : "people-outline"}
+                size={18}
+                color={Colors.primaryDark}
+              />
             </View>
             <View style={styles.flex1}>
               <Text style={styles.sectionTitle}>
-                Danh sách thành viên ({booking.participants?.length || 0})
+                {isConfirmed
+                  ? `Vé tham gia & Thành viên (${booking.participants?.length || 0})`
+                  : `Danh sách thành viên (${booking.participants?.length || 0})`}
               </Text>
             </View>
-            {booking.canEditParticipants ? (
+            {booking.canEditParticipants && !isConfirmed ? (
               <TouchableOpacity
                 style={styles.editBtn}
                 onPress={() => setShowEditModal(true)}
@@ -441,30 +622,153 @@ export function BookingCheckoutScreen({
             ) : null}
           </View>
 
-          {booking.participants?.map((p, idx) => (
-            <View key={p.id || idx} style={styles.participantItem}>
-              <View style={styles.pIndex}>
-                <Text style={styles.pIndexText}>#{idx + 1}</Text>
-              </View>
-              <View style={styles.flex1}>
-                <Text style={styles.pName}>{p.fullName}</Text>
-                <View style={styles.pMetaRow}>
-                  {p.phone ? (
-                    <Text style={styles.pMetaText}>SĐT: {p.phone}</Text>
-                  ) : null}
-                  {p.dateOfBirth ? (
-                    <Text style={styles.pMetaText}>Sinh: {p.dateOfBirth}</Text>
+          {isConfirmed ? (
+            <View style={styles.ticketList}>
+              {booking.participants?.map((p, idx) => {
+                const shortCode = buildShortCode(booking.id, p.id || String(idx + 1));
+                const checkinBadge = getCheckinBadge(p.checkinStatus, p.checkinMethod);
+                const linkageBadge = getLinkageBadge(p.linkageStatus, p.recipientDisplay);
+
+                const canSelfClaim =
+                  p.actions?.canSelfClaim ?? (p.linkageStatus === "UNLINKED" || !p.linkageStatus);
+                const canInvite =
+                  p.actions?.canInvite ?? (p.linkageStatus === "UNLINKED" || !p.linkageStatus);
+                const canRevoke =
+                  p.actions?.canRevoke ??
+                  (p.linkageStatus === "INVITATION_PENDING" && Boolean(p.pendingInvitationId));
+
+                return (
+                  <View key={p.id || idx} style={styles.ticketCard}>
+                    {/* Ticket Header */}
+                    <View style={styles.ticketCardHeader}>
+                      <View style={styles.ticketAvatar}>
+                        <Text style={styles.ticketAvatarText}>
+                          {(p.fullName || "T")[0].toUpperCase()}
+                        </Text>
+                      </View>
+                      <View style={styles.flex1}>
+                        <View style={styles.ticketNameRow}>
+                          <Text style={styles.ticketFullName} numberOfLines={1}>
+                            {p.fullName}
+                          </Text>
+                          <Text style={styles.ticketShortCode}>{shortCode}</Text>
+                        </View>
+                        <Text style={styles.ticketPhone}>
+                          {p.phone ? `SĐT: ${p.phone}` : "Chưa cập nhật SĐT"}
+                        </Text>
+                        {p.emergencyContactName ? (
+                          <Text style={styles.ticketEmergencyText}>
+                            Khẩn cấp: {p.emergencyContactName}{" "}
+                            {p.emergencyContactPhone ? `(${p.emergencyContactPhone})` : ""}
+                          </Text>
+                        ) : null}
+                      </View>
+                    </View>
+
+                    {/* Badges Row */}
+                    <View style={styles.badgeRow}>
+                      <View style={[styles.badge, checkinBadge.bg]}>
+                        <Ionicons
+                          name={checkinBadge.icon}
+                          size={11}
+                          color={checkinBadge.color}
+                        />
+                        <Text style={[styles.badgeText, { color: checkinBadge.color }]}>
+                          {checkinBadge.label}
+                        </Text>
+                      </View>
+
+                      <View style={[styles.badge, linkageBadge.bg]}>
+                        <Ionicons
+                          name={linkageBadge.icon}
+                          size={11}
+                          color={linkageBadge.color}
+                        />
+                        <Text style={[styles.badgeText, { color: linkageBadge.color }]}>
+                          {linkageBadge.label}
+                        </Text>
+                      </View>
+                    </View>
+
+                    {/* Actions Row */}
+                    <View style={styles.ticketActionsRow}>
+                      {p.checkinCode ? (
+                        <TouchableOpacity
+                          style={[styles.ticketActionBtn, styles.ticketActionBtnPrimary]}
+                          onPress={() => setSelectedParticipantForQr(p)}
+                          activeOpacity={0.8}
+                        >
+                          <Ionicons name="qr-code-outline" size={15} color={Colors.inkDeep} />
+                          <Text style={styles.ticketActionBtnPrimaryText}>Mã QR Check-in</Text>
+                        </TouchableOpacity>
+                      ) : null}
+
+                      {canSelfClaim ? (
+                        <TouchableOpacity
+                          style={[styles.ticketActionBtn, styles.ticketActionBtnOutline]}
+                          onPress={() => handleSelfClaim(p)}
+                          disabled={isActionLoading}
+                          activeOpacity={0.8}
+                        >
+                          <Ionicons name="person-add-outline" size={15} color={Colors.ink} />
+                          <Text style={styles.ticketActionBtnOutlineText}>Tự nhận vé</Text>
+                        </TouchableOpacity>
+                      ) : null}
+
+                      {canInvite ? (
+                        <TouchableOpacity
+                          style={[styles.ticketActionBtn, styles.ticketActionBtnOutline]}
+                          onPress={() => handleOpenInvite(p)}
+                          disabled={isActionLoading}
+                          activeOpacity={0.8}
+                        >
+                          <Ionicons name="paper-plane-outline" size={15} color={Colors.ink} />
+                          <Text style={styles.ticketActionBtnOutlineText}>Gửi vé cho bạn</Text>
+                        </TouchableOpacity>
+                      ) : null}
+
+                      {canRevoke ? (
+                        <TouchableOpacity
+                          style={[styles.ticketActionBtn, styles.ticketActionBtnDanger]}
+                          onPress={() => handleRevoke(p)}
+                          disabled={isActionLoading}
+                          activeOpacity={0.8}
+                        >
+                          <Ionicons name="arrow-undo-outline" size={15} color={Colors.error} />
+                          <Text style={styles.ticketActionBtnDangerText}>Thu hồi mời</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          ) : (
+            booking.participants?.map((p, idx) => (
+              <View key={p.id || idx} style={styles.participantItem}>
+                <View style={styles.pIndex}>
+                  <Text style={styles.pIndexText}>#{idx + 1}</Text>
+                </View>
+                <View style={styles.flex1}>
+                  <Text style={styles.pName}>{p.fullName}</Text>
+                  <View style={styles.pMetaRow}>
+                    {p.phone ? (
+                      <Text style={styles.pMetaText}>SĐT: {p.phone}</Text>
+                    ) : null}
+                    {p.dateOfBirth ? (
+                      <Text style={styles.pMetaText}>Sinh: {p.dateOfBirth}</Text>
+                    ) : null}
+                  </View>
+                  {p.emergencyContactName ? (
+                    <Text style={styles.pEmergencyText}>
+                      Khẩn cấp: {p.emergencyContactName}{" "}
+                      {p.emergencyContactPhone ? `(${p.emergencyContactPhone})` : ""}
+                    </Text>
                   ) : null}
                 </View>
-                {p.emergencyContactName ? (
-                  <Text style={styles.pEmergencyText}>
-                    Khẩn cấp: {p.emergencyContactName}{" "}
-                    {p.emergencyContactPhone ? `(${p.emergencyContactPhone})` : ""}
-                  </Text>
-                ) : null}
               </View>
-            </View>
-          ))}
+            ))
+          )}
         </View>
 
         {/* Payment Gateways Selection (When PENDING_PAYMENT) */}
@@ -732,6 +1036,136 @@ export function BookingCheckoutScreen({
           </View>
         </Modal>
       ) : null}
+
+      {/* Modal QR Code phóng to */}
+      <Modal
+        visible={Boolean(selectedParticipantForQr)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSelectedParticipantForQr(null)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.qrModalCard}>
+            <View style={styles.qrModalHeader}>
+              <View style={styles.flex1}>
+                <Text style={styles.qrModalTitle}>Mã QR Check-in điểm danh</Text>
+                <Text style={styles.qrModalSub} numberOfLines={1}>
+                  {booking.trip?.title}
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={styles.qrModalCloseBtn}
+                onPress={() => setSelectedParticipantForQr(null)}
+              >
+                <Ionicons name="close" size={20} color={Colors.ink} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.qrModalBody}>
+              <Text style={styles.qrParticipantName}>
+                {selectedParticipantForQr?.fullName}
+              </Text>
+              <Text style={styles.qrParticipantCode}>
+                {selectedParticipantForQr
+                  ? buildShortCode(booking.id, selectedParticipantForQr.id || "p")
+                  : ""}
+              </Text>
+
+              <View style={styles.qrFrame}>
+                {selectedParticipantForQr?.checkinCode ? (
+                  <QRCode
+                    value={selectedParticipantForQr.checkinCode}
+                    size={200}
+                    color={Colors.ink}
+                    backgroundColor="#FFFFFF"
+                  />
+                ) : null}
+              </View>
+
+              <View style={styles.qrTipBox}>
+                <Ionicons name="sunny-outline" size={16} color="#7a5b00" />
+                <Text style={styles.qrTipText}>
+                  Xuất trình mã này cho Trưởng đoàn khi tập trung. Vui lòng tăng độ sáng màn hình khi quét.
+                </Text>
+              </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal Gửi vé cho bạn bè */}
+      <Modal
+        visible={Boolean(inviteModalParticipant)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setInviteModalParticipant(null)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.modalBackdrop}
+        >
+          <View style={styles.inviteModalCard}>
+            <View style={styles.inviteModalHeader}>
+              <View style={styles.iconCirclePrimary}>
+                <Ionicons name="mail" size={20} color={Colors.inkDeep} />
+              </View>
+              <View style={styles.flex1}>
+                <Text style={styles.inviteModalTitle}>Gửi vé cho bạn bè</Text>
+                <Text style={styles.inviteModalSub} numberOfLines={1}>
+                  Vé: {inviteModalParticipant?.fullName}
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={styles.qrModalCloseBtn}
+                onPress={() => setInviteModalParticipant(null)}
+                disabled={isActionLoading}
+              >
+                <Ionicons name="close" size={20} color={Colors.ink} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.inviteFormHelp}>
+              Nhập email người nhận. Bạn của bạn sẽ nhận được thông báo trong ứng dụng TrekGo để tự liên kết vé vào tài khoản của họ.
+            </Text>
+
+            <TextInput
+              style={styles.inviteEmailInput}
+              placeholder="nhap.email.ban.be@example.com"
+              placeholderTextColor={Colors.mute}
+              value={inviteEmail}
+              onChangeText={setInviteEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+              editable={!isActionLoading}
+            />
+
+            <View style={styles.inviteModalActions}>
+              <TouchableOpacity
+                style={styles.inviteCancelBtn}
+                onPress={() => setInviteModalParticipant(null)}
+                disabled={isActionLoading}
+              >
+                <Text style={styles.inviteCancelText}>Hủy</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.inviteSubmitBtn, isActionLoading && { opacity: 0.7 }]}
+                onPress={handleSubmitInvite}
+                disabled={isActionLoading}
+              >
+                {isActionLoading ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <>
+                    <Ionicons name="paper-plane" size={16} color="#FFFFFF" />
+                    <Text style={styles.inviteSubmitText}>Gửi vé ngay</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -1308,5 +1742,299 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
     color: Colors.onSurfaceVariant,
+  },
+
+  // M6 Ticket styles
+  ticketList: {
+    gap: 12,
+  },
+  ticketCard: {
+    backgroundColor: Colors.surfaceContainerLow,
+    borderRadius: Radius.lg,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: Colors.surfaceContainer,
+    gap: 10,
+  },
+  ticketCardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  ticketAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: Colors.primaryPale,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  ticketAvatarText: {
+    fontSize: 16,
+    fontWeight: "900",
+    color: Colors.inkDeep,
+  },
+  ticketNameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  ticketFullName: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: Colors.onSurface,
+    flex: 1,
+  },
+  ticketShortCode: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: Colors.onSurfaceMuted,
+    backgroundColor: Colors.surfaceContainer,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  ticketPhone: {
+    fontSize: 12,
+    color: Colors.onSurfaceVariant,
+    marginTop: 2,
+  },
+  ticketEmergencyText: {
+    fontSize: 11,
+    color: "#b45309",
+    marginTop: 2,
+  },
+  badgeRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  badge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: Radius.full,
+  },
+  badgeText: {
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  ticketActionsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: Colors.surfaceContainer,
+  },
+  ticketActionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: Radius.full,
+  },
+  ticketActionBtnPrimary: {
+    backgroundColor: "#eefbe4",
+    borderWidth: 1,
+    borderColor: "#c5edab",
+  },
+  ticketActionBtnPrimaryText: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: Colors.inkDeep,
+  },
+  ticketActionBtnOutline: {
+    backgroundColor: Colors.surfaceContainerLowest,
+    borderWidth: 1,
+    borderColor: Colors.surfaceContainerHigh,
+  },
+  ticketActionBtnOutlineText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: Colors.ink,
+  },
+  ticketActionBtnDanger: {
+    backgroundColor: "#fef2f2",
+    borderWidth: 1,
+    borderColor: "#fecaca",
+  },
+  ticketActionBtnDangerText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: Colors.error,
+  },
+
+  // Modal QR & Invite styles
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.65)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 20,
+  },
+  qrModalCard: {
+    width: "100%",
+    maxWidth: 340,
+    backgroundColor: "#FFFFFF",
+    borderRadius: Radius.xl,
+    padding: 20,
+    alignItems: "center",
+    ...Shadows.modal,
+  },
+  qrModalHeader: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  qrModalTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: Colors.ink,
+  },
+  qrModalSub: {
+    fontSize: 12,
+    color: Colors.onSurfaceMuted,
+    marginTop: 2,
+  },
+  qrModalCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: Colors.surfaceContainerLow,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  qrModalBody: {
+    width: "100%",
+    alignItems: "center",
+  },
+  qrParticipantName: {
+    fontSize: 18,
+    fontWeight: "900",
+    color: Colors.ink,
+    textAlign: "center",
+  },
+  qrParticipantCode: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: Colors.primaryDark,
+    marginTop: 2,
+    marginBottom: 16,
+  },
+  qrFrame: {
+    padding: 16,
+    backgroundColor: "#FFFFFF",
+    borderRadius: Radius.lg,
+    borderWidth: 1.5,
+    borderColor: Colors.surfaceContainer,
+    alignItems: "center",
+    justifyContent: "center",
+    ...Shadows.card,
+  },
+  qrTipBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#fef9c3",
+    padding: 12,
+    borderRadius: Radius.md,
+    marginTop: 18,
+  },
+  qrTipText: {
+    flex: 1,
+    fontSize: 11,
+    color: "#854d0e",
+    lineHeight: 16,
+  },
+
+  // Invite Modal
+  inviteModalCard: {
+    width: "100%",
+    maxWidth: 360,
+    backgroundColor: "#FFFFFF",
+    borderRadius: Radius.xl,
+    padding: 20,
+    ...Shadows.modal,
+  },
+  inviteModalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 14,
+  },
+  iconCirclePrimary: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: Colors.primaryPale,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  inviteModalTitle: {
+    fontSize: 16,
+    fontWeight: "900",
+    color: Colors.ink,
+  },
+  inviteModalSub: {
+    fontSize: 12,
+    color: Colors.onSurfaceMuted,
+    marginTop: 2,
+  },
+  inviteFormHelp: {
+    fontSize: 13,
+    color: Colors.onSurfaceVariant,
+    lineHeight: 18,
+    marginBottom: 14,
+  },
+  inviteEmailInput: {
+    width: "100%",
+    height: 48,
+    backgroundColor: Colors.surfaceContainerLow,
+    borderWidth: 1,
+    borderColor: Colors.surfaceContainerHigh,
+    borderRadius: Radius.md,
+    paddingHorizontal: 14,
+    fontSize: 14,
+    color: Colors.ink,
+    marginBottom: 18,
+  },
+  inviteModalActions: {
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "flex-end",
+  },
+  inviteCancelBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.surfaceContainerLow,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  inviteCancelText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: Colors.onSurfaceVariant,
+  },
+  inviteSubmitBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.inkDeep,
+    justifyContent: "center",
+  },
+  inviteSubmitText: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#FFFFFF",
   },
 });

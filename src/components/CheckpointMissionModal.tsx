@@ -63,7 +63,7 @@ export const CheckpointMissionModal: React.FC<CheckpointMissionModalProps> = ({
           {/* Mission Details Box */}
           <View style={styles.missionBox}>
             <View style={styles.missionHeaderRow}>
-              <Ionicons name="sparkles" size={16} color={Colors.primaryDark} />
+              <Ionicons name="flag-outline" size={16} color={Colors.primaryDark} />
               <Text style={styles.missionHeadline}>Nhiệm Vụ Cột Mốc: Khảo Sát Địa Bàn</Text>
             </View>
             <Text style={styles.missionDesc}>

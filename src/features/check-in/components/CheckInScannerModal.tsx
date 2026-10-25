@@ -1,6 +1,7 @@
 import { Colors, Radius, Shadows } from "@/constants/theme";
 import { Ionicons } from "@expo/vector-icons";
-import { CameraView, useCameraPermissions } from "expo-camera";
+import { CameraView, scanFromURLAsync, useCameraPermissions } from "expo-camera";
+import * as ImagePicker from "expo-image-picker";
 import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -26,11 +27,11 @@ export interface CheckInScannerModalProps {
   visible: boolean;
   onClose: () => void;
   /** Xử lý dữ liệu QR thô và trả về kết quả để hiển thị trên camera */
-  onScan: (raw: string) => ScanResult;
+  onScan: (raw: string) => Promise<ScanResult> | ScanResult;
   checkedCount: number;
   totalCount: number;
   /** Chỉ dùng trong DEV: mô phỏng quét khi không có camera */
-  onSimulate?: () => ScanResult | null;
+  onSimulate?: () => Promise<ScanResult | null> | ScanResult | null;
 }
 
 const SCAN_LOCK_MS = 1600;
@@ -53,6 +54,7 @@ export function CheckInScannerModal({
   const [permission, requestPermission] = useCameraPermissions();
   const [torch, setTorch] = useState(false);
   const [result, setResult] = useState<ScanResult | null>(null);
+  const [isPicking, setIsPicking] = useState(false);
 
   const lockedRef = useRef(false);
   const lastCodeRef = useRef<{ data: string; at: number } | null>(null);
@@ -101,7 +103,7 @@ export function CheckInScannerModal({
     }, 2600);
   };
 
-  const handleBarcode = ({ data }: { data: string }) => {
+  const handleBarcode = async ({ data }: { data: string }) => {
     if (!data || lockedRef.current) return;
     const now = Date.now();
     const last = lastCodeRef.current;
@@ -109,16 +111,73 @@ export function CheckInScannerModal({
 
     lockedRef.current = true;
     lastCodeRef.current = { data, at: now };
-    showResult(onScan(data));
-    setTimeout(() => {
-      lockedRef.current = false;
-    }, SCAN_LOCK_MS);
+    try {
+      const res = await Promise.resolve(onScan(data));
+      showResult(res);
+    } catch (err: any) {
+      showResult({
+        kind: "error",
+        title: "Lỗi kết nối",
+        message: err?.message || "Không thể thực hiện điểm danh.",
+      });
+    } finally {
+      setTimeout(() => {
+        lockedRef.current = false;
+      }, SCAN_LOCK_MS);
+    }
   };
 
-  const handleSimulate = () => {
+  const handleSimulate = async () => {
     if (!onSimulate) return;
-    const r = onSimulate();
-    if (r) showResult(r);
+    try {
+      const r = await Promise.resolve(onSimulate());
+      if (r) showResult(r);
+    } catch (err: any) {
+      showResult({
+        kind: "error",
+        title: "Lỗi kết nối",
+        message: err?.message || "Không thể thực hiện mô phỏng.",
+      });
+    }
+  };
+
+  const handlePickImage = async () => {
+    try {
+      setIsPicking(true);
+      const res = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: false,
+        quality: 1,
+      });
+
+      if (res.canceled || !res.assets || res.assets.length === 0) {
+        setIsPicking(false);
+        return;
+      }
+
+      const imageUri = res.assets[0].uri;
+      const scanResults = await scanFromURLAsync(imageUri, ["qr"]);
+
+      if (scanResults && scanResults.length > 0 && scanResults[0]?.data) {
+        const raw = scanResults[0].data;
+        const scanRes = await Promise.resolve(onScan(raw));
+        showResult(scanRes);
+      } else {
+        showResult({
+          kind: "error",
+          title: "Không tìm thấy mã QR",
+          message: "Ảnh bạn chọn không có mã QR rõ nét hoặc không thuộc hệ thống TrekGo.",
+        });
+      }
+    } catch (err: any) {
+      showResult({
+        kind: "error",
+        title: "Lỗi đọc ảnh",
+        message: err?.message || "Không thể quét mã QR từ ảnh đã chọn.",
+      });
+    } finally {
+      setIsPicking(false);
+    }
   };
 
   const handleShow = () => {
@@ -126,6 +185,7 @@ export function CheckInScannerModal({
     setResult(null);
     lockedRef.current = false;
     lastCodeRef.current = null;
+    setIsPicking(false);
   };
 
   const progress = totalCount > 0 ? checkedCount / totalCount : 0;
@@ -156,6 +216,23 @@ export function CheckInScannerModal({
             <TouchableOpacity style={styles.permBtn} onPress={requestPermission} activeOpacity={0.85}>
               <Text style={styles.permBtnText}>Cấp quyền Camera</Text>
             </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.permGalleryBtn}
+              onPress={handlePickImage}
+              disabled={isPicking}
+              activeOpacity={0.85}
+            >
+              {isPicking ? (
+                <ActivityIndicator size="small" color="#0c2000" />
+              ) : (
+                <>
+                  <Ionicons name="images-outline" size={18} color="#0c2000" />
+                  <Text style={styles.permGalleryBtnText}>Tải ảnh QR từ thư viện ảnh</Text>
+                </>
+              )}
+            </TouchableOpacity>
+
             {onSimulate ? (
               <TouchableOpacity style={styles.permLink} onPress={handleSimulate}>
                 <Text style={styles.permLinkText}>Mô phỏng quét (DEV)</Text>
@@ -189,17 +266,33 @@ export function CheckInScannerModal({
                   </Text>
                 </View>
 
-                <TouchableOpacity
-                  style={[styles.circleBtn, torch && styles.circleBtnActive]}
-                  onPress={() => setTorch((v) => !v)}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons
-                    name={torch ? "flash" : "flash-off-outline"}
-                    size={20}
-                    color={torch ? "#0c2000" : "#ffffff"}
-                  />
-                </TouchableOpacity>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  <TouchableOpacity
+                    style={styles.circleBtn}
+                    onPress={handlePickImage}
+                    disabled={isPicking}
+                    activeOpacity={0.8}
+                    accessibilityLabel="Chọn ảnh QR từ thư viện"
+                  >
+                    {isPicking ? (
+                      <ActivityIndicator size="small" color={LIME} />
+                    ) : (
+                      <Ionicons name="images-outline" size={20} color="#ffffff" />
+                    )}
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.circleBtn, torch && styles.circleBtnActive]}
+                    onPress={() => setTorch((v) => !v)}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons
+                      name={torch ? "flash" : "flash-off-outline"}
+                      size={20}
+                      color={torch ? "#0c2000" : "#ffffff"}
+                    />
+                  </TouchableOpacity>
+                </View>
               </View>
 
               <View style={styles.progressTrack}>
@@ -275,6 +368,22 @@ export function CheckInScannerModal({
                 )}
 
                 <View style={styles.actionsRow}>
+                  <TouchableOpacity
+                    style={styles.ghostBtn}
+                    onPress={handlePickImage}
+                    disabled={isPicking}
+                    activeOpacity={0.85}
+                  >
+                    {isPicking ? (
+                      <ActivityIndicator size="small" color="#ffffff" />
+                    ) : (
+                      <>
+                        <Ionicons name="image-outline" size={16} color="#ffffff" />
+                        <Text style={styles.ghostBtnText}>Tải ảnh QR</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+
                   {onSimulate ? (
                     <TouchableOpacity style={styles.ghostBtn} onPress={handleSimulate} activeOpacity={0.85}>
                       <Ionicons name="flask-outline" size={16} color="#ffffff" />
@@ -283,7 +392,7 @@ export function CheckInScannerModal({
                   ) : null}
                   <TouchableOpacity style={styles.doneBtn} onPress={onClose} activeOpacity={0.85}>
                     <Ionicons name="list" size={16} color="#0c2000" />
-                    <Text style={styles.doneBtnText}>Xem danh sách</Text>
+                    <Text style={styles.doneBtnText}>Danh sách</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -332,6 +441,17 @@ const styles = StyleSheet.create({
     borderRadius: Radius.full,
   },
   permBtnText: { color: "#fff", fontWeight: "800", fontSize: 14 },
+  permGalleryBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: LIME,
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+    borderRadius: Radius.full,
+    marginTop: 12,
+  },
+  permGalleryBtnText: { color: "#0c2000", fontWeight: "800", fontSize: 14 },
   permLink: { marginTop: 14, padding: 6 },
   permLinkText: { color: Colors.onSurfaceVariant, fontWeight: "700", fontSize: 13 },
   overlay: { ...StyleSheet.absoluteFill, justifyContent: "space-between" },

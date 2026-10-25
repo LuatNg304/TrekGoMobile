@@ -186,7 +186,7 @@ export default function CommunityFeedScreen() {
               {visiblePosts.length} bài viết trong bản demo
             </Text>
           </View>
-          <Ionicons name="sparkles" size={20} color={Colors.primaryDark} />
+          <Ionicons name="newspaper-outline" size={20} color={Colors.primaryDark} />
         </View>
 
         {visiblePosts.map((post) => (

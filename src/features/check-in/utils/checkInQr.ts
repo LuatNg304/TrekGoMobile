@@ -1,26 +1,66 @@
 /**
- * Định dạng payload QR điểm danh (check-in) trước giờ khởi hành.
+ * Định dạng payload QR điểm danh (check-in) thực địa theo chuẩn Backend M6.
  *
- * QR được hiển thị ở màn hình chi tiết đặt chỗ phía Trekker và được
- * Leader quét tại điểm tập kết. Hiện tại payload được sinh ở client
- * (UI-first). Khi backend sẵn sàng, nên thay `sig` bằng token ký từ server
- * (VD: JWT ngắn hạn) để tránh giả mạo.
+ * Mã QR thực tế là chuỗi UUID nguyên bản (`checkinCode`) do hệ thống sinh ra
+ * cho từng vé tham gia chuyến đi công khai (Public Trip).
  */
 
 export const CHECK_IN_QR_PREFIX = "TREKGO-CHECKIN:";
 
+export const UUID_V4_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+export const LOOSE_UUID_REGEX =
+  /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+
 export interface CheckInQrPayload {
   v: 1;
-  /** Trip ID */
   t: string;
-  /** Booking ID */
   b: string;
-  /** Participant ID (hoặc index nếu chưa có id) */
   p: string;
-  /** Tên hiển thị của thành viên */
   n: string;
-  /** Mã ngắn để leader đối chiếu bằng mắt / nhập tay */
   c: string;
+}
+
+/**
+ * Rút trích mã `checkinCode` từ chuỗi quét QR thô
+ */
+export function parseCheckInCode(raw: string): string | null {
+  if (!raw || typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+
+  // 1. Chuỗi UUID v4 chuẩn
+  if (UUID_V4_REGEX.test(trimmed)) {
+    return trimmed;
+  }
+
+  // 2. Chuỗi chứa UUID (trong URL hoặc chuỗi ghép)
+  const match = trimmed.match(LOOSE_UUID_REGEX);
+  if (match) {
+    return match[0];
+  }
+
+  // 3. Fallback chuỗi JSON hoặc legacy format
+  try {
+    const jsonStr = trimmed.startsWith(CHECK_IN_QR_PREFIX)
+      ? trimmed.slice(CHECK_IN_QR_PREFIX.length)
+      : trimmed;
+    const parsed = JSON.parse(jsonStr);
+    if (parsed?.checkinCode && typeof parsed.checkinCode === "string") {
+      return parsed.checkinCode.trim();
+    }
+    if (parsed?.p && typeof parsed.p === "string") {
+      return parsed.p.trim();
+    }
+  } catch {
+    // Không phải JSON
+  }
+
+  // 4. Nếu là chuỗi ký tự hợp lệ từ 8-64 ký tự không chứa khoảng trắng
+  if (/^[A-Za-z0-9_-]{8,64}$/.test(trimmed)) {
+    return trimmed;
+  }
+
+  return null;
 }
 
 export function buildShortCode(bookingId: string, participantKey: string): string {

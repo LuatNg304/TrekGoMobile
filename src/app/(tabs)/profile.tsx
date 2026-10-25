@@ -203,7 +203,7 @@ export default function ProfileScreen() {
           <StatCard icon="flag" value={String(user.completedTripsCount || completedTrips)} label="Chuyến hoàn thành" />
           <StatCard icon="navigate" value={`${user.totalDistanceKm}`} label="Kilômét trekking" />
           <StatCard icon="trail-sign" value={String(personalTrails.length)} label="Cung cá nhân" />
-          <StatCard icon="sparkles" value={String(user.savedPoints)} label="Điểm thành tích" />
+          <StatCard icon="ribbon" value={String(user.savedPoints)} label="Điểm thành tích" />
         </View>
 
         <View style={styles.safetyCard}>

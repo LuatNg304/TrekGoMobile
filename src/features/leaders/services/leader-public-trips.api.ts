@@ -149,6 +149,8 @@ export interface LeaderPublicTrip {
   leaderId?: string;
   checkpoints?: LeaderCheckpointDetail[];
   trails?: LeaderTrailDetail[];
+  registrationOpenAt?: string | null;
+  registrationDeadlineAt?: string | null;
 }
 
 export interface TripDiscoverySlots {
@@ -171,6 +173,8 @@ export interface CreatePublicTripInput {
   minPax?: number;
   price: string;
   priceExplanation?: string | null;
+  registrationOpenAt?: string | null;
+  registrationDeadlineAt?: string | null;
 }
 
 export interface UpdatePublicTripInput {
@@ -185,6 +189,8 @@ export interface UpdatePublicTripInput {
   minPax?: number;
   price?: string;
   destinationId?: string;
+  registrationOpenAt?: string | null;
+  registrationDeadlineAt?: string | null;
 }
 
 export interface SetCheckpointsInput {
