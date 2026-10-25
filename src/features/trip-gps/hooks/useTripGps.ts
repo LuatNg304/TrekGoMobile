@@ -111,6 +111,59 @@ export function useTripGps(tripId?: string) {
   selfUserIdRef.current = gpsState?.selfUserId;
   const processOutboxSyncRef = useRef<() => Promise<void>>(() => Promise.resolve());
 
+  // Local Stopwatch & Accumulated Duration (bù trừ lệch giờ giữa thiết bị và server)
+  const accumulatedDurationMsRef = useRef<number>(0);
+  const localSegmentStartMsRef = useRef<number | null>(null);
+  const [clockNow, setClockNow] = useState(Date.now());
+
+  const syncLocalDurationFromSession = useCallback((sess: SessionDto | null) => {
+    if (!sess) {
+      accumulatedDurationMsRef.current = 0;
+      localSegmentStartMsRef.current = null;
+      return;
+    }
+
+    const intervals = sess.recordingIntervals;
+    if (intervals && intervals.length > 0) {
+      // 1. Tính tổng thời gian của các khoảng đã đóng (đã Pause trước đó)
+      const closedMs = intervals
+        .filter((i) => i.end != null)
+        .reduce((sum, i) => sum + Math.max(0, Date.parse(i.end!) - Date.parse(i.start)), 0);
+
+      accumulatedDurationMsRef.current = closedMs;
+
+      // 2. Nếu phiên đang ACTIVE, xác định khoảng đang chạy
+      if (sess.status === 'ACTIVE') {
+        const ongoing = intervals.find((i) => !i.end);
+        const ongoingStart = ongoing ? Date.parse(ongoing.start) : Date.parse(sess.startedAt);
+        // Nếu thiết bị chưa có localSegmentStart (ví dụ vừa mở lại app), khởi tạo từ ongoingStart
+        if (localSegmentStartMsRef.current == null) {
+          const elapsedOngoing = Math.max(0, Date.now() - ongoingStart);
+          localSegmentStartMsRef.current = Date.now() - elapsedOngoing;
+        }
+      } else {
+        localSegmentStartMsRef.current = null;
+      }
+    } else {
+      // Fallback khi chưa có intervals từ server
+      if (sess.status === 'ACTIVE') {
+        if (localSegmentStartMsRef.current == null) {
+          const elapsed = sess.startedAt ? Math.max(0, Date.now() - Date.parse(sess.startedAt)) : 0;
+          localSegmentStartMsRef.current = Date.now() - elapsed;
+        }
+      } else {
+        localSegmentStartMsRef.current = null;
+        if (sess.endedAt && sess.startedAt) {
+          accumulatedDurationMsRef.current = Math.max(0, Date.parse(sess.endedAt) - Date.parse(sess.startedAt));
+        }
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    syncLocalDurationFromSession(session);
+  }, [session, syncLocalDurationFromSession]);
+
   const applyGpsState = useCallback((incoming: GpsStateResponse) => {
     const next = mergeGpsState(gpsStateRef.current, incoming);
     gpsStateRef.current = next;
@@ -597,6 +650,9 @@ export function useTripGps(tripId?: string) {
       const deviceId = await getOrCreateDeviceId();
 
       const res = await startGpsSession(tripId, { clientSessionId, deviceId }, deviceId);
+      accumulatedDurationMsRef.current = 0;
+      localSegmentStartMsRef.current = Date.now();
+      setClockNow(Date.now());
       setSession(res.session);
       setPolicy(res.policy);
       gpsProcessorRef.current.reset(Date.parse(res.session.startedAt));
@@ -630,6 +686,12 @@ export function useTripGps(tripId?: string) {
         simulatorRef.current.pause();
       }
 
+      if (localSegmentStartMsRef.current != null) {
+        accumulatedDurationMsRef.current += Math.max(0, Date.now() - localSegmentStartMsRef.current);
+        localSegmentStartMsRef.current = null;
+      }
+      setClockNow(Date.now());
+
       const res = await pauseGpsSession(
         tripId,
         session.id,
@@ -637,7 +699,7 @@ export function useTripGps(tripId?: string) {
         deviceId
       );
       setSession(res.session);
-      await updateLocalSessionStatus(session.id, 'PAUSED', res.session.version);
+      await updateLocalSessionStatus(session.id, 'PAUSED', res.session.version, null, res.session.recordingIntervals);
     } catch (err: any) {
       console.warn('[useTripGps] Pause session error:', err?.message || err);
       setError(err?.message || 'Lỗi khi tạm dừng phiên.');
@@ -658,6 +720,9 @@ export function useTripGps(tripId?: string) {
         simulatorRef.current.resume();
       }
 
+      localSegmentStartMsRef.current = Date.now();
+      setClockNow(Date.now());
+
       const res = await resumeGpsSession(
         tripId,
         session.id,
@@ -665,7 +730,7 @@ export function useTripGps(tripId?: string) {
         deviceId
       );
       setSession(res.session);
-      await updateLocalSessionStatus(session.id, 'ACTIVE', res.session.version);
+      await updateLocalSessionStatus(session.id, 'ACTIVE', res.session.version, null, res.session.recordingIntervals);
     } catch (err: any) {
       console.warn('[useTripGps] Resume session error:', err?.message || err);
       setError(err?.message || 'Lỗi khi tiếp tục phiên.');
@@ -687,6 +752,12 @@ export function useTripGps(tripId?: string) {
       }
       gpsProcessorRef.current.reset();
 
+      if (localSegmentStartMsRef.current != null) {
+        accumulatedDurationMsRef.current += Math.max(0, Date.now() - localSegmentStartMsRef.current);
+        localSegmentStartMsRef.current = null;
+      }
+      setClockNow(Date.now());
+
       const res = await finishGpsSession(
         tripId,
         session.id,
@@ -694,7 +765,7 @@ export function useTripGps(tripId?: string) {
         deviceId
       );
       setSession(res.session);
-      await updateLocalSessionStatus(session.id, 'STOPPED', res.session.version, res.session.endedAt);
+      await updateLocalSessionStatus(session.id, 'STOPPED', res.session.version, res.session.endedAt, res.session.recordingIntervals);
       await pruneCompletedSessionSamples(session.id);
 
       // Tải lại đường đi thực tế cuối cùng
@@ -757,7 +828,6 @@ export function useTripGps(tripId?: string) {
   }, [myMemberState]);
 
   // Thống kê di chuyển
-  const [clockNow, setClockNow] = useState(Date.now());
   useEffect(() => {
     setClockNow(Date.now());
     if (session?.status !== 'ACTIVE') return;
@@ -766,16 +836,18 @@ export function useTripGps(tripId?: string) {
   }, [session?.id, session?.status]);
 
   const stats = useMemo(() => {
-    const intervals = session?.recordingIntervals;
-    const durationMs = intervals?.reduce((sum, interval) => {
-      const end = interval.end ? Date.parse(interval.end)
-        : session?.status === 'ACTIVE' ? clockNow : Date.parse(session?.endedAt || interval.start);
-      return sum + Math.max(0, end - Date.parse(interval.start));
-    }, 0);
-    const seconds = Math.floor((durationMs ?? 0) / 1000);
-    const recordingTime = session && !intervals ? '--:--:--'
+    let totalDurationMs = accumulatedDurationMsRef.current;
+    if (session?.status === 'ACTIVE' && localSegmentStartMsRef.current != null) {
+      totalDurationMs += Math.max(0, clockNow - localSegmentStartMsRef.current);
+    }
+
+    const seconds = Math.floor(totalDurationMs / 1000);
+    const recordingTime = !session && seconds === 0
+      ? '00:00:00'
       : [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60]
-          .map(value => String(value).padStart(2, '0')).join(':');
+          .map((value) => String(value).padStart(2, '0'))
+          .join(':');
+
     const distanceM = session?.totalDistanceMeters ?? myMemberState?.session?.totalDistanceMeters ?? 0;
     const distanceKm = (distanceM / 1000).toFixed(2);
     const speedKmh = currentLocation?.speedMps != null ? (currentLocation.speedMps * 3.6).toFixed(1) : '0.0';
