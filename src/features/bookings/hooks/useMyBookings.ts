@@ -9,7 +9,7 @@ export function useMyBookings(initialStatus?: BookingStatus | string) {
   const [bookings, setBookings] = useState<BookingSummary[]>([]);
   const [total, setTotal] = useState<number>(0);
   const [page, setPage] = useState<number>(1);
-  const [pageSize] = useState<number>(12);
+  const [pageSize] = useState<number>(50);
   const [status, setStatus] = useState<string>(initialStatus || "");
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);

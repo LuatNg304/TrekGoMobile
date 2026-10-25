@@ -47,7 +47,9 @@ export const PrivateTripCard = memo(function PrivateTripCard({
       })
     : trip.startAt;
 
-  const remainingSlots = Math.max(0, trip.maxPax - currentPax);
+  const maxPax = trip.maxPax || (trip as any).capacity || 0;
+  const paxCount = (trip as any).activeMemberCount || currentPax || 1;
+  const remainingSlots = maxPax > 0 ? Math.max(0, maxPax - paxCount) : 0;
 
   return (
     <TouchableOpacity
@@ -61,7 +63,7 @@ export const PrivateTripCard = memo(function PrivateTripCard({
         <View style={styles.paxBadge}>
           <Ionicons name="people" size={13} color={Colors.primaryDark} />
           <Text style={styles.paxText}>
-            {currentPax}/{trip.maxPax} người
+            {maxPax > 0 ? `${paxCount}/${maxPax} người` : `${paxCount} người`}
           </Text>
         </View>
       </View>
@@ -91,6 +93,11 @@ export const PrivateTripCard = memo(function PrivateTripCard({
             <Text style={styles.slotTagText}>Còn {remainingSlots} chỗ</Text>
           </View>
         ) : null}
+      </View>
+
+      <View style={styles.actionRow}>
+        <Text style={styles.actionText}>Xem chi tiết chuyến đi</Text>
+        <Ionicons name="chevron-forward" size={14} color={Colors.primaryDark} />
       </View>
     </TouchableOpacity>
   );
@@ -173,5 +180,20 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "700",
     color: "#B45309",
+  },
+  actionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 4,
+    marginTop: 10,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: Colors.surfaceContainer,
+  },
+  actionText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: Colors.primaryDark,
   },
 });

@@ -214,27 +214,138 @@ export async function getPickupPoints(destinationId: string, page = 1) {
 
 // ─── NHÓM B: QUẢN LÝ CHUYẾN ĐI (DÀNH CHO HOST) ────────────────────────────────
 
+function extractTripItems(payload: any): PrivateTrip[] {
+  if (!payload) return [];
+  let rawList: any[] = [];
+  if (Array.isArray(payload)) {
+    rawList = payload;
+  } else if (payload && typeof payload === "object") {
+    if (Array.isArray(payload.items)) {
+      rawList = payload.items;
+    } else if (Array.isArray(payload.trips)) {
+      rawList = payload.trips;
+    } else if (Array.isArray(payload.data)) {
+      rawList = payload.data;
+    } else if (Array.isArray(payload.results)) {
+      rawList = payload.results;
+    } else if (payload.data && typeof payload.data === "object") {
+      if (Array.isArray(payload.data.items)) {
+        rawList = payload.data.items;
+      } else if (Array.isArray(payload.data.trips)) {
+        rawList = payload.data.trips;
+      } else if (Array.isArray(payload.data.data)) {
+        rawList = payload.data.data;
+      } else if (Array.isArray(payload.data.results)) {
+        rawList = payload.data.results;
+      }
+    }
+  }
+
+  return rawList
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const tripObj =
+        item.trip && typeof item.trip === "object" ? { ...item.trip, ...item } : item;
+      const tripId = tripObj.id || tripObj._id || item.tripId;
+      if (!tripId) return null;
+
+      return {
+        ...tripObj,
+        id: String(tripId),
+        title: tripObj.title || tripObj.name || "Chuyến đi riêng",
+        description: tripObj.description ?? null,
+        startAt: tripObj.startAt || tripObj.startDate || new Date().toISOString(),
+        endAt: tripObj.endAt || tripObj.endDate || new Date().toISOString(),
+        maxPax: Number(tripObj.maxPax || tripObj.capacity || 10),
+        pickupPointId: tripObj.pickupPointId || "",
+        destinationId: tripObj.destinationId || "",
+        status: (tripObj.status || "OPEN").toUpperCase(),
+        version: typeof tripObj.version === "number" ? tripObj.version : 1,
+        inviteCode: tripObj.inviteCode || undefined,
+      } as PrivateTrip;
+    })
+    .filter((t): t is PrivateTrip => t !== null);
+}
+
 /** POST /private-trips — Tạo chuyến đi riêng mới */
 export async function createPrivateTrip(payload: CreatePrivateTripPayload) {
-  return apiRequest<PrivateTrip>("/api/v1/private-trips", {
+  const res = await apiRequest<any>("/api/v1/private-trips", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
+  if (res && res.data && typeof res.data === "object" && !Array.isArray(res.data)) {
+    return res.data as PrivateTrip;
+  }
+  return res as PrivateTrip;
 }
 
 /** GET /private-trips — Lấy danh sách chuyến đi do mình tạo */
 /** GET /me/private-trips - Active memberships, including host and invited member. */
-export async function getMyPrivateTrips(page = 1, pageSize = 50) {
-  const result = await apiRequest<MyPrivateTripsResponse>(
-    `/api/v1/me/private-trips?page=${page}&pageSize=${pageSize}`,
-  );
-  return result.items;
+export async function getMyPrivateTrips(
+  page = 1,
+): Promise<PrivateTrip[]> {
+  const map = new Map<string, PrivateTrip>();
+
+  // 1. Gọi trực tiếp endpoint chính: GET /api/v1/private-trips?page=1
+  try {
+    const rawPrivate = await apiRequest<any>(`/api/v1/private-trips?page=${page}`);
+    const items = extractTripItems(rawPrivate);
+    for (const item of items) {
+      map.set(item.id, item);
+    }
+
+    // Nếu có phân trang và còn các trang tiếp theo, tự động tải hết để hiển thị đầy đủ
+    let total = 0;
+    if (typeof rawPrivate?.total === "number") total = rawPrivate.total;
+    else if (typeof rawPrivate?.data?.total === "number") total = rawPrivate.data.total;
+    const pageSize = rawPrivate?.pageSize || rawPrivate?.data?.pageSize || items.length;
+
+    if (page === 1 && total > items.length && pageSize > 0) {
+      const totalPages = Math.ceil(total / pageSize);
+      for (let p = 2; p <= totalPages; p++) {
+        try {
+          const nextRaw = await apiRequest<any>(`/api/v1/private-trips?page=${p}`);
+          const nextItems = extractTripItems(nextRaw);
+          for (const item of nextItems) {
+            map.set(item.id, item);
+          }
+        } catch {
+          // Bỏ qua lỗi trang phụ
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("[getMyPrivateTrips] /api/v1/private-trips error:", err);
+  }
+
+  // 2. Gọi thêm /api/v1/me/private-trips phòng trường hợp có chuyến tham gia với tư cách member
+  try {
+    const rawMe = await apiRequest<any>(`/api/v1/me/private-trips?page=${page}`);
+    const meItems = extractTripItems(rawMe);
+    for (const item of meItems) {
+      if (!map.has(item.id)) {
+        map.set(item.id, item);
+      }
+    }
+  } catch {
+    // Không bắt buộc nếu backend không có endpoint này
+  }
+
+  return Array.from(map.values());
 }
 
 /** GET /private-trips/:id — Chi tiết chuyến đi dành cho Host */
-export async function getPrivateTripDetail(tripId: string) {
-  return apiRequest<PrivateTrip>(`/api/v1/private-trips/${tripId}`);
+export async function getPrivateTripDetail(tripId: string): Promise<PrivateTrip> {
+  const res = await apiRequest<any>(`/api/v1/private-trips/${tripId}`);
+  let raw = res;
+  if (res && typeof res === "object" && "data" in res && res.data) {
+    raw = res.data;
+  }
+  if (raw && typeof raw === "object" && "trip" in raw && raw.trip) {
+    raw = { ...raw.trip, ...raw };
+  }
+  return raw as PrivateTrip;
 }
 
 /** PATCH /private-trips/:id — Cập nhật thông tin chuyến đi */
@@ -317,7 +428,11 @@ export async function joinPrivateTripByCode(code: string, accessToken?: string) 
 
 /** GET /private-trips/:id/room — Xem Phòng chờ chuyến đi (Trip Room) */
 export async function getPrivateTripRoom(tripId: string) {
-  return apiRequest<TripRoomData>(`/api/v1/private-trips/${tripId}/room`);
+  const res = await apiRequest<any>(`/api/v1/private-trips/${tripId}/room`);
+  if (res && res.data && typeof res.data === "object" && !Array.isArray(res.data)) {
+    return res.data as TripRoomData;
+  }
+  return res as TripRoomData;
 }
 
 /** GET /private-trips/:id/members — Lấy danh sách thành viên trong chuyến đi */
