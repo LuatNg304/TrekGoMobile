@@ -19,6 +19,8 @@ export interface TripGpsSocketCallbacks {
   onRouteFailed?: (data: EventEnvelope<RouteFailedEventData>) => void;
   onAccessRevoked?: (data: EventEnvelope<AccessRevokedEventData>) => void;
   onConnect?: () => void;
+  /** Called only after the server has accepted the trip-room subscription. */
+  onSubscribed?: () => void;
   onDisconnect?: (reason: string) => void;
   onError?: (err: any) => void;
 }
@@ -66,7 +68,9 @@ export class TripGpsSocketService {
       console.log('[TripGpsSocket] Connected to /gps namespace');
       this.callbacks.onConnect?.();
       if (this.currentTripId) {
-        this.subscribe(this.currentTripId);
+        this.subscribe(this.currentTripId).then((subscribed) => {
+          if (subscribed) this.callbacks.onSubscribed?.();
+        });
       }
     });
 
@@ -130,7 +134,9 @@ export class TripGpsSocketService {
             });
             setTimeout(() => {
               if (this.socket?.connected && this.currentTripId === tripId) {
-                this.subscribe(tripId);
+                this.subscribe(tripId).then((subscribed) => {
+                  if (subscribed) this.callbacks.onSubscribed?.();
+                });
               }
             }, 2000);
             resolve(false);

@@ -47,6 +47,25 @@ import type {
   TripCheckpointDto,
 } from '../types';
 
+/** A REST snapshot must never replace a member state received at a newer Socket.IO version. */
+function mergeGpsState(current: GpsStateResponse | null, incoming: GpsStateResponse): GpsStateResponse {
+  if (!current || current.tripId !== incoming.tripId) return incoming;
+
+  const currentByUserId = new Map(current.members.map((member) => [member.userId, member]));
+  const incomingUserIds = new Set(incoming.members.map((member) => member.userId));
+  const members = incoming.members.map((member) => {
+    const existing = currentByUserId.get(member.userId);
+    return existing && existing.memberVersion > member.memberVersion ? existing : member;
+  });
+
+  // Do not let an older roster snapshot remove a member already displayed on the map.
+  if (current.rosterVersion > incoming.rosterVersion) {
+    members.push(...current.members.filter((member) => !incomingUserIds.has(member.userId)));
+  }
+
+  return { ...incoming, rosterVersion: Math.max(current.rosterVersion, incoming.rosterVersion), members };
+}
+
 export function useTripGps(tripId?: string) {
   const { accessToken, isLoading: authLoading } = useAuth();
 
@@ -78,10 +97,12 @@ export function useTripGps(tripId?: string) {
   const syncTimerRef = useRef<any>(null);
   const pollTimerRef = useRef<any>(null);
   const isSyncingRef = useRef(false);
+  const syncPendingRef = useRef(false);
   const gpsProcessorRef = useRef<GpsProcessor>(new GpsProcessor());
   const simulatorRef = useRef<TripGpsSimulator | null>(null);
 
   const immediateSyncNeededRef = useRef(false);
+  const gpsStateRef = useRef<GpsStateResponse | null>(null);
   const sessionRef = useRef<SessionDto | null>(session);
   sessionRef.current = session;
   const policyRef = useRef<GpsPolicyDto | null>(policy);
@@ -89,6 +110,12 @@ export function useTripGps(tripId?: string) {
   const selfUserIdRef = useRef<string | undefined>(gpsState?.selfUserId);
   selfUserIdRef.current = gpsState?.selfUserId;
   const processOutboxSyncRef = useRef<() => Promise<void>>(() => Promise.resolve());
+
+  const applyGpsState = useCallback((incoming: GpsStateResponse) => {
+    const next = mergeGpsState(gpsStateRef.current, incoming);
+    gpsStateRef.current = next;
+    setGpsState(next);
+  }, []);
 
   const canViewGps = Boolean(accessToken && context?.tripId === tripId && context?.permissions.canViewGroupLocations);
 
@@ -132,6 +159,7 @@ export function useTripGps(tripId?: string) {
       setLoading(true);
       setError(null);
       setContext(null);
+      gpsStateRef.current = null;
       setGpsState(null);
 
       // Tải Context từ server
@@ -155,7 +183,7 @@ export function useTripGps(tripId?: string) {
 
       // Tải State hiện hành của cả đoàn
       const st = await getGpsState(tripId);
-      setGpsState(st);
+      applyGpsState(st);
 
       // Tìm session của bản thân trong state nếu local chưa có
       if (!localActive && st.selfUserId) {
@@ -178,6 +206,7 @@ export function useTripGps(tripId?: string) {
         message: err?.message,
       });
       setContext(null);
+      gpsStateRef.current = null;
       setGpsState(null);
       setError(err instanceof ApiError && err.code === 'GPS_TEMPORARILY_UNAVAILABLE'
         ? err.message === 'An effective GPS policy is required'
@@ -189,7 +218,7 @@ export function useTripGps(tripId?: string) {
     } finally {
       setLoading(false);
     }
-  }, [tripId, accessToken, authLoading]);
+  }, [tripId, accessToken, authLoading, applyGpsState]);
 
   useEffect(() => {
     loadContextAndActiveSession();
@@ -216,34 +245,38 @@ export function useTripGps(tripId?: string) {
 
     tripGpsSocket.connect(accessToken, tripId, {
       onConnect: () => {
+        // A namespace connection is not yet a room subscription.
+        setSocketConnected(false);
+      },
+      onSubscribed: () => {
         setSocketConnected(true);
-        // Làm tươi dữ liệu vị trí các thành viên ngay khi vừa bắt tay Socket thành công
-        getGpsState(tripId).then(setGpsState).catch(() => {});
+        getGpsState(tripId).then(applyGpsState).catch(() => {});
       },
       onDisconnect: () => setSocketConnected(false),
       onError: (err) => console.warn('[useTripGps] Socket error:', err?.message || err),
       onMemberUpdated: (event) => {
         const updatedMember = event.data?.member;
         if (!updatedMember) return;
-        setGpsState((prev) => {
-          if (!prev) {
-            getGpsState(tripId).then(setGpsState).catch(() => {});
-            return prev;
-          }
-          const exists = prev.members.some((m) => m.userId === updatedMember.userId);
+        const previous = gpsStateRef.current;
+        if (!previous) {
+          getGpsState(tripId).then(applyGpsState).catch(() => {});
+          return;
+        }
+        const exists = previous.members.some((m) => m.userId === updatedMember.userId);
           const newMembers = exists
-            ? prev.members.map((m) =>
+            ? previous.members.map((m) =>
                 m.userId === updatedMember.userId && (updatedMember.memberVersion ?? 0) >= (m.memberVersion ?? 0)
                   ? { ...m, ...updatedMember }
                   : m
               )
-            : [...prev.members, updatedMember];
-          return { ...prev, members: newMembers };
-        });
+            : [...previous.members, updatedMember];
+        const next = { ...previous, members: newMembers };
+        gpsStateRef.current = next;
+        setGpsState(next);
       },
       onTripChanged: () => {
         if (tripId) {
-          getGpsState(tripId).then(setGpsState).catch(() => {});
+          getGpsState(tripId).then(applyGpsState).catch(() => {});
           getGpsContext(tripId).then(setContext).catch(() => {});
         }
       },
@@ -261,7 +294,7 @@ export function useTripGps(tripId?: string) {
       tripGpsSocket.disconnect();
       setSocketConnected(false);
     };
-  }, [tripId, accessToken, canViewGps]);
+  }, [tripId, accessToken, canViewGps, applyGpsState]);
 
   useEffect(() => {
     if (!tripId || !context || ['OPEN', 'FULL', 'CLOSED', 'IN_PROGRESS'].includes(context.tripStatus)) return;
@@ -280,7 +313,7 @@ export function useTripGps(tripId?: string) {
       try {
         setContext(await getGpsContext(tripId));
         const freshState = await getGpsState(tripId);
-        setGpsState(freshState);
+        applyGpsState(freshState);
       } catch {
         // Silent catch for background poll
       }
@@ -289,7 +322,7 @@ export function useTripGps(tripId?: string) {
     return () => {
       if (pollTimerRef.current) clearInterval(pollTimerRef.current);
     };
-  }, [tripId, canViewGps]);
+  }, [tripId, canViewGps, applyGpsState]);
 
   // 4. Theo dõi GPS Thiết bị hoặc Fake GPS khi Session đang ACTIVE
   useEffect(() => {
@@ -440,7 +473,11 @@ export function useTripGps(tripId?: string) {
   // 5. Chu kỳ Đồng bộ SQLite -> Backend (Mỗi syncIntervalSeconds)
   const processOutboxSync = useCallback(async () => {
     const curSession = sessionRef.current;
-    if (!tripId || !curSession || isSyncingRef.current) return;
+    if (!tripId || !curSession) return;
+    if (isSyncingRef.current) {
+      syncPendingRef.current = true;
+      return;
+    }
     isSyncingRef.current = true;
     setSyncing(true);
 
@@ -520,15 +557,19 @@ export function useTripGps(tripId?: string) {
 
       // Nếu vừa tải lên thành công, cập nhật ngay gpsState để có vị trí mới nhất của toàn đoàn
       if (hasUploadedAny) {
-        getGpsState(tripId).then(setGpsState).catch(() => {});
+        getGpsState(tripId).then(applyGpsState).catch(() => {});
       }
     } catch (err: any) {
       console.warn('[useTripGps] Outbox sync error:', err?.message || err);
     } finally {
       isSyncingRef.current = false;
       setSyncing(false);
+      if (syncPendingRef.current) {
+        syncPendingRef.current = false;
+        void processOutboxSyncRef.current();
+      }
     }
-  }, [tripId]);
+  }, [tripId, applyGpsState]);
 
   processOutboxSyncRef.current = processOutboxSync;
 
@@ -567,7 +608,7 @@ export function useTripGps(tripId?: string) {
       setLiveRouteCoords([]);
       setActualRoute(null);
       getGpsContext(tripId).then(setContext).catch(() => {});
-      getGpsState(tripId).then(setGpsState).catch(() => {});
+      getGpsState(tripId).then(applyGpsState).catch(() => {});
     } catch (err: any) {
       console.warn('[useTripGps] Start session error:', err?.message || err);
       setError(err?.message || 'Không thể bắt đầu phiên ghi GPS.');
