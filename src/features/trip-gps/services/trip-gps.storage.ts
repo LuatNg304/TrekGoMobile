@@ -7,7 +7,7 @@ const DEVICE_ID_KEY = '@trekgo_gps_device_id';
 /**
  * 1. Định danh thiết bị ổn định (deviceId)
  */
-export async function getOrCreateDeviceId(): Promise<string> {
+export async function getOrCreateDeviceId(requirePersistent = false): Promise<string> {
   try {
     const existing = await AsyncStorage.getItem(DEVICE_ID_KEY);
     if (existing && existing.length > 5) {
@@ -17,6 +17,7 @@ export async function getOrCreateDeviceId(): Promise<string> {
     await AsyncStorage.setItem(DEVICE_ID_KEY, newId);
     return newId;
   } catch {
+    if (requirePersistent) throw new Error('Không lưu được định danh thiết bị GPS. Vui lòng kiểm tra bộ nhớ trước khi tạo phiên.');
     return `dev-${Date.now()}`;
   }
 }

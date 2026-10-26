@@ -26,8 +26,8 @@ export function TripGpsRosterDrawer({
   onClose,
   onFocusMember,
 }: TripGpsRosterDrawerProps) {
-  const liveCount = members.filter((m) => m.locationStatus === 'LIVE').length;
-  const offlineCount = members.filter((m) => ['OFFLINE', 'NO_DATA'].includes(m.locationStatus)).length;
+  const liveCount = members.filter((m) => m.connectionStatus ? m.connectionStatus === 'ONLINE' : m.locationStatus === 'LIVE').length;
+  const offlineCount = members.filter((m) => m.connectionStatus ? m.connectionStatus === 'OFFLINE' : ['OFFLINE', 'NO_DATA'].includes(m.locationStatus)).length;
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -41,7 +41,7 @@ export function TripGpsRosterDrawer({
             <View>
               <Text style={styles.sheetTitle}>Thành Viên Đoàn</Text>
               <Text style={styles.sheetSubtitle}>
-                Tổng số {members.length} người · {liveCount} đang truyền tín hiệu · {offlineCount} offline
+                Tổng số {members.length} người · {liveCount} online · {offlineCount} offline
               </Text>
             </View>
             <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
@@ -62,7 +62,7 @@ export function TripGpsRosterDrawer({
                   ? Colors.warning
                   : Colors.mute;
 
-              const statusText =
+              const legacyStatusText =
                 m.locationStatus === 'LIVE'
                   ? 'Trực tiếp'
                   : m.locationStatus === 'PAUSED'
@@ -72,6 +72,9 @@ export function TripGpsRosterDrawer({
                   : m.locationStatus === 'OFFLINE'
                   ? 'Offline'
                   : 'Chưa có vị trí';
+              const statusText = m.connectionStatus
+                ? `${m.connectionStatus === 'ONLINE' ? 'Online' : m.connectionStatus === 'OFFLINE' ? 'Offline' : 'Chưa rõ kết nối'} · ${m.session?.status === 'PAUSED' ? 'Tạm dừng' : m.session?.status === 'STOPPED' ? 'Đã dừng' : m.locationFreshness === 'STALE' ? 'Vị trí cũ' : m.locationFreshness === 'NO_DATA' ? 'Chưa có vị trí' : 'Đang ghi'}`
+                : legacyStatusText;
 
               const roleLabel = isHost ? 'Chủ phòng' : isLeader ? 'Leader' : 'Thành viên';
               const roleBg = isLeader ? '#fef3c7' : isHost ? Colors.primaryPale : Colors.surfaceContainer;
@@ -112,6 +115,7 @@ export function TripGpsRosterDrawer({
                   </View>
 
                   {/* Locate Button */}
+                  {m.lastLocation && <Text style={styles.cpProgressText}>Vị trí lúc {new Date(m.lastLocation.recordedAt).toLocaleTimeString('vi-VN')}</Text>}
                   {m.lastLocation && (
                     <TouchableOpacity
                       style={styles.locateBtn}

@@ -45,6 +45,7 @@ export default function NavigationScreen() {
     otherMembers,
     plannedRouteCoords,
     liveRouteCoords,
+    summaryRouteCoords,
     currentLocation,
     checkpoints,
     arrivedCheckpointIds,
@@ -54,10 +55,13 @@ export default function NavigationScreen() {
     actualRoute,
     loading,
     syncing,
+    syncStatus,
+    syncNow,
+    isV2,
+    rejectedSampleCount,
     error,
     socketConnected,
     isSimulated,
-    toggleSimulation,
     isMapMatchingEnabled,
     toggleMapMatching,
     startRecording,
@@ -110,6 +114,10 @@ export default function NavigationScreen() {
         avatarUrl: m.avatarUrl,
         tripRole: m.tripRole,
         locationStatus: m.locationStatus,
+        connectionStatus: m.connectionStatus,
+        sessionId: m.session?.id,
+        locationVersion: m.locationVersion,
+        recordedAt: m.lastLocation!.recordedAt,
         latitude: m.lastLocation!.latitude,
         longitude: m.lastLocation!.longitude,
         isSelf: m.userId === gpsState?.selfUserId,
@@ -434,19 +442,6 @@ export default function NavigationScreen() {
             </View>
           </TouchableOpacity>
 
-          {/* Nút bật/tắt Fake GPS (Mô phỏng bám cung đường) */}
-          <TouchableOpacity
-            style={[styles.mapIconBtn, isSimulated && styles.mapIconBtnSimActive]}
-            onPress={() => toggleSimulation()}
-            activeOpacity={0.85}
-          >
-            <Ionicons
-              name={isSimulated ? 'walk' : 'navigate-circle-outline'}
-              size={20}
-              color={isSimulated ? '#ffffff' : Colors.ink}
-            />
-          </TouchableOpacity>
-
           {/* Nút bật/tắt Map Matching (Snap vào tim đường) */}
           <TouchableOpacity
             style={[styles.mapIconBtn, isMapMatchingEnabled && styles.mapIconBtnMatchActive]}
@@ -590,7 +585,7 @@ export default function NavigationScreen() {
         )}
 
         {/* Syncing spinner badge */}
-        {syncing && (
+        {syncing && !isV2 && (
           <View style={styles.syncingBadge}>
             <ActivityIndicator size="small" color={Colors.ink} />
             <Text style={styles.syncingText}>Đang đồng bộ SQLite...</Text>
@@ -600,6 +595,39 @@ export default function NavigationScreen() {
 
       {/* 3. COMPACT DASHBOARD & CONTROLS PANEL (~1/3 màn hình, thiết kế Scandinavian Wise) */}
       <View style={[styles.bottomPanel, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+        {isV2 && session?.status === 'STOPPED' && (
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel={syncStatus === 'SYNCED' ? 'Đã đồng bộ lịch sử GPS' : 'Đồng bộ lịch sử GPS'}
+            accessibilityState={{ disabled: syncing || syncStatus === 'PROCESSING', busy: syncing || syncStatus === 'PROCESSING' }}
+            activeOpacity={0.8}
+            style={[
+              styles.syncAction,
+              syncStatus === 'SYNCED' && styles.syncActionComplete,
+              (syncing || syncStatus === 'PROCESSING') && styles.syncActionBusy,
+              syncStatus === 'NEEDS_ATTENTION' && styles.syncActionAttention,
+            ]}
+            disabled={syncing || syncStatus === 'PROCESSING'}
+            onPress={() => { void syncNow(); }}
+          >
+            <View style={styles.syncActionIcon}>
+              {syncing || syncStatus === 'PROCESSING' ? (
+                <ActivityIndicator size="small" color={Colors.inkDeep} />
+              ) : (
+                <Ionicons name={syncStatus === 'SYNCED' ? 'checkmark-circle-outline' : syncStatus === 'NEEDS_ATTENTION' ? 'alert-circle-outline' : 'cloud-upload-outline'} size={24} color={Colors.inkDeep} />
+              )}
+            </View>
+            <View style={styles.syncActionContent}>
+              <Text style={styles.syncActionTitle}>
+                {syncStatus === 'SYNCED' ? 'Đã đồng bộ' : syncStatus === 'PROCESSING' ? 'Đang xử lý lịch sử' : syncing ? 'Đang đồng bộ…' : syncStatus === 'NEEDS_ATTENTION' || syncStatus === 'WAITING_NETWORK' ? 'Đồng bộ lại' : 'Đồng bộ ngay'}
+              </Text>
+              <Text style={styles.syncActionDescription}>
+                {syncStatus === 'SYNCED' ? 'Lịch sử đã được máy chủ xử lý.' : syncStatus === 'PROCESSING' ? 'Máy chủ đang tổng hợp hành trình.' : syncing ? 'Đang gửi lịch sử GPS lên máy chủ.' : syncStatus === 'WAITING_NETWORK' ? 'Đã lưu trên máy. Chờ kết nối để gửi.' : syncStatus === 'NEEDS_ATTENTION' ? 'Cần kiểm tra. Nhấn để thử đồng bộ lại.' : 'Gửi lịch sử GPS đã lưu trên máy.'}
+              </Text>
+            </View>
+            {!syncing && syncStatus !== 'PROCESSING' && <Ionicons name="chevron-forward" size={20} color={Colors.inkDeep} />}
+          </TouchableOpacity>
+        )}
         {/* CRITICAL ROUTE DEVIATION WARNING BAR (If deviated) */}
         {deviation.isDeviated && (
           <View style={styles.deviationCardCompact}>
@@ -681,14 +709,14 @@ export default function NavigationScreen() {
             style={styles.primaryPillBtn}
             activeOpacity={0.88}
             onPress={handleStart}
-            disabled={controlsDisabled || !context?.permissions.canRecord}
+            disabled={controlsDisabled || !(context?.permissions.canStartNewSession ?? context?.permissions.canRecord)}
           >
             {loading ? (
               <ActivityIndicator size="small" color={Colors.onPrimary} />
             ) : (
               <>
                 <Ionicons name="play" size={20} color={Colors.onPrimary} />
-                <Text style={styles.primaryPillText}>{!context?.permissions.canRecord
+                <Text style={styles.primaryPillText}>{!(context?.permissions.canStartNewSession ?? context?.permissions.canRecord)
                   ? (context?.tripStatus === 'COMPLETED' ? 'Chuyến đi đã kết thúc' : 'Chưa được phép ghi GPS')
                   : session?.status === 'STOPPED' ? 'Ghi tiếp hành trình' : 'Bắt đầu ghi GPS'}</Text>
               </>
@@ -782,8 +810,10 @@ export default function NavigationScreen() {
       <TripGpsResultModal
         visible={resultModalVisible}
         actualRoute={actualRoute}
-        liveRouteCoords={liveRouteCoords}
+        liveRouteCoords={summaryRouteCoords}
         stats={stats}
+        syncStatus={isV2 ? syncStatus : undefined}
+        rejectedSampleCount={rejectedSampleCount}
         onClose={() => setResultModalVisible(false)}
       />
     </View>
@@ -1105,6 +1135,50 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     color: Colors.ink,
+  },
+  syncAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    minHeight: 72,
+    marginHorizontal: 16,
+    marginBottom: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: Radius.xl,
+    backgroundColor: Colors.primary,
+  },
+  syncActionComplete: {
+    backgroundColor: Colors.primaryPale,
+  },
+  syncActionBusy: {
+    backgroundColor: Colors.surfaceContainerLow,
+  },
+  syncActionAttention: {
+    backgroundColor: Colors.tertiaryFixed,
+  },
+  syncActionIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: Radius.pill,
+    backgroundColor: 'rgba(255, 255, 255, 0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  syncActionContent: {
+    flex: 1,
+    gap: 2,
+  },
+  syncActionTitle: {
+    fontSize: 16,
+    lineHeight: 24,
+    fontWeight: '700',
+    color: Colors.inkDeep,
+  },
+  syncActionDescription: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: Colors.body,
   },
   bottomPanel: {
     backgroundColor: '#ffffff',

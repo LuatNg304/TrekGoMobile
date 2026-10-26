@@ -45,4 +45,7 @@ example
 
 # generated api client
 src/api/
-docs
+/docs/*
+!/docs/TRIP_GPS_OFFLINE_SYNC_V2.md
+!/docs/TRIP_GPS_V2_API_HANDOFF.md
+!/docs/TRIP_GPS_V2_MOBILE_IMPLEMENTATION.md
