@@ -71,6 +71,10 @@ export default function NavigationScreen() {
   const [rosterDrawerVisible, setRosterDrawerVisible] = useState(false);
   const [checkpointSheetVisible, setCheckpointSheetVisible] = useState(false);
   const [resultModalVisible, setResultModalVisible] = useState(false);
+  const finishActionLockedRef = useRef(false);
+  const [finishActionPending, setFinishActionPending] = useState(false);
+  const [isFinishing, setIsFinishing] = useState(false);
+  const controlsDisabled = loading || finishActionPending;
 
   // Map interaction state (Learned from Personal Trail & TuongTacTrenMap.md)
   // 1. Follow Mode ON by default; automatically turns OFF when user gestures/pans/zooms
@@ -271,36 +275,53 @@ export default function NavigationScreen() {
 
   // Session Control Actions with Alerts
   const handleStart = useCallback(async () => {
+    if (loading || finishActionLockedRef.current) return;
     await startRecording();
-  }, [startRecording]);
+  }, [startRecording, loading]);
 
   const handlePause = useCallback(async () => {
+    if (loading || finishActionLockedRef.current) return;
     Alert.alert('Tạm dừng ghi GPS?', 'Phiên ghi sẽ được đánh dấu tạm dừng. Bạn có thể tiếp tục bất cứ lúc nào.', [
       { text: 'Hủy', style: 'cancel' },
       { text: 'Tạm dừng', onPress: pauseRecording },
     ]);
-  }, [pauseRecording]);
+  }, [pauseRecording, loading]);
 
   const handleResume = useCallback(async () => {
+    if (loading || finishActionLockedRef.current) return;
     await resumeRecording();
-  }, [resumeRecording]);
+  }, [resumeRecording, loading]);
 
   const handleFinish = useCallback(async () => {
+    if (loading || finishActionLockedRef.current) return;
+    finishActionLockedRef.current = true;
+    setFinishActionPending(true);
+    const unlock = () => {
+      finishActionLockedRef.current = false;
+      setFinishActionPending(false);
+      setIsFinishing(false);
+    };
     Alert.alert(
       'Kết thúc phiên ghi GPS?',
       'Dữ liệu đã ghi sẽ được lưu. Bạn có thể ghi tiếp bằng phiên mới khi chuyến còn cho phép ghi. Thao tác này không kết thúc chuyến đi.',
       [
-        { text: 'Hủy', style: 'cancel' },
+        { text: 'Hủy', style: 'cancel', onPress: unlock },
         {
           text: 'Kết thúc & Lưu',
           style: 'destructive',
           onPress: async () => {
-            if (await finishRecording()) setResultModalVisible(true);
+            setIsFinishing(true);
+            try {
+              if (await finishRecording()) setResultModalVisible(true);
+            } finally {
+              unlock();
+            }
           },
         },
-      ]
+      ],
+      { cancelable: false }
     );
-  }, [finishRecording]);
+  }, [finishRecording, loading]);
 
   const isSessionActive = session?.status === 'ACTIVE';
   const isSessionPaused = session?.status === 'PAUSED';
@@ -378,6 +399,7 @@ export default function NavigationScreen() {
           showControls={false}
           showEndpoints={false}
           autoCenterOnUser={true}
+          fitOnPlannedRouteUpdate={false}
           followUser={isFollowingUser && isSessionActive && !isSessionPaused}
           onUserInteraction={handleUserMapInteraction}
           onBearingChange={setCurrentBearing}
@@ -659,7 +681,7 @@ export default function NavigationScreen() {
             style={styles.primaryPillBtn}
             activeOpacity={0.88}
             onPress={handleStart}
-            disabled={loading || !context?.permissions.canRecord}
+            disabled={controlsDisabled || !context?.permissions.canRecord}
           >
             {loading ? (
               <ActivityIndicator size="small" color={Colors.onPrimary} />
@@ -681,20 +703,20 @@ export default function NavigationScreen() {
               style={styles.pauseBtn}
               activeOpacity={0.85}
               onPress={handlePause}
-              disabled={loading}
+              disabled={controlsDisabled}
             >
               <Ionicons name="pause" size={18} color={Colors.ink} />
               <Text style={styles.pauseBtnText}>Tạm dừng</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.finishBtn}
+              style={[styles.finishBtn, controlsDisabled && { opacity: 0.5 }]}
               activeOpacity={0.85}
               onPress={handleFinish}
-              disabled={loading}
+              disabled={controlsDisabled}
             >
-              <Ionicons name="stop" size={18} color="#ffffff" />
-              <Text style={styles.finishBtnText}>Kết thúc</Text>
+              {isFinishing ? <ActivityIndicator size="small" color="#ffffff" /> : <Ionicons name="stop" size={18} color="#ffffff" />}
+              <Text style={styles.finishBtnText}>{isFinishing ? 'Đang kết thúc…' : 'Kết thúc'}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -706,20 +728,20 @@ export default function NavigationScreen() {
               style={styles.resumeBtn}
               activeOpacity={0.88}
               onPress={handleResume}
-              disabled={loading}
+              disabled={controlsDisabled}
             >
               <Ionicons name="play" size={18} color={Colors.onPrimary} />
               <Text style={styles.resumeBtnText}>Tiếp tục ghi</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.finishBtn}
+              style={[styles.finishBtn, controlsDisabled && { opacity: 0.5 }]}
               activeOpacity={0.85}
               onPress={handleFinish}
-              disabled={loading}
+              disabled={controlsDisabled}
             >
-              <Ionicons name="stop" size={18} color="#ffffff" />
-              <Text style={styles.finishBtnText}>Kết thúc</Text>
+              {isFinishing ? <ActivityIndicator size="small" color="#ffffff" /> : <Ionicons name="stop" size={18} color="#ffffff" />}
+              <Text style={styles.finishBtnText}>{isFinishing ? 'Đang kết thúc…' : 'Kết thúc'}</Text>
             </TouchableOpacity>
           </View>
         )}

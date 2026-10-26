@@ -78,6 +78,7 @@ export interface MapLibre3DViewProps {
   dragRotate?: boolean;
   followUser?: boolean; // Tự động trượt camera bám theo GPS (giữ nguyên mức zoom)
   autoCenterOnUser?: boolean;
+  fitOnPlannedRouteUpdate?: boolean; // Tự căn camera khi tuyến kế hoạch được cập nhật
   onMapReady?: () => void;
   onCheckpointPress?: (checkpointId: string) => void;
   onMemberPress?: (userId: string, fullName: string) => void;
@@ -121,6 +122,7 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
       dragRotate = true, // Cho phép xoay tròn 360 độ ở cả 2D và 3D để quan sát địa hình mọi hướng
       followUser = false,
       autoCenterOnUser = false,
+      fitOnPlannedRouteUpdate = true,
       onMapReady,
       onCheckpointPress,
       onMemberPress,
@@ -227,9 +229,9 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
     useEffect(() => {
       if (!isLoaded) return;
       runInMap(`
-        updatePlannedRoute(${JSON.stringify(plannedRoute)});
+        updatePlannedRoute(${JSON.stringify(plannedRoute)}, ${Boolean(fitOnPlannedRouteUpdate)});
       `);
-    }, [plannedRoute, isLoaded]);
+    }, [plannedRoute, isLoaded, fitOnPlannedRouteUpdate]);
 
     // Khi showEndpoints thay đổi
     useEffect(() => {
@@ -674,7 +676,7 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
       return null;
     }
 
-    window.updatePlannedRoute = function(coords) {
+    window.updatePlannedRoute = function(coords, fitCamera) {
       currentPlannedCoords = coords;
       if (map && map.getSource('planned-route-src')) {
         var geom = getGeoJsonGeometry(coords);
@@ -682,7 +684,7 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
           type: 'Feature',
           geometry: geom
         });
-        if (geom && geom.coordinates && geom.coordinates.length > 0) {
+        if (fitCamera !== false && geom && geom.coordinates && geom.coordinates.length > 0) {
           var bounds = getBoundsFromCoords(coords);
           if (bounds) {
             map.fitBounds(bounds, { padding: 45, duration: 800 });
