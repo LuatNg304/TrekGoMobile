@@ -84,7 +84,14 @@ function formatVnDateTimeShort(dateStr?: string | null): string {
   }
 }
 
-function getStatusBadge(status: string) {
+function getStatusBadge(status: string, registrationOpenAt?: string | null) {
+  // OPEN nhưng chưa tới giờ mở nhận đăng ký → hiện cảnh báo thay vì "Đang mở đăng ký"
+  if (status === "OPEN" && registrationOpenAt) {
+    const openAt = new Date(registrationOpenAt);
+    if (!isNaN(openAt.getTime()) && Date.now() < openAt.getTime()) {
+      return { label: "Chưa tới hạn đăng ký", bg: "#fef3c7", color: "#92400e" };
+    }
+  }
   switch (status) {
     case "DRAFT":
       return { label: "Bản nháp", bg: "#f1f5f9", color: "#475569" };
@@ -365,7 +372,7 @@ export function LeaderTripDetailScreen() {
     );
   }
 
-  const statusBadge = getStatusBadge(trip.status);
+  const statusBadge = getStatusBadge(trip.status, trip.registrationOpenAt);
   const trailSnapshot = trip.trails?.[0];
   const trailDifficulty = trailSnapshot?.snapshotDifficulty || trailSnapshot?.difficulty || "MEDIUM";
   const trailName = trailSnapshot?.snapshotName || trailSnapshot?.name || "HBS - La Bàn";

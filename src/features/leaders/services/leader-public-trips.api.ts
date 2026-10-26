@@ -234,6 +234,15 @@ export interface LeaderTripsListResponse {
   pageSize: number;
 }
 
+// ─── Response Unwrap Helper ──────────────────────────────────────────────────
+
+function unwrapLeader<T>(res: any): T {
+  if (res && typeof res === "object" && "data" in res && res.data !== null && res.data !== undefined) {
+    return res.data as T;
+  }
+  return res as T;
+}
+
 // ─── [NHÓM A] Data Fetching for Leader ───────────────────────────────────────
 
 /** GET /api/v1/leader/trip-options/destinations?page=1&pageSize=20 */
@@ -242,10 +251,14 @@ export async function getDestinations(
   page = 1,
   pageSize = 20,
 ): Promise<TripOptionDestination[]> {
-  return apiRequest<TripOptionDestination[]>(
+  const raw = await apiRequest<any>(
     `/api/v1/leader/trip-options/destinations?page=${page}&pageSize=${pageSize}`,
     { accessToken },
   );
+  const data = unwrapLeader<any>(raw);
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.items)) return data.items;
+  return [];
 }
 
 /** GET /api/v1/leader/trip-options/pickup-points?destinationId={id}&page=1&pageSize=20 */
@@ -255,10 +268,14 @@ export async function getPickupPoints(
   page = 1,
   pageSize = 20,
 ): Promise<TripOptionPickupPoint[]> {
-  return apiRequest<TripOptionPickupPoint[]>(
+  const raw = await apiRequest<any>(
     `/api/v1/leader/trip-options/pickup-points?destinationId=${destinationId}&page=${page}&pageSize=${pageSize}`,
     { accessToken },
   );
+  const data = unwrapLeader<any>(raw);
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.items)) return data.items;
+  return [];
 }
 
 /** GET /api/v1/leader/trip-options/checkpoints?destinationId={id}&page=1&pageSize=20 */
@@ -268,10 +285,14 @@ export async function getCheckpointOptions(
   page = 1,
   pageSize = 20,
 ): Promise<TripOptionCheckpoint[]> {
-  return apiRequest<TripOptionCheckpoint[]>(
+  const raw = await apiRequest<any>(
     `/api/v1/leader/trip-options/checkpoints?destinationId=${destinationId}&page=${page}&pageSize=${pageSize}`,
     { accessToken },
   );
+  const data = unwrapLeader<any>(raw);
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.items)) return data.items;
+  return [];
 }
 
 /** GET /api/v1/leaders/me/schedule-conflicts?startAt={ISO}&endAt={ISO}&excludeTripId={tripId} */
@@ -285,7 +306,8 @@ export async function checkScheduleConflict(
   if (excludeTripId) {
     url += `&excludeTripId=${encodeURIComponent(excludeTripId)}`;
   }
-  return apiRequest<ScheduleConflictResponse>(url, { accessToken });
+  const raw = await apiRequest<any>(url, { accessToken });
+  return unwrapLeader<ScheduleConflictResponse>(raw);
 }
 
 // ─── [NHÓM B] Leader Create & Publish Flow ───────────────────────────────────
@@ -295,11 +317,12 @@ export async function createPublicTrip(
   input: CreatePublicTripInput,
   accessToken: string,
 ): Promise<LeaderPublicTrip> {
-  return apiRequest<LeaderPublicTrip>("/api/v1/leader/public-trips", {
+  const raw = await apiRequest<any>("/api/v1/leader/public-trips", {
     method: "POST",
     accessToken,
     body: JSON.stringify(input),
   });
+  return unwrapLeader<LeaderPublicTrip>(raw);
 }
 
 /** PATCH /api/v1/leader/public-trips/:id — Update DRAFT trip */
@@ -308,7 +331,7 @@ export async function updatePublicTrip(
   input: UpdatePublicTripInput,
   accessToken: string,
 ): Promise<LeaderPublicTrip> {
-  return apiRequest<LeaderPublicTrip>(
+  const raw = await apiRequest<any>(
     `/api/v1/leader/public-trips/${tripId}`,
     {
       method: "PATCH",
@@ -316,6 +339,7 @@ export async function updatePublicTrip(
       body: JSON.stringify(input),
     },
   );
+  return unwrapLeader<LeaderPublicTrip>(raw);
 }
 
 /** GET /api/v1/leader/public-trips/:id — Get trip detail for leader */
@@ -323,10 +347,11 @@ export async function getLeaderPublicTripById(
   tripId: string,
   accessToken: string,
 ): Promise<LeaderPublicTrip> {
-  return apiRequest<LeaderPublicTrip>(
+  const raw = await apiRequest<any>(
     `/api/v1/leader/public-trips/${tripId}`,
     { accessToken },
   );
+  return unwrapLeader<LeaderPublicTrip>(raw);
 }
 
 /** PUT /api/v1/leader/public-trips/:id/checkpoints */
@@ -335,7 +360,7 @@ export async function setTripCheckpoints(
   input: SetCheckpointsInput,
   accessToken: string,
 ): Promise<LeaderPublicTrip> {
-  return apiRequest<LeaderPublicTrip>(
+  const raw = await apiRequest<any>(
     `/api/v1/leader/public-trips/${tripId}/checkpoints`,
     {
       method: "PUT",
@@ -343,6 +368,7 @@ export async function setTripCheckpoints(
       body: JSON.stringify(input),
     },
   );
+  return unwrapLeader<LeaderPublicTrip>(raw);
 }
 
 /** GET /api/v1/leader/public-trips/:id/trail-suggestions */
@@ -352,10 +378,14 @@ export async function getTrailSuggestions(
   page = 1,
   pageSize = 20,
 ): Promise<LeaderTrailSuggestion[]> {
-  return apiRequest<LeaderTrailSuggestion[]>(
+  const raw = await apiRequest<any>(
     `/api/v1/leader/public-trips/${tripId}/trail-suggestions?page=${page}&pageSize=${pageSize}`,
     { accessToken },
   );
+  const data = unwrapLeader<any>(raw);
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.items)) return data.items;
+  return [];
 }
 
 /** PUT /api/v1/leader/public-trips/:id/trails */
@@ -364,7 +394,7 @@ export async function setTripTrails(
   input: SetTrailsInput,
   accessToken: string,
 ): Promise<LeaderPublicTrip> {
-  return apiRequest<LeaderPublicTrip>(
+  const raw = await apiRequest<any>(
     `/api/v1/leader/public-trips/${tripId}/trails`,
     {
       method: "PUT",
@@ -372,6 +402,7 @@ export async function setTripTrails(
       body: JSON.stringify(input),
     },
   );
+  return unwrapLeader<LeaderPublicTrip>(raw);
 }
 
 /** GET /api/v1/leader/public-trips/:id/readiness */
@@ -379,10 +410,11 @@ export async function getTripReadiness(
   tripId: string,
   accessToken: string,
 ): Promise<ReadinessCheckResponse> {
-  return apiRequest<ReadinessCheckResponse>(
+  const raw = await apiRequest<any>(
     `/api/v1/leader/public-trips/${tripId}/readiness`,
     { accessToken },
   );
+  return unwrapLeader<ReadinessCheckResponse>(raw);
 }
 
 /** POST /api/v1/leader/public-trips/:id/publish */
@@ -391,7 +423,7 @@ export async function publishTrip(
   input: PublishTripInput,
   accessToken: string,
 ): Promise<LeaderPublicTrip> {
-  return apiRequest<LeaderPublicTrip>(
+  const raw = await apiRequest<any>(
     `/api/v1/leader/public-trips/${tripId}/publish`,
     {
       method: "POST",
@@ -399,6 +431,7 @@ export async function publishTrip(
       body: JSON.stringify(input),
     },
   );
+  return unwrapLeader<LeaderPublicTrip>(raw);
 }
 
 /** POST /api/v1/leader/public-trips/:id/cancellation-requests */
@@ -407,7 +440,7 @@ export async function requestTripCancellation(
   input: RequestCancellationInput,
   accessToken: string,
 ): Promise<LeaderPublicTrip> {
-  return apiRequest<LeaderPublicTrip>(
+  const raw = await apiRequest<any>(
     `/api/v1/leader/public-trips/${tripId}/cancellation-requests`,
     {
       method: "POST",
@@ -415,6 +448,7 @@ export async function requestTripCancellation(
       body: JSON.stringify(input),
     },
   );
+  return unwrapLeader<LeaderPublicTrip>(raw);
 }
 
 /** GET /api/v1/leader/public-trips?page=1&pageSize=20&destinationId=... */
@@ -428,7 +462,8 @@ export async function getLeaderTrips(
   if (destinationId) {
     url += `&destinationId=${encodeURIComponent(destinationId)}`;
   }
-  const res = await apiRequest<LeaderTripsListResponse | LeaderPublicTrip[]>(url, { accessToken });
+  const raw = await apiRequest<any>(url, { accessToken });
+  const res = unwrapLeader<any>(raw);
 
   // BE trả về trực tiếp mảng LeaderPublicTrip[] hoặc object { items, total, page, pageSize }
   if (Array.isArray(res)) {

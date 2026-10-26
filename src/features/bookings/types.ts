@@ -141,6 +141,7 @@ export interface BookingTransport {
 
 export interface BookingDetail {
   id: string;
+  bookingCode?: string | null;
   status: BookingStatus;
   version: number;
   participantCount: number;

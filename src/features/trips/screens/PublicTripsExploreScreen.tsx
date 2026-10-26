@@ -1,4 +1,15 @@
-import { Colors, Radius, Shadows } from "@/constants/theme";
+/**
+ * PublicTripsExploreScreen — feed khám phá chuyến công khai.
+ * UI: ScreenHeader + ErrorAlert/LoadingState/EmptyState theo bộ @/components/ui.
+ * Logic (usePublicTrips, filter, phân trang) giữ nguyên.
+ */
+import {
+  EmptyState,
+  ErrorAlert,
+  LoadingState,
+  ScreenHeader,
+} from "@/components/ui";
+import { Colors, Radius, Spacing } from "@/constants/designTokens";
 import { TripCard } from "@/features/trips/components";
 import { usePublicTrips } from "@/features/trips/hooks";
 import { Ionicons } from "@expo/vector-icons";
@@ -7,11 +18,11 @@ import React, { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
+  Pressable,
   StyleSheet,
   Text,
   TextInput,
-  TouchableOpacity,
-  View
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -66,19 +77,12 @@ export function PublicTripsExploreScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       {/* Top Header */}
-      <View style={styles.topBar}>
-        <TouchableOpacity
-          style={styles.backBtn}
-          onPress={() => router.back()}
-          activeOpacity={0.8}
-        >
-          <Ionicons name="arrow-back" size={20} color={Colors.onSurface} />
-        </TouchableOpacity>
-        <View style={styles.topTitleBox}>
-          <Text style={styles.topBarTitle}>Chuyến công khai</Text>
-          <Text style={styles.topBarSub}>Khám phá & đặt chỗ theo đoàn</Text>
-        </View>
-      </View>
+      <ScreenHeader
+        onBack={() => router.back()}
+        eyebrow="Vina TrekGO · Khám phá"
+        title="Chuyến công khai"
+        subtitle="Khám phá & đặt chỗ theo đoàn"
+      />
 
       {/* Search */}
       <View style={styles.searchSection}>
@@ -86,20 +90,20 @@ export function PublicTripsExploreScreen() {
           <Ionicons
             name="search"
             size={16}
-            color={Colors.onSurfaceVariant}
-            style={{ marginRight: 8 }}
+            color={Colors.textSecondary}
+            style={{ marginRight: Spacing.sm }}
           />
           <TextInput
             style={styles.searchInput}
             placeholder="Tìm kiếm chuyến, địa danh..."
-            placeholderTextColor={Colors.mute}
+            placeholderTextColor={Colors.textSecondary}
             value={search}
             onChangeText={setSearch}
           />
           {search.length > 0 && (
-            <TouchableOpacity onPress={() => setSearch("")}>
-              <Ionicons name="close-circle" size={16} color={Colors.mute} />
-            </TouchableOpacity>
+            <Pressable onPress={() => setSearch("")} hitSlop={8}>
+              <Ionicons name="close-circle" size={16} color={Colors.textSecondary} />
+            </Pressable>
           )}
         </View>
       </View>
@@ -107,14 +111,14 @@ export function PublicTripsExploreScreen() {
       {/* Difficulty Filters */}
       <View style={styles.filterRow}>
         {DIFFICULTY_FILTERS.map((d) => (
-          <TouchableOpacity
+          <Pressable
             key={d}
-            style={[
+            style={({ pressed }) => [
               styles.filterPill,
               currentDifficulty === d && styles.filterPillActive,
+              pressed && styles.filterPillPressed,
             ]}
             onPress={() => setDifficulty(d)}
-            activeOpacity={0.8}
           >
             <Text
               style={[
@@ -124,25 +128,17 @@ export function PublicTripsExploreScreen() {
             >
               {DIFFICULTY_LABELS[d]}
             </Text>
-          </TouchableOpacity>
+          </Pressable>
         ))}
       </View>
 
       {/* Error Banner with Retry */}
       {error ? (
-        <View style={styles.errorBanner}>
-          <Ionicons name="alert-circle" size={18} color={Colors.error} />
-          <Text style={styles.errorText} numberOfLines={2}>
-            {error}
-          </Text>
-          <TouchableOpacity
-            style={styles.retryBtn}
-            onPress={refresh}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.retryBtnText}>Thử lại</Text>
-          </TouchableOpacity>
-        </View>
+        <ErrorAlert
+          message={error}
+          onRetry={refresh}
+          style={styles.errorBox}
+        />
       ) : null}
 
       {/* Trips List */}
@@ -164,24 +160,18 @@ export function PublicTripsExploreScreen() {
         removeClippedSubviews={true}
         ListEmptyComponent={
           loading ? (
-            <View style={styles.emptyState}>
-              <ActivityIndicator size="large" color={Colors.primary} />
-              <Text style={styles.emptySub}>Đang tải danh sách chuyến...</Text>
-            </View>
+            <LoadingState label="Đang tải danh sách chuyến…" style={styles.stateBlock} />
           ) : (
-            <View style={styles.emptyState}>
-              <View style={styles.emptyIcon}>
-                <Ionicons
-                  name="map-outline"
-                  size={36}
-                  color={Colors.primaryDark}
-                />
-              </View>
-              <Text style={styles.emptyTitle}>Chưa có chuyến nào</Text>
-              <Text style={styles.emptySub}>
-                Kéo xuống để làm mới hoặc thử bộ lọc khác
-              </Text>
-            </View>
+            <EmptyState
+              icon={
+                <View style={styles.emptyIcon}>
+                  <Ionicons name="map-outline" size={34} color={Colors.primary} />
+                </View>
+              }
+              title="Chưa có chuyến nào"
+              description="Kéo xuống để làm mới hoặc thử bộ lọc khác"
+              style={styles.stateBlock}
+            />
           )
         }
         ListFooterComponent={
@@ -197,82 +187,66 @@ export function PublicTripsExploreScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: Colors.surface },
-  topBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 6,
-    gap: 12,
-  },
-  backBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.surfaceContainerLow,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  topTitleBox: { flex: 1 },
-  topBarTitle: { fontSize: 20, fontWeight: "900", color: Colors.onSurface },
-  topBarSub: { fontSize: 12, color: Colors.mute },
-  searchSection: { paddingHorizontal: 16, paddingVertical: 8 },
+  safeArea: { flex: 1, backgroundColor: Colors.canvas },
+
+  searchSection: { paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm },
   searchBar: {
-    height: 46,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.surfaceContainerLowest,
+    minHeight: 46,
+    borderRadius: Radius.pill,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.border,
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 14,
-    ...Shadows.card,
+    paddingHorizontal: Spacing.lg,
   },
-  searchInput: { flex: 1, fontSize: 13, color: Colors.onSurface },
+  searchInput: { flex: 1, fontSize: 14, color: Colors.textPrimary, paddingVertical: Spacing.sm },
+
   filterRow: {
     flexDirection: "row",
-    paddingHorizontal: 16,
-    paddingBottom: 10,
-    gap: 8,
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.md,
+    gap: Spacing.sm,
   },
   filterPill: {
-    paddingHorizontal: 12,
+    paddingHorizontal: Spacing.md,
     paddingVertical: 6,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.surfaceContainerLowest,
-    ...Shadows.card,
+    borderRadius: Radius.pill,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
-  filterPillActive: { backgroundColor: Colors.ink },
-  filterPillText: { fontSize: 11, fontWeight: "700", color: Colors.onSurfaceVariant },
-  filterPillTextActive: { color: Colors.inverseOnSurface },
-  errorBanner: {
-    marginHorizontal: 16,
-    marginBottom: 10,
-    backgroundColor: Colors.errorContainer,
-    borderRadius: Radius.md,
-    padding: 10,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
+  filterPillPressed: { backgroundColor: Colors.surfaceMuted },
+  filterPillActive: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
   },
-  errorText: { flex: 1, fontSize: 12, color: Colors.onErrorContainer },
-  retryBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.onErrorContainer,
+  filterPillText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: Colors.textSecondary,
   },
-  retryBtnText: { fontSize: 11, fontWeight: "700", color: Colors.errorContainer },
-  listContent: { paddingHorizontal: 16, paddingBottom: 30, gap: 12 },
-  emptyState: { alignItems: "center", paddingTop: 60, gap: 10 },
+  filterPillTextActive: { color: "#FFFFFF" },
+
+  errorBox: {
+    marginHorizontal: Spacing.lg,
+    marginBottom: Spacing.md,
+  },
+
+  listContent: {
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: 30,
+    gap: Spacing.md,
+  },
+  stateBlock: { marginTop: Spacing.xl },
   emptyIcon: {
     width: 68,
     height: 68,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.secondaryContainer,
+    borderRadius: Radius.pill,
+    backgroundColor: Colors.surfaceMuted,
     alignItems: "center",
     justifyContent: "center",
+    marginBottom: Spacing.md,
   },
-  emptyTitle: { fontSize: 16, fontWeight: "800", color: Colors.onSurface },
-  emptySub: { fontSize: 13, color: Colors.mute, textAlign: "center" },
-  footerLoader: { paddingVertical: 20, alignItems: "center" },
+  footerLoader: { paddingVertical: Spacing.xl, alignItems: "center" },
 });

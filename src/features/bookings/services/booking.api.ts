@@ -145,6 +145,14 @@ export const BOOKING_STATUS_LABELS: Record<string, string> = {
 
 // ─── API Service ───────────────────────────────────────────────────────────────
 
+/** Bóc envelope `{ data: {...} }` nếu backend bọc response */
+function unwrapBooking(res: any): BookingDetail {
+  if (res && res.data && typeof res.data === "object" && !Array.isArray(res.data)) {
+    return res.data as BookingDetail;
+  }
+  return res as BookingDetail;
+}
+
 export const bookingApiService = {
   /**
    * GET /api/v1/public-trips
@@ -187,13 +195,14 @@ export const bookingApiService = {
   ): Promise<BookingDetail> => {
     const key = idempotencyKey || generateIdempotencyKey();
     const payload = formatParticipantsPayload(participants);
-    return apiRequest<BookingDetail>(`/api/v1/trips/${tripId}/bookings`, {
+    const res = await apiRequest<any>(`/api/v1/trips/${tripId}/bookings`, {
       method: "POST",
       headers: {
         "Idempotency-Key": key,
       },
       body: JSON.stringify(payload),
     });
+    return unwrapBooking(res);
   },
 
   /**
@@ -202,10 +211,7 @@ export const bookingApiService = {
    */
   getBookingDetail: async (bookingId: string): Promise<BookingDetail> => {
     const res = await apiRequest<any>(`/api/v1/bookings/${bookingId}`);
-    if (res && res.data && typeof res.data === "object" && !Array.isArray(res.data)) {
-      return res.data as BookingDetail;
-    }
-    return res as BookingDetail;
+    return unwrapBooking(res);
   },
 
   /**
@@ -260,13 +266,14 @@ export const bookingApiService = {
       ...formatParticipantsPayload(participants),
       ...(typeof expectedVersion === "number" ? { expectedVersion } : {}),
     };
-    return apiRequest<BookingDetail>(
+    const res = await apiRequest<any>(
       `/api/v1/bookings/${bookingId}/participants`,
       {
         method: "PATCH",
         body: JSON.stringify(payload),
       },
     );
+    return unwrapBooking(res);
   },
 
   /**

@@ -46,7 +46,25 @@ export interface PublicTrip {
   pickup: PublicTripPickup;
   routes: PublicTripRoute[];
   checkpoints: PublicTripCheckpoint[];
+  /** Giờ mở nhận đăng ký — server có thể không trả trên endpoint public */
+  registrationOpenAt?: string | null;
+  /** Hạn chót đóng form (tự động đóng sổ) */
+  registrationDeadlineAt?: string | null;
   version?: number;
+}
+
+/**
+ * Chuyến OPEN nhưng chưa tới giờ mở nhận đăng ký (registrationOpenAt ở tương lai).
+ * Nếu server không trả registrationOpenAt (payload cũ/endpoint public) → coi như đã mở
+ * để không chặn đặt chỗ nhầm.
+ */
+export function isRegistrationNotOpenYet(
+  trip: Pick<PublicTrip, "status" | "registrationOpenAt">,
+  now: Date = new Date(),
+): boolean {
+  if (trip.status !== "OPEN" || !trip.registrationOpenAt) return false;
+  const openAt = new Date(trip.registrationOpenAt);
+  return !Number.isNaN(openAt.getTime()) && now.getTime() < openAt.getTime();
 }
 
 export interface PublicTripsListResponse {
@@ -68,6 +86,27 @@ export interface PublicTripsFilter {
 
 // ─── API Functions ────────────────────────────────────────────────────────────
 
+/** Unwrap `{ data }` envelope và chuẩn hoá về { items, total, page, pageSize } */
+function unwrapList(raw: any, page: number, pageSize: number): PublicTripsListResponse {
+  let res = raw;
+  if (res && typeof res === "object" && !Array.isArray(res) && "data" in res && res.data) {
+    res = res.data;
+  }
+  const items: any[] = Array.isArray(res)
+    ? res
+    : Array.isArray(res?.items)
+      ? res.items
+      : Array.isArray(res?.trips)
+        ? res.trips
+        : [];
+  return {
+    items: items.map((t) => normalizeTrip(t ?? {})),
+    total: typeof res?.total === "number" ? res.total : items.length,
+    page: res?.page || page,
+    pageSize: res?.pageSize || pageSize,
+  };
+}
+
 /** GET /api/v1/public-trips — Explore feed (public, no auth required) */
 export async function getPublicTrips(
   filter: PublicTripsFilter = {},
@@ -83,55 +122,19 @@ export async function getPublicTrips(
   if (filter.dateTo) params.set("dateTo", filter.dateTo);
   if (filter.price !== undefined) params.set("price", String(filter.price));
 
-  const query = params.toString();
-  const rawRes = await apiRequest<any>(
-    `/api/v1/trips${query ? `?${query}` : ""}`,
-  );
-
-  let firstRes = rawRes;
-  if (rawRes && typeof rawRes === "object" && "data" in rawRes && rawRes.data) {
-    firstRes = rawRes.data;
-  }
-  if (Array.isArray(firstRes)) {
-    firstRes = {
-      items: firstRes,
-      total: firstRes.length,
-      page: targetPage,
-      pageSize: targetPageSize,
-    };
+  // Ưu tiên endpoint public-trips (khớp với endpoint chi tiết), fallback legacy /trips
+  let basePath = "/api/v1/public-trips";
+  let rawRes: any;
+  try {
+    rawRes = await apiRequest<any>(`${basePath}?${params.toString()}`);
+  } catch (err) {
+    if (!isNotFound(err)) throw err;
+    basePath = "/api/v1/trips";
+    rawRes = await apiRequest<any>(`${basePath}?${params.toString()}`);
   }
 
-  // Lấy hết tất cả nếu còn các trang tiếp theo
-  if (firstRes?.total > (firstRes?.items?.length ?? 0)) {
-    let allItems = [...(firstRes.items ?? [])];
-    const totalPages = Math.ceil(firstRes.total / targetPageSize);
-    for (let p = targetPage + 1; p <= totalPages; p++) {
-      params.set("page", String(p));
-      const nextRaw = await apiRequest<any>(
-        `/api/v1/trips?${params.toString()}`,
-      );
-      let nextRes = nextRaw;
-      if (nextRaw && typeof nextRaw === "object" && "data" in nextRaw && nextRaw.data) {
-        nextRes = nextRaw.data;
-      }
-      const nextItems = Array.isArray(nextRes) ? nextRes : nextRes?.items;
-      if (nextItems && nextItems.length > 0) {
-        allItems = allItems.concat(nextItems);
-      }
-    }
-    return {
-      ...firstRes,
-      items: allItems,
-      pageSize: allItems.length,
-    };
-  }
-
-  return {
-    items: Array.isArray(firstRes?.items) ? firstRes.items : [],
-    total: typeof firstRes?.total === "number" ? firstRes.total : (firstRes?.items?.length || 0),
-    page: firstRes?.page || targetPage,
-    pageSize: firstRes?.pageSize || targetPageSize,
-  };
+  // Trả về đúng trang được yêu cầu — phân trang do server đảm nhiệm
+  return unwrapList(rawRes, targetPage, targetPageSize);
 }
 
 function unwrapTrip(res: any): PublicTrip {
@@ -172,6 +175,23 @@ function normalizeTrip(raw: any, fallbackId?: string): PublicTrip {
       ? { name: pickupSrc.name ?? "", address: pickupSrc.address ?? undefined }
       : { name: raw.pickupName ?? "" };
 
+  const capacity = Number(raw.capacity ?? raw.maxPax ?? 0);
+  const booked = Number(
+    raw.bookedSlots ??
+      raw.bookedCount ??
+      raw.totalBooked ??
+      raw.enrolledCount ??
+      raw.bookedPax ??
+      raw.participantsCount ??
+      0,
+  );
+
+  const rawRemaining = raw.remainingSlots ?? raw.availableSlots ?? raw.slotsLeft;
+  const remainingSlots =
+    rawRemaining !== undefined && rawRemaining !== null
+      ? Number(rawRemaining)
+      : Math.max(0, capacity - booked);
+
   return {
     ...raw,
     id: raw.id ?? fallbackId ?? "",
@@ -184,8 +204,8 @@ function normalizeTrip(raw: any, fallbackId?: string): PublicTrip {
     leader,
     pricePerPax: String(raw.pricePerPax ?? raw.price ?? "0"),
     currency: raw.currency ?? "VND",
-    capacity: Number(raw.capacity ?? raw.maxPax ?? 0),
-    remainingSlots: Number(raw.remainingSlots ?? 0),
+    capacity,
+    remainingSlots,
     pickup,
     routes: Array.isArray(raw.routes) ? raw.routes : [],
     checkpoints: Array.isArray(raw.checkpoints) ? raw.checkpoints : [],

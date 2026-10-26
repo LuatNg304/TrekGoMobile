@@ -1,8 +1,17 @@
-import { Colors, Radius, Shadows } from "@/constants/theme";
-import type { PublicTrip } from "@/features/trips/services/public-trips.api";
+/**
+ * TripCard — thẻ chuyến đi công khai (Explore feed + tab Trips).
+ * Thiết kế "Tactical Topographic Utility": card trắng, viền 1px #E5E7EB, bo 12,
+ * metadata phân tách bằng đường kẻ mảnh, số liệu tabular-nums (đồng bộ web DESIGN.md).
+ */
+import { DifficultyBadge, SurfaceCard, Typography, formatVnd } from "@/components/ui";
+import { Colors, Radius, Spacing } from "@/constants/designTokens";
+import {
+  isRegistrationNotOpenYet,
+  type PublicTrip,
+} from "@/features/trips/services/public-trips.api";
 import { Ionicons } from "@expo/vector-icons";
 import React, { memo } from "react";
-import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 
 export interface TripCardProps {
   trip: PublicTrip;
@@ -18,23 +27,31 @@ export const TripCard = memo(function TripCard({ trip, onPress }: TripCardProps)
   );
   const slotPercent = trip.capacity > 0 ? trip.remainingSlots / trip.capacity : 0;
   const isAlmostFull = slotPercent < 0.3;
+  const isVnd = (trip.currency || "VND") === "VND";
+  const registrationNotOpen = isRegistrationNotOpenYet(trip);
 
   return (
-    <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.87}>
+    <SurfaceCard padding="md" onPress={onPress} style={styles.card}>
       {/* Header row */}
       <View style={styles.cardHeader}>
         <View style={styles.destinationPill}>
-          <Ionicons name="location" size={11} color={Colors.primaryDark} />
-          <Text style={styles.destinationText}>
+          <Ionicons name="location" size={11} color={Colors.primaryDeep} />
+          <Text style={styles.destinationText} numberOfLines={1}>
             {trip.destination?.name || "Điểm đến"}
           </Text>
         </View>
 
-        {isAlmostFull && (
+        {registrationNotOpen ? (
+          <View style={styles.notOpenBadge}>
+            <Text style={styles.notOpenText} numberOfLines={1}>
+              CHƯA TỚI HẠN ĐĂNG KÝ
+            </Text>
+          </View>
+        ) : isAlmostFull ? (
           <View style={styles.almostFullBadge}>
             <Text style={styles.almostFullText}>GẦN ĐẦY</Text>
           </View>
-        )}
+        ) : null}
       </View>
 
       {/* Trip Title */}
@@ -45,8 +62,8 @@ export const TripCard = memo(function TripCard({ trip, onPress }: TripCardProps)
       {/* Meta row */}
       <View style={styles.metaRow}>
         <View style={styles.metaItem}>
-          <Ionicons name="calendar-outline" size={13} color={Colors.mute} />
-          <Text style={styles.metaText}>
+          <Ionicons name="calendar-outline" size={13} color={Colors.textSecondary} />
+          <Text style={[styles.metaText, Typography.tabularNums]}>
             {startDate.toLocaleDateString("vi-VN", {
               day: "2-digit",
               month: "2-digit",
@@ -55,10 +72,7 @@ export const TripCard = memo(function TripCard({ trip, onPress }: TripCardProps)
           </Text>
         </View>
         {trip.routes?.[0] && (
-          <View style={styles.metaItem}>
-            <Ionicons name="trending-up" size={13} color={Colors.mute} />
-            <Text style={styles.metaText}>{trip.routes[0].snapshotDifficulty}</Text>
-          </View>
+          <DifficultyBadge difficulty={trip.routes[0].snapshotDifficulty} />
         )}
       </View>
 
@@ -69,16 +83,16 @@ export const TripCard = memo(function TripCard({ trip, onPress }: TripCardProps)
             {(trip.leader?.fullName || "L").charAt(0).toUpperCase()}
           </Text>
         </View>
-        <Text style={styles.leaderName}>
+        <Text style={styles.leaderName} numberOfLines={1}>
           {trip.leader?.fullName || "TrekGo Leader"}
         </Text>
-        <Ionicons name="shield-checkmark" size={12} color={Colors.primaryDark} />
+        <Ionicons name="shield-checkmark" size={12} color={Colors.primary} />
       </View>
 
       {/* Pickup */}
       {trip.pickup?.name ? (
         <View style={styles.pickupBanner}>
-          <Ionicons name="bus-outline" size={12} color={Colors.onSurfaceVariant} />
+          <Ionicons name="bus-outline" size={12} color={Colors.textSecondary} />
           <Text style={styles.pickupText} numberOfLines={1}>
             {trip.pickup.name}
             {trip.pickup.address ? ` · ${trip.pickup.address}` : ""}
@@ -86,13 +100,14 @@ export const TripCard = memo(function TripCard({ trip, onPress }: TripCardProps)
         </View>
       ) : null}
 
-      {/* Footer: price + slots */}
+      {/* Footer: price + slots (phân tách bằng đường kẻ mảnh theo DESIGN.md) */}
       <View style={styles.cardFooter}>
         <View>
           <Text style={styles.priceLabel}>Giá vé / người</Text>
-          <Text style={styles.priceValue}>
-            {parseFloat(trip.pricePerPax || "0").toLocaleString("vi-VN")}
-            <Text style={styles.priceCurrency}> {trip.currency || "VND"}</Text>
+          <Text style={[styles.priceValue, Typography.tabularNums]}>
+            {isVnd
+              ? formatVnd(trip.pricePerPax)
+              : `${parseFloat(trip.pricePerPax || "0").toLocaleString("vi-VN")} ${trip.currency}`}
           </Text>
         </View>
 
@@ -103,98 +118,138 @@ export const TripCard = memo(function TripCard({ trip, onPress }: TripCardProps)
                 styles.slotBarInner,
                 {
                   width: `${Math.round(slotPercent * 100)}%`,
-                  backgroundColor: isAlmostFull ? Colors.warning : Colors.primary,
+                  backgroundColor: isAlmostFull ? Colors.accent : Colors.primary,
                 },
               ]}
             />
           </View>
-          <Text style={styles.slotText}>
+          <Text style={[styles.slotText, Typography.tabularNums]}>
             {trip.remainingSlots}/{trip.capacity} chỗ còn
           </Text>
         </View>
       </View>
-    </TouchableOpacity>
+    </SurfaceCard>
   );
 });
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: Colors.surfaceContainerLowest,
-    borderRadius: Radius.xl,
-    padding: 16,
-    gap: 8,
-    marginBottom: 14,
-    ...Shadows.hover,
+    gap: Spacing.sm,
+    marginBottom: Spacing.md + 2,
   },
   cardHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    gap: Spacing.sm,
   },
   destinationPill: {
+    flexShrink: 1,
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    paddingHorizontal: 8,
+    paddingHorizontal: Spacing.sm,
     paddingVertical: 3,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.secondaryContainer,
+    borderRadius: Radius.pill,
+    backgroundColor: Colors.canvas,
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
-  destinationText: { fontSize: 10, fontWeight: "800", color: Colors.primaryDark },
+  destinationText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: Colors.primaryDeep,
+  },
   almostFullBadge: {
     paddingHorizontal: 7,
     paddingVertical: 3,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.errorContainer,
+    borderRadius: Radius.pill,
+    backgroundColor: Colors.dangerBg,
   },
-  almostFullText: { fontSize: 9, fontWeight: "900", color: Colors.onErrorContainer },
-  cardTitle: { fontSize: 16, fontWeight: "900", color: Colors.onSurface, lineHeight: 22 },
-  metaRow: { flexDirection: "row", gap: 14 },
+  almostFullText: { fontSize: 9, fontWeight: "800", color: Colors.dangerText },
+  notOpenBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: Radius.pill,
+    backgroundColor: Colors.warningBg,
+  },
+  notOpenText: { fontSize: 9, fontWeight: "800", color: Colors.warningText },
+
+  cardTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: Colors.textPrimary,
+    lineHeight: 22,
+  },
+
+  metaRow: { flexDirection: "row", alignItems: "center", gap: Spacing.md },
   metaItem: { flexDirection: "row", alignItems: "center", gap: 4 },
-  metaText: { fontSize: 11, color: Colors.mute },
+  metaText: { fontSize: 12, color: Colors.textSecondary },
+
   leaderRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    paddingTop: 2,
+    gap: Spacing.xs + 2,
   },
   leaderAvatarSmall: {
     width: 22,
     height: 22,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.primaryContainer,
+    borderRadius: Radius.pill,
+    backgroundColor: Colors.canvas,
+    borderWidth: 1,
+    borderColor: Colors.border,
     alignItems: "center",
     justifyContent: "center",
   },
-  leaderAvatarLetter: { fontSize: 9, fontWeight: "900", color: Colors.primaryDark },
-  leaderName: { flex: 1, fontSize: 11, fontWeight: "700", color: Colors.onSurfaceVariant },
+  leaderAvatarLetter: { fontSize: 9, fontWeight: "800", color: Colors.primaryDeep },
+  leaderName: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: "600",
+    color: Colors.textSecondary,
+  },
+
   pickupBanner: {
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
-    backgroundColor: Colors.surfaceContainerLow,
-    paddingHorizontal: 8,
+    backgroundColor: Colors.canvas,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    paddingHorizontal: Spacing.sm,
     paddingVertical: 5,
-    borderRadius: Radius.md,
+    borderRadius: Radius.sm,
   },
-  pickupText: { flex: 1, fontSize: 10, color: Colors.onSurfaceVariant },
+  pickupText: { flex: 1, fontSize: 10, color: Colors.textSecondary },
+
   cardFooter: {
     flexDirection: "row",
     alignItems: "flex-end",
     justifyContent: "space-between",
-    paddingTop: 4,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+    paddingTop: Spacing.sm + 2,
+    marginTop: 2,
   },
-  priceLabel: { fontSize: 9, color: Colors.mute, fontWeight: "700" },
-  priceValue: { fontSize: 18, fontWeight: "900", color: Colors.onSurface },
-  priceCurrency: { fontSize: 11, fontWeight: "700", color: Colors.mute },
-  slotsInfo: { alignItems: "flex-end", gap: 4 },
+  priceLabel: {
+    fontSize: 10,
+    color: Colors.textSecondary,
+    fontWeight: "600",
+    marginBottom: 1,
+  },
+  priceValue: { fontSize: 17, fontWeight: "800", color: Colors.primaryDeep },
+  slotsInfo: { alignItems: "flex-end", gap: Spacing.xs },
   slotBarOuter: {
     width: 72,
     height: 4,
     borderRadius: 2,
-    backgroundColor: Colors.surfaceContainerHigh,
+    backgroundColor: Colors.surfaceMuted,
     overflow: "hidden",
   },
   slotBarInner: { height: "100%", borderRadius: 2 },
-  slotText: { fontSize: 9, color: Colors.mute, fontWeight: "700" },
+  slotText: {
+    fontSize: 10,
+    color: Colors.textSecondary,
+    fontWeight: "600",
+  },
 });

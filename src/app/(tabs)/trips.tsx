@@ -1,8 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
 import { type Href, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -15,6 +17,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { TopHeader } from "@/components/TopHeader";
 import { TripPrepModal } from "@/components/TripPrepModal";
+import { EmptyState, LoadingState } from "@/components/ui";
 import { Colors, Radius, Shadows } from "@/constants/theme";
 import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/features/auth/AuthContext";
@@ -24,7 +27,6 @@ import { DirectInviteCard } from "@/features/private-trips/components/DirectInvi
 import { PrivateTripCard } from "@/features/private-trips/components/PrivateTripCard";
 import { useMyPrivateTrips } from "@/features/private-trips/hooks/useMyPrivateTrips";
 import { useMyReceivedInvitations } from "@/features/private-trips/hooks/useMyReceivedInvitations";
-import type { PrivateTrip } from "@/features/private-trips/types";
 import { TripCard } from "@/features/trips/components";
 import { usePublicTrips } from "@/features/trips/hooks";
 
@@ -55,7 +57,7 @@ const completedTrip = {
 
 export default function TripsScreen() {
   const router = useRouter();
-  const { trips: appTrips, activeTrip, user } = useApp();
+  const { activeTrip, user } = useApp();
   const { user: authUser, accessToken } = useAuth();
   const isLeader = authUser?.role === "LEADER" || user?.role === "LEADER";
 
@@ -89,8 +91,27 @@ export default function TripsScreen() {
   const {
     trips: publicTripsList,
     loading: loadingPublicTrips,
+    loadingMore: loadingMorePublicTrips,
     refresh: refreshPublicTrips,
+    loadMore: loadMorePublicTrips,
   } = usePublicTrips({ pageSize: 50 });
+
+  // Tải thêm trang kế tiếp khi cuộn gần đáy (chỉ áp dụng cho tab PUBLIC_TRIPS)
+  const loadMoreLockRef = useRef(false);
+  const handlePublicTripsScroll = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      if (mainTab !== "PUBLIC_TRIPS") return;
+      const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+      const distanceFromEnd =
+        contentSize.height - (contentOffset.y + layoutMeasurement.height);
+      if (distanceFromEnd > 600 || loadMoreLockRef.current) return;
+      loadMoreLockRef.current = true;
+      void loadMorePublicTrips().finally(() => {
+        loadMoreLockRef.current = false;
+      });
+    },
+    [mainTab, loadMorePublicTrips],
+  );
 
   const [refreshing, setRefreshing] = useState(false);
 
@@ -184,35 +205,8 @@ export default function TripsScreen() {
     [bookings],
   );
 
-  // Map local private trips from AppContext (e.g. offline/mock trips)
-  const localPrivateTrips = useMemo(() => {
-    return (appTrips || [])
-      .filter((t) => t.type === "PRIVATE")
-      .map(
-        (t) =>
-          ({
-            id: t.id,
-            title: t.name,
-            description: (t as any).description || null,
-            startAt: t.startDate || new Date().toISOString(),
-            endAt: t.endDate || new Date().toISOString(),
-            maxPax: t.capacity || 10,
-            pickupPointId: "",
-            destinationId: t.destination || "",
-            status: (t.status === "UPCOMING" ? "OPEN" : t.status) as any,
-            version: 1,
-            inviteCode: t.inviteCode,
-          }) as PrivateTrip,
-      );
-  }, [appTrips]);
-
-  // Combined private trips (backend API taking precedence, local fallback)
-  const privateTrips = useMemo(() => {
-    const map = new Map<string, PrivateTrip>();
-    localPrivateTrips.forEach((pt) => map.set(pt.id, pt));
-    backendPrivateTrips.forEach((pt) => map.set(pt.id, pt));
-    return Array.from(map.values());
-  }, [localPrivateTrips, backendPrivateTrips]);
+  // Private trips lấy trực tiếp từ backend API (bỏ merge mock từ AppContext)
+  const privateTrips = backendPrivateTrips;
 
   // Split private trips by status (Tất cả chuyến riêng chưa hoàn thành/chưa hủy đều thuộc chuyến sắp tới)
   const upcomingPrivateTrips = useMemo(
@@ -815,28 +809,28 @@ export default function TripsScreen() {
 
         {/* Trips List / Empty / Loading */}
         {loadingPublicTrips && publicTripsList.length === 0 ? (
-          <View style={[styles.emptyState, { paddingVertical: 40 }]}>
-            <ActivityIndicator size="large" color={Colors.primaryDark} />
-            <Text style={[styles.emptyDescription, { marginTop: 12 }]}>
-              Đang tải danh sách chuyến đi mở bán...
-            </Text>
-          </View>
+          <LoadingState
+            label="Đang tải danh sách chuyến đi mở bán..."
+            style={{ paddingVertical: 40 }}
+          />
         ) : displayedPublicTrips.length === 0 ? (
-          <View style={styles.emptyState}>
-            <View style={styles.emptyIcon}>
-              <Ionicons
-                name="compass-outline"
-                size={34}
-                color={Colors.primaryDark}
-              />
-            </View>
-            <Text style={styles.emptyTitle}>Không tìm thấy chuyến đi phù hợp</Text>
-            <Text style={styles.emptyDescription}>
-              {publicSearch.trim() || selectedDifficulty !== "Tất cả"
+          <EmptyState
+            icon={
+              <View style={styles.emptyIcon}>
+                <Ionicons
+                  name="compass-outline"
+                  size={34}
+                  color={Colors.primaryDark}
+                />
+              </View>
+            }
+            title="Không tìm thấy chuyến đi phù hợp"
+            description={
+              publicSearch.trim() || selectedDifficulty !== "Tất cả"
                 ? "Thử thay đổi từ khóa tìm kiếm hoặc chọn mức độ khó khác."
-                : "Hiện tại chưa có chuyến đi công khai nào đang mở bán."}
-            </Text>
-          </View>
+                : "Hiện tại chưa có chuyến đi công khai nào đang mở bán."
+            }
+          />
         ) : (
           <View style={{ paddingHorizontal: 16 }}>
             {displayedPublicTrips.map((pt) => (
@@ -846,6 +840,12 @@ export default function TripsScreen() {
                 onPress={() => openTripDetail(pt.id)}
               />
             ))}
+            {loadingMorePublicTrips && (
+              <ActivityIndicator
+                style={{ marginVertical: 16 }}
+                color={Colors.primaryDark}
+              />
+            )}
           </View>
         )}
       </View>
@@ -1125,6 +1125,8 @@ export default function TripsScreen() {
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
+        onScroll={handlePublicTripsScroll}
+        scrollEventThrottle={16}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}

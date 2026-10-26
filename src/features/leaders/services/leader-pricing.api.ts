@@ -314,6 +314,13 @@ export async function getPricingConfig(
   }
 }
 
+function unwrapPricing<T>(res: any): T {
+  if (res && typeof res === "object" && "data" in res && res.data !== null && res.data !== undefined) {
+    return res.data as T;
+  }
+  return res as T;
+}
+
 /**
  * 2. GET /api/v1/leader/public-trips/:id/cost-plan
  * Lấy bảng chi phí và trạng thái cost plan của chuyến đi
@@ -322,10 +329,11 @@ export async function getTripCostPlan(
   tripId: string,
   accessToken: string,
 ): Promise<CostPlanResponse> {
-  return apiRequest<CostPlanResponse>(
+  const raw = await apiRequest<any>(
     `/api/v1/leader/public-trips/${tripId}/cost-plan`,
     { accessToken },
   );
+  return unwrapPricing<CostPlanResponse>(raw);
 }
 
 function formatCategoryForBackend(rawCat: string): 'TRANSPORT' | 'STAFF' | 'FOOD' | 'ACCOMMODATION' | 'ACCESS' | 'SAFETY' | 'LOGISTICS' | 'OTHER' {
@@ -391,7 +399,7 @@ export async function saveTripCostPlan(
     }),
   };
 
-  return apiRequest<CostPlanResponse>(
+  const raw = await apiRequest<any>(
     `/api/v1/leader/public-trips/${tripId}/cost-plan`,
     {
       method: "PUT",
@@ -399,6 +407,7 @@ export async function saveTripCostPlan(
       body: JSON.stringify(formattedBody),
     },
   );
+  return unwrapPricing<CostPlanResponse>(raw);
 }
 
 /**
@@ -448,7 +457,7 @@ export async function previewTripPricing(
       }),
     };
 
-    return await apiRequest<PricingPreviewResponse>(
+    const raw = await apiRequest<any>(
       `/api/v1/leader/public-trips/${tripId}/pricing/preview`,
       {
         method: "POST",
@@ -456,6 +465,7 @@ export async function previewTripPricing(
         body: JSON.stringify(formattedBody),
       },
     );
+    return unwrapPricing<PricingPreviewResponse>(raw);
   } catch {
     // Fallback seamlessly to local financial math
     return computeLocalPricingSimulation(
@@ -484,7 +494,7 @@ export async function confirmTripPricing(
     ...(payload.targetPax != null ? { targetPax: Number(payload.targetPax) } : {}),
   };
 
-  return apiRequest<ConfirmPricingResponse>(
+  const raw = await apiRequest<any>(
     `/api/v1/leader/public-trips/${tripId}/pricing/confirm`,
     {
       method: "POST",
@@ -492,4 +502,5 @@ export async function confirmTripPricing(
       body: JSON.stringify(formattedBody),
     },
   );
+  return unwrapPricing<ConfirmPricingResponse>(raw);
 }

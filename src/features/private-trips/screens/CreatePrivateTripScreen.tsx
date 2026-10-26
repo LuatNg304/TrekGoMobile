@@ -1,7 +1,8 @@
 import { Colors, Radius } from "@/constants/theme";
+import { useAuth } from "@/features/auth/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -40,9 +41,21 @@ function getDefaultTripDates() {
 
 export function CreatePrivateTripScreen() {
   const router = useRouter();
+  const { user } = useAuth();
 
   // Wizard step: 1, 2, 3
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
+
+  // LEADER bị cấm tạo private trip (server trả 403 LEADER_CANNOT_CREATE_PRIVATE_TRIP)
+  useEffect(() => {
+    if (user?.role === "LEADER") {
+      Alert.alert(
+        "Không khả dụng cho Leader",
+        "Tài khoản Leader không thể tạo chuyến đi riêng. Hãy dùng tài khoản thành viên thường.",
+        [{ text: "Quay lại", onPress: () => router.back() }],
+      );
+    }
+  }, [user?.role, router]);
 
   // Form states
   const [selectedTrail, setSelectedTrail] = useState<PrivateTrailSource | null>(null);

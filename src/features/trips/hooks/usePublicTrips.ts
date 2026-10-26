@@ -59,9 +59,11 @@ export function usePublicTrips(options: UsePublicTripsOptions = {}) {
         if (!isMountedRef.current) return;
 
         const newItems = response.items ?? [];
-        setTotal(response.total ?? 0);
+        const totalCount = response.total ?? newItems.length;
+        setTotal(totalCount);
         setPage(targetPage);
-        setHasMore(newItems.length === (activeFilter.pageSize || pageSize));
+        // getPublicTrips đã tự gom đủ các trang → chỉ còn trang khi trang 1 chưa đủ total
+        setHasMore(targetPage === 1 && newItems.length > 0 && newItems.length < totalCount);
 
         setTrips((prev) => (targetPage === 1 ? newItems : [...prev, ...newItems]));
       } catch (err) {

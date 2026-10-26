@@ -1,4 +1,16 @@
-import { Colors, Radius, Shadows } from "@/constants/theme";
+import {
+  Button,
+  ErrorAlert,
+  LoadingState,
+  ScreenHeader,
+} from "@/components/ui";
+import {
+  Colors as UiColors,
+  Radius as UiRadius,
+  Spacing as UiSpacing,
+  Typography,
+  formatVnd,
+} from "@/constants/designTokens";
 import { useAuth } from "@/features/auth/AuthContext";
 import { BookingParticipantsModal } from "@/features/bookings/components";
 import { bookingApiService } from "@/features/bookings/services/booking.api";
@@ -13,11 +25,11 @@ import {
   TripRouteTimeline,
 } from "@/features/trips/components";
 import { usePublicTripDetail } from "@/features/trips/hooks";
+import { isRegistrationNotOpenYet } from "@/features/trips/services/public-trips.api";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   Platform,
   ScrollView,
@@ -47,70 +59,9 @@ export function PublicTripDetailScreen({
 
   const [bookingVisible, setBookingVisible] = useState(false);
   const [existingBooking, setExistingBooking] = useState<BookingSummary | BookingDetail | null>(null);
-  const [isVerifyingPayment, setIsVerifyingPayment] = useState<boolean>(false);
 
-  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pollCountRef = useRef<number>(0);
-  const isMountedRef = useRef<boolean>(true);
-
-  useEffect(() => {
-    isMountedRef.current = true;
-    return () => {
-      isMountedRef.current = false;
-      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
-    };
-  }, []);
-
-  // Vòng lặp xoay nút kiểm tra trạng thái thanh toán từ máy chủ
-  const startVerificationPolling = useCallback(
-    (bookingId: string) => {
-      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
-      setIsVerifyingPayment(true);
-      pollCountRef.current = 0;
-
-      const poll = async () => {
-        if (!isMountedRef.current) return;
-        pollCountRef.current += 1;
-        try {
-          const detail = await bookingApiService.getBookingDetail(bookingId);
-          if (detail.status === "CONFIRMED") {
-            setIsVerifyingPayment(false);
-            setExistingBooking(detail);
-            refetch();
-            Alert.alert(
-              "Đặt chỗ thành công! 🎉",
-              "Hệ thống đã nhận thanh toán và xác nhận đặt chỗ của bạn thành công. Chúc bạn có một hành trình an toàn và trọn vẹn!",
-              [
-                {
-                  text: "Xem vé ngay",
-                  onPress: () =>
-                    router.push({
-                      pathname: "/bookings/[id]",
-                      params: { id: detail.id },
-                    } as any),
-                },
-                { text: "Đóng", style: "cancel" },
-              ]
-            );
-            return;
-          }
-        } catch {
-          // Bỏ qua lỗi kết nối trong khi thử lại
-        }
-
-        if (pollCountRef.current < 25) {
-          pollTimerRef.current = setTimeout(poll, 1500);
-        } else {
-          setIsVerifyingPayment(false);
-        }
-      };
-
-      pollTimerRef.current = setTimeout(poll, 1000);
-    },
-    [refetch, router],
-  );
-
-  // Khi màn hình được focus, kiểm tra đặt chỗ của người dùng đối với chuyến này
+  // Khi màn hình được focus, đồng bộ lại đặt chỗ của người dùng đối với chuyến này
+  // (màn /bookings/[id] tự polling thanh toán, nên ở đây chỉ cần làm mới trạng thái)
   useFocusEffect(
     useCallback(() => {
       if (!accessToken || !tripId) return;
@@ -122,43 +73,39 @@ export function PublicTripDetailScreen({
           if (!active) return;
           const matched = res.items.find(
             (b) =>
-              b.trip?.id === tripId &&
+              (b.trip?.id || (b as any).tripId) === tripId &&
               b.status !== "CANCELLED" &&
               b.status !== "EXPIRED"
           );
-          if (matched) {
-            setExistingBooking(matched);
-            if (matched.status === "PENDING_PAYMENT") {
-              startVerificationPolling(matched.id);
-            }
-          }
+          setExistingBooking(matched ?? null);
         })
         .catch(() => {});
 
       return () => {
         active = false;
       };
-    }, [accessToken, tripId, startVerificationPolling])
+    }, [accessToken, tripId])
   );
 
   const handleBookingSuccess = useCallback(
     (bookingId: string) => {
       setBookingVisible(false);
       refetch();
-      startVerificationPolling(bookingId);
       router.push({
         pathname: "/bookings/[id]",
         params: { id: bookingId },
       } as any);
     },
-    [refetch, router, startVerificationPolling],
+    [refetch, router],
   );
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={Colors.primary} />
-        <Text style={styles.loadingText}>Đang tải chuyến đi...</Text>
+      <SafeAreaView style={styles.safeArea}>
+        <LoadingState
+          label="Đang tải chuyến đi..."
+          style={styles.centerBlock}
+        />
       </SafeAreaView>
     );
   }
@@ -173,32 +120,29 @@ export function PublicTripDetailScreen({
 
   if (error || !trip) {
     return (
-      <SafeAreaView style={styles.loadingContainer}>
-        <Ionicons name="alert-circle-outline" size={48} color={Colors.error} />
-        <Text style={[styles.loadingText, { color: Colors.error }]}>
-          {error || "Không tìm thấy chuyến đi."}
-        </Text>
-        <View style={{ flexDirection: "row", gap: 12, marginTop: 8 }}>
-          <TouchableOpacity
-            style={[styles.backBtn, { width: "auto", paddingHorizontal: 16 }]}
+      <SafeAreaView style={styles.safeArea}>
+        <ScreenHeader onBack={handleSafeBack} title="Chi tiết chuyến" />
+        <View style={styles.errorWrap}>
+          <ErrorAlert
+            title="Không tải được chuyến đi"
+            message={error || "Không tìm thấy chuyến đi."}
+            onRetry={refetch}
+          />
+          <Button
+            label="Quay lại"
+            variant="outline"
             onPress={handleSafeBack}
-          >
-            <Text style={{ fontSize: 13, fontWeight: "700", color: Colors.onSurface }}>
-              Quay lại
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.bookingBtn, { paddingHorizontal: 20, paddingVertical: 10 }]}
-            onPress={refetch}
-          >
-            <Text style={styles.bookingBtnText}>Thử lại</Text>
-          </TouchableOpacity>
+            fullWidth
+            style={{ marginTop: UiSpacing.md }}
+          />
         </View>
       </SafeAreaView>
     );
   }
 
-  const isBookable = trip.status === "OPEN" && trip.remainingSlots > 0;
+  const registrationNotOpen = isRegistrationNotOpenYet(trip);
+  const isBookable =
+    trip.status === "OPEN" && trip.remainingSlots > 0 && !registrationNotOpen;
   const isConfirmedBooking =
     existingBooking &&
     ["CONFIRMED", "PARTIAL_CHECKIN", "CHECKED_IN", "COMPLETED"].includes(
@@ -212,19 +156,7 @@ export function PublicTripDetailScreen({
         contentContainerStyle={styles.scrollContent}
       >
         {/* Top Navigation Bar */}
-        <View style={styles.navBar}>
-          <TouchableOpacity
-            style={styles.backBtn}
-            onPress={handleSafeBack}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="arrow-back" size={20} color={Colors.onSurface} />
-          </TouchableOpacity>
-          <Text style={styles.navTitle} numberOfLines={1}>
-            Chi tiết chuyến
-          </Text>
-          <View style={{ width: 38 }} />
-        </View>
+        <ScreenHeader onBack={handleSafeBack} title="Chi tiết chuyến" />
 
         {/* 1. Hero Section */}
         <TripHeroSection trip={trip} />
@@ -273,20 +205,18 @@ export function PublicTripDetailScreen({
       <View style={styles.bottomBar}>
         <View style={styles.bottomBarPrice}>
           <Text style={styles.bottomPriceLabel}>Giá vé / người</Text>
-          <Text style={styles.bottomPriceValue}>
-            {parseFloat(trip.pricePerPax).toLocaleString("vi-VN")}
-            <Text style={styles.bottomPriceCurrency}> {trip.currency}</Text>
+          <Text style={[styles.bottomPriceValue, Typography.tabularNums]}>
+            {(trip.currency || "VND") === "VND"
+              ? formatVnd(trip.pricePerPax)
+              : `${parseFloat(trip.pricePerPax) || 0} ${trip.currency}`}
           </Text>
-          <Text style={styles.bottomSlots}>Còn {trip.remainingSlots} chỗ</Text>
+          <Text style={[styles.bottomSlots, Typography.tabularNums]}>
+            Còn {trip.remainingSlots} chỗ
+          </Text>
         </View>
 
         {/* Dynamic Booking Button */}
-        {isVerifyingPayment ? (
-          <View style={[styles.bookingBtn, styles.bookingBtnVerifying]}>
-            <ActivityIndicator size="small" color="#ffffff" />
-            <Text style={styles.bookingBtnText}>Đang chờ xác nhận...</Text>
-          </View>
-        ) : isConfirmedBooking ? (
+        {isConfirmedBooking ? (
           <TouchableOpacity
             style={[styles.bookingBtn, styles.bookingBtnConfirmed]}
             onPress={() =>
@@ -303,11 +233,16 @@ export function PublicTripDetailScreen({
         ) : existingBooking?.status === "PENDING_PAYMENT" ? (
           <TouchableOpacity
             style={[styles.bookingBtn, styles.bookingBtnPending]}
-            onPress={() => startVerificationPolling(existingBooking.id)}
+            onPress={() =>
+              router.push({
+                pathname: "/bookings/[id]",
+                params: { id: existingBooking.id },
+              } as any)
+            }
             activeOpacity={0.85}
           >
-            <Ionicons name="time-outline" size={18} color="#ffffff" />
-            <Text style={styles.bookingBtnText}>Kiểm tra thanh toán</Text>
+            <Ionicons name="card-outline" size={18} color="#ffffff" />
+            <Text style={styles.bookingBtnText}>Tiếp tục thanh toán</Text>
           </TouchableOpacity>
         ) : (
           <TouchableOpacity
@@ -322,9 +257,15 @@ export function PublicTripDetailScreen({
             disabled={!isBookable}
             activeOpacity={0.85}
           >
-            <Ionicons name="checkmark-circle" size={18} color={Colors.onPrimary} />
+            <Ionicons name="checkmark-circle" size={18} color="#FFFFFF" />
             <Text style={styles.bookingBtnText}>
-              {isBookable ? "Đặt chỗ ngay" : "Hết chỗ"}
+              {isBookable
+                ? "Đặt chỗ ngay"
+                : trip.remainingSlots <= 0
+                  ? "Hết chỗ"
+                  : registrationNotOpen
+                    ? "Chưa tới hạn đăng ký"
+                    : "Đã đóng đăng ký"}
             </Text>
           </TouchableOpacity>
         )}
@@ -344,39 +285,11 @@ export function PublicTripDetailScreen({
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: Colors.surface },
-  loadingContainer: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 12,
-    backgroundColor: Colors.surface,
-  },
-  loadingText: { color: Colors.mute, fontSize: 13 },
-  scrollContent: { paddingBottom: 20 },
-  navBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  backBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.surfaceContainerLow,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  navTitle: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: Colors.onSurface,
-    flex: 1,
-    textAlign: "center",
-    marginHorizontal: 8,
-  },
+  safeArea: { flex: 1, backgroundColor: UiColors.canvas },
+  centerBlock: { flex: 1, justifyContent: "center" },
+  errorWrap: { padding: UiSpacing.lg },
+  scrollContent: { paddingBottom: UiSpacing.xl },
+
   bottomBar: {
     position: "absolute",
     bottom: 0,
@@ -385,38 +298,44 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: UiSpacing.lg,
+    paddingVertical: UiSpacing.md,
     paddingBottom: Platform.OS === "ios" ? 28 : 14,
-    backgroundColor: Colors.surfaceContainerLowest,
+    backgroundColor: UiColors.surface,
     borderTopWidth: 1,
-    borderTopColor: Colors.surfaceContainerLow,
-    ...Shadows.tactical,
+    borderTopColor: UiColors.border,
   },
   bottomBarPrice: { flex: 1, gap: 1 },
-  bottomPriceLabel: { fontSize: 10, color: Colors.mute, fontWeight: "700" },
-  bottomPriceValue: { fontSize: 20, fontWeight: "900", color: Colors.onSurface },
-  bottomPriceCurrency: { fontSize: 13, fontWeight: "700", color: Colors.mute },
-  bottomSlots: { fontSize: 11, color: Colors.primaryDark, fontWeight: "700" },
+  bottomPriceLabel: {
+    fontSize: 10,
+    color: UiColors.textSecondary,
+    fontWeight: "600",
+  },
+  bottomPriceValue: {
+    fontSize: 19,
+    fontWeight: "800",
+    color: UiColors.primaryDeep,
+  },
+  bottomSlots: {
+    fontSize: 11,
+    color: UiColors.primary,
+    fontWeight: "600",
+  },
   bookingBtn: {
     flexDirection: "row",
     alignItems: "center",
     gap: 7,
     paddingHorizontal: 22,
     paddingVertical: 14,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.primaryDark,
+    borderRadius: UiRadius.pill,
+    backgroundColor: UiColors.primaryDeep,
   },
   bookingBtnDisabled: { opacity: 0.5 },
-  bookingBtnVerifying: {
-    backgroundColor: "#15803d",
-    opacity: 0.92,
-  },
   bookingBtnConfirmed: {
-    backgroundColor: "#15803d",
+    backgroundColor: UiColors.successText,
   },
   bookingBtnPending: {
-    backgroundColor: "#ca8a04",
+    backgroundColor: UiColors.accent,
   },
-  bookingBtnText: { fontSize: 14, fontWeight: "800", color: Colors.onPrimary },
+  bookingBtnText: { fontSize: 14, fontWeight: "700", color: "#FFFFFF" },
 });
