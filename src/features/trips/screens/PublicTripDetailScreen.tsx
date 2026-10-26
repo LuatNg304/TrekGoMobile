@@ -247,7 +247,7 @@ export function PublicTripDetailScreen({
         <TripDescriptionSection
           description={trip.description}
           tripTitle={trip.title}
-          destinationName={trip.destination.name}
+          destinationName={trip.destination?.name ?? ""}
         />
 
         {/* 4. Leader Info */}

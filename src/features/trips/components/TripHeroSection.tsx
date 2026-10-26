@@ -15,7 +15,7 @@ export const TripHeroSection = memo(function TripHeroSection({
   const endDate = new Date(trip.endAt);
   const diffMs = endDate.getTime() - startDate.getTime();
   const diffDays = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
-  const totalDistanceKm = trip.routes.reduce(
+  const totalDistanceKm = (trip.routes ?? []).reduce(
     (sum, r) => sum + parseFloat(r.snapshotDistanceKm || "0"),
     0,
   );
@@ -35,7 +35,7 @@ export const TripHeroSection = memo(function TripHeroSection({
             {trip.status === "OPEN" ? "Đang mở đặt chỗ" : "Đã đầy"}
           </Text>
         </View>
-        {trip.routes[0] && (
+        {trip.routes?.[0] && (
           <View style={styles.difficultyBadge}>
             <Text style={styles.difficultyText}>
               {trip.routes[0].snapshotDifficulty}
@@ -45,7 +45,7 @@ export const TripHeroSection = memo(function TripHeroSection({
       </View>
 
       <Text style={styles.tripTitle}>{trip.title}</Text>
-      <Text style={styles.destinationText}>📍 {trip.destination.name}</Text>
+      <Text style={styles.destinationText}>📍 {trip.destination?.name || ""}</Text>
 
       {/* Stats Grid */}
       <View style={styles.statsGrid}>

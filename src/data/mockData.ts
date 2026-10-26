@@ -291,67 +291,6 @@ export const mockTrips: Trip[] = [
     ],
     rentedItemsCount: 1,
   },
-  {
-    id: "trip-taxua-private",
-    type: "PRIVATE",
-    name: "Săn mây Tà Xùa cùng Team Dev",
-    trailId: "trail-pinhatt",
-    destination: "Sơn La",
-    startDate: "25 Tháng 11, 2026",
-    endDate: "27 Tháng 11, 2026",
-    durationDays: 2,
-    status: "UPCOMING",
-    leader: {
-      name: "Anh Thư (Host)",
-      avatar:
-        "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80",
-      phone: "0909 888 999",
-      rating: 4.9,
-      badge: "Trip Host",
-    },
-    capacity: 6,
-    enrolledCount: 4,
-    inviteCode: "TG-8F92A",
-    weather: {
-      tempC: 16,
-      condition: "Sương mù dày đặc",
-      rainRisk: true,
-      rainChancePercent: 60,
-      humidityPercent: 90,
-      windSpeedKmh: 18,
-      riskNotice: "Cảnh báo mưa phùn và gió rét vào sáng sớm.",
-    },
-    participants: [
-      {
-        id: "p-2",
-        name: "Anh Thư (Host)",
-        avatar:
-          "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80",
-        role: "HOST",
-      },
-      {
-        id: "p-7",
-        name: "Huy Frontend",
-        avatar:
-          "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=200&q=80",
-        role: "MEMBER",
-      },
-      {
-        id: "p-8",
-        name: "Tuấn Backend",
-        avatar:
-          "https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?auto=format&fit=crop&w=200&q=80",
-        role: "MEMBER",
-      },
-      {
-        id: "p-9",
-        name: "Khánh QA",
-        avatar:
-          "https://images.unsplash.com/photo-1527980965255-d3b416303d12?auto=format&fit=crop&w=200&q=80",
-        role: "MEMBER",
-      },
-    ],
-  },
 ];
 
 export const mockEquipment: EquipmentItem[] = [
