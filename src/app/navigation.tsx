@@ -1,4 +1,25 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import {
+  MapCheckpoint,
+  MapCoordinate,
+  MapGroupMember,
+  MapLibre3DView,
+  MapLibre3DViewRef,
+} from "@/components/map/MapLibre3DView";
+import { TrekGoLogo } from "@/components/TrekGoLogo";
+import { Colors, Radius, Shadows } from "@/constants/theme";
+import {
+  MemberStateDto,
+  TripCheckpointDto,
+  TripGpsCheckpointSheet,
+  TripGpsResultModal,
+  TripGpsRosterDrawer,
+  useTripGps,
+} from "@/features/trip-gps";
+import { distanceMeters } from "@/utils/gpsProcessor";
+import { Ionicons } from "@expo/vector-icons";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -6,34 +27,19 @@ import {
   Text,
   TouchableOpacity,
   View,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { StatusBar } from 'expo-status-bar';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { Colors, Radius, Shadows } from '@/constants/theme';
-import { MapLibre3DView, MapLibre3DViewRef, MapCheckpoint, MapCoordinate, MapGroupMember } from '@/components/map/MapLibre3DView';
-import { TrekGoLogo } from '@/components/TrekGoLogo';
-import {
-  TripGpsCheckpointSheet,
-  TripGpsResultModal,
-  TripGpsRosterDrawer,
-  useTripGps,
-  MemberStateDto,
-  TripCheckpointDto,
-} from '@/features/trip-gps';
-import { distanceMeters } from '@/utils/gpsProcessor';
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export default function NavigationScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{
     tripId?: string;
-    tripType?: 'PUBLIC' | 'PRIVATE';
+    tripType?: "PUBLIC" | "PRIVATE";
     tripTitle?: string;
   }>();
   const insets = useSafeAreaInsets();
-  const effectiveTripId = params.tripId || '';
-  const effectiveTitle = params.tripTitle || 'GPS chuyến đi';
+  const effectiveTripId = params.tripId || "";
+  const effectiveTitle = params.tripTitle || "GPS chuyến đi";
 
   const mapRef = useRef<MapLibre3DViewRef>(null);
 
@@ -81,7 +87,9 @@ export default function NavigationScreen() {
 
   // Selected Checkpoint / Member for on-map Quick Card
   const [selectedCp, setSelectedCp] = useState<TripCheckpointDto | null>(null);
-  const [selectedMember, setSelectedMember] = useState<MemberStateDto | null>(null);
+  const [selectedMember, setSelectedMember] = useState<MemberStateDto | null>(
+    null,
+  );
 
   // Map Checkpoints
   const mapCheckpoints = useMemo<MapCheckpoint[]>(() => {
@@ -91,7 +99,7 @@ export default function NavigationScreen() {
       order: cp.sequence,
       latitude: cp.latitude,
       longitude: cp.longitude,
-      status: arrivedCheckpointIds.includes(cp.id) ? 'COMPLETED' : 'PENDING',
+      status: arrivedCheckpointIds.includes(cp.id) ? "COMPLETED" : "PENDING",
     }));
   }, [checkpoints, arrivedCheckpointIds]);
 
@@ -99,7 +107,10 @@ export default function NavigationScreen() {
   const mapGroupMembers = useMemo<MapGroupMember[]>(() => {
     const list = gpsState?.members || [];
     return list
-      .filter((m) => m.lastLocation?.latitude != null && m.lastLocation?.longitude != null)
+      .filter(
+        (m) =>
+          m.lastLocation?.latitude != null && m.lastLocation?.longitude != null,
+      )
       .map((m) => ({
         userId: m.userId,
         fullName: m.fullName,
@@ -142,13 +153,16 @@ export default function NavigationScreen() {
     (lat: number, lng: number): string | null => {
       if (!mapCurrentPosition) return null;
       const d = distanceMeters(
-        { latitude: mapCurrentPosition.latitude, longitude: mapCurrentPosition.longitude },
-        { latitude: lat, longitude: lng }
+        {
+          latitude: mapCurrentPosition.latitude,
+          longitude: mapCurrentPosition.longitude,
+        },
+        { latitude: lat, longitude: lng },
       );
       if (d >= 1000) return `${(d / 1000).toFixed(1)} km`;
       return `${Math.round(d)} m`;
     },
-    [mapCurrentPosition]
+    [mapCurrentPosition],
   );
 
   // 1. Khi người dùng chủ động vuốt, zoom, xoay trên bản đồ -> Tắt Follow Mode
@@ -162,7 +176,11 @@ export default function NavigationScreen() {
     setSelectedCp(null);
     setSelectedMember(null);
     if (mapCurrentPosition) {
-      mapRef.current?.centerOnUser(mapCurrentPosition.longitude, mapCurrentPosition.latitude, 16.5);
+      mapRef.current?.centerOnUser(
+        mapCurrentPosition.longitude,
+        mapCurrentPosition.latitude,
+        16.5,
+      );
     } else {
       mapRef.current?.centerOnUser(undefined, undefined, 16.5);
     }
@@ -187,7 +205,10 @@ export default function NavigationScreen() {
     setSelectedMember(null);
     const coords: [number, number][] = [];
     if (plannedRouteCoords.length > 0) {
-      if (Array.isArray(plannedRouteCoords[0]) && typeof plannedRouteCoords[0][0] === 'number') {
+      if (
+        Array.isArray(plannedRouteCoords[0]) &&
+        typeof plannedRouteCoords[0][0] === "number"
+      ) {
         coords.push(...(plannedRouteCoords as [number, number][]));
       }
     }
@@ -206,7 +227,7 @@ export default function NavigationScreen() {
           [minLng, minLat],
           [maxLng, maxLat],
         ],
-        50
+        50,
       );
     }
   }, [plannedRouteCoords, mapGroupMembers, mapCurrentPosition]);
@@ -222,7 +243,7 @@ export default function NavigationScreen() {
         mapRef.current?.easeTo(cp.longitude, cp.latitude);
       }
     },
-    [checkpoints]
+    [checkpoints],
   );
 
   // 7. Nhấn vào Member trên bản đồ -> Ease camera, tắt Follow Mode, hiện Quick Card
@@ -233,10 +254,13 @@ export default function NavigationScreen() {
         setIsFollowingUser(false);
         setSelectedMember(mem);
         setSelectedCp(null);
-        mapRef.current?.easeTo(mem.lastLocation.longitude, mem.lastLocation.latitude);
+        mapRef.current?.easeTo(
+          mem.lastLocation.longitude,
+          mem.lastLocation.latitude,
+        );
       }
     },
-    [gpsState]
+    [gpsState],
   );
 
   // Focus on specific member on map từ Roster Drawer
@@ -245,27 +269,31 @@ export default function NavigationScreen() {
       setIsFollowingUser(false);
       setSelectedMember(member);
       setSelectedCp(null);
-      mapRef.current?.flyTo(member.lastLocation.longitude, member.lastLocation.latitude, 16);
+      mapRef.current?.flyTo(
+        member.lastLocation.longitude,
+        member.lastLocation.latitude,
+        16,
+      );
     }
   }, []);
 
   // SOS Emergency Alert
   const handleSOS = useCallback(() => {
-    const lat = mapCurrentPosition?.latitude?.toFixed(4) || '11.5831';
-    const lng = mapCurrentPosition?.longitude?.toFixed(4) || '108.5290';
+    const lat = mapCurrentPosition?.latitude?.toFixed(4) || "11.5831";
+    const lng = mapCurrentPosition?.longitude?.toFixed(4) || "108.5290";
     Alert.alert(
-      'PHÁT TÍN HIỆU SOS KHẨN CẤP',
+      "PHÁT TÍN HIỆU SOS KHẨN CẤP",
       `Đang gửi toạ độ GPS (${lat}°N, ${lng}°E) của bạn tới Ban Quản Lý Rừng & Trạm Cứu Hộ TrekGo gần nhất qua tần số vệ tinh & SMS khẩn.`,
-      [{ text: 'Đã nhận tín hiệu' }]
+      [{ text: "Đã nhận tín hiệu" }],
     );
   }, [mapCurrentPosition]);
 
   // VHF Radio Channel
   const handleRadio = useCallback(() => {
     Alert.alert(
-      'Kênh Bộ Đàm VHF Đoàn Trek',
+      "Kênh Bộ Đàm VHF Đoàn Trek",
       `Kênh 01 (Tần số 146.520 MHz) · Sóng ổn định · Đoàn có ${gpsState?.members?.length || 1} thiết bị trong vùng phủ sóng.`,
-      [{ text: 'Đóng' }]
+      [{ text: "Đóng" }],
     );
   }, [gpsState]);
 
@@ -275,10 +303,14 @@ export default function NavigationScreen() {
   }, [startRecording]);
 
   const handlePause = useCallback(async () => {
-    Alert.alert('Tạm dừng ghi GPS?', 'Phiên ghi sẽ được đánh dấu tạm dừng. Bạn có thể tiếp tục bất cứ lúc nào.', [
-      { text: 'Hủy', style: 'cancel' },
-      { text: 'Tạm dừng', onPress: pauseRecording },
-    ]);
+    Alert.alert(
+      "Tạm dừng ghi GPS?",
+      "Phiên ghi sẽ được đánh dấu tạm dừng. Bạn có thể tiếp tục bất cứ lúc nào.",
+      [
+        { text: "Hủy", style: "cancel" },
+        { text: "Tạm dừng", onPress: pauseRecording },
+      ],
+    );
   }, [pauseRecording]);
 
   const handleResume = useCallback(async () => {
@@ -287,31 +319,36 @@ export default function NavigationScreen() {
 
   const handleFinish = useCallback(async () => {
     Alert.alert(
-      'Kết thúc phiên ghi GPS?',
-      'Dữ liệu đã ghi sẽ được lưu. Bạn có thể ghi tiếp bằng phiên mới khi chuyến còn cho phép ghi. Thao tác này không kết thúc chuyến đi.',
+      "Kết thúc phiên ghi GPS?",
+      "Dữ liệu đã ghi sẽ được lưu. Bạn có thể ghi tiếp bằng phiên mới khi chuyến còn cho phép ghi. Thao tác này không kết thúc chuyến đi.",
       [
-        { text: 'Hủy', style: 'cancel' },
+        { text: "Hủy", style: "cancel" },
         {
-          text: 'Kết thúc & Lưu',
-          style: 'destructive',
+          text: "Kết thúc & Lưu",
+          style: "destructive",
           onPress: async () => {
             if (await finishRecording()) setResultModalVisible(true);
           },
         },
-      ]
+      ],
     );
   }, [finishRecording]);
 
-  const isSessionActive = session?.status === 'ACTIVE';
-  const isSessionPaused = session?.status === 'PAUSED';
-  const isSessionStopped = session?.status === 'STOPPED' || !session;
+  const isSessionActive = session?.status === "ACTIVE";
+  const isSessionPaused = session?.status === "PAUSED";
+  const isSessionStopped = session?.status === "STOPPED" || !session;
 
   return (
     <View style={styles.screenContainer}>
       <StatusBar style="dark" />
 
       {/* 1. TOP HUD BAR — Wrapped seamlessly with Top Inset */}
-      <View style={[styles.topHudBar, { paddingTop: insets.top, height: 56 + insets.top }]}>
+      <View
+        style={[
+          styles.topHudBar,
+          { paddingTop: insets.top, height: 56 + insets.top },
+        ]}
+      >
         <View style={styles.topHudLeft}>
           <TouchableOpacity
             style={styles.backBtn}
@@ -326,7 +363,12 @@ export default function NavigationScreen() {
               {effectiveTitle}
             </Text>
             <Text style={styles.hudSubtitle}>
-              {params.tripType ? `${params.tripType} TRIP` : 'TREK HUD'} · {isSessionActive ? 'ĐANG GHI' : isSessionPaused ? 'TẠM DỪNG' : 'CHẾ ĐỘ GPS'}
+              {params.tripType ? `${params.tripType} TRIP` : "TREK HUD"} ·{" "}
+              {isSessionActive
+                ? "ĐANG GHI"
+                : isSessionPaused
+                  ? "TẠM DỪNG"
+                  : "CHẾ ĐỘ GPS"}
             </Text>
           </View>
         </View>
@@ -337,11 +379,15 @@ export default function NavigationScreen() {
             <View
               style={[
                 styles.livePulseDot,
-                { backgroundColor: socketConnected ? Colors.positive : Colors.warning },
+                {
+                  backgroundColor: socketConnected
+                    ? Colors.positive
+                    : Colors.warning,
+                },
               ]}
             />
             <Text style={styles.statusPillText}>
-              {socketConnected ? 'LIVE' : 'POLLING'}
+              {socketConnected ? "LIVE" : "POLLING"}
             </Text>
           </View>
 
@@ -397,12 +443,18 @@ export default function NavigationScreen() {
             onPress={handleToggle3D}
             activeOpacity={0.85}
           >
-            <Text style={[styles.map3DText, is3DMode && styles.map3DTextActive]}>
-              {is3DMode ? '3D' : '2D'}
+            <Text
+              style={[styles.map3DText, is3DMode && styles.map3DTextActive]}
+            >
+              {is3DMode ? "3D" : "2D"}
             </Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.mapIconBtn} onPress={handleResetNorth} activeOpacity={0.85}>
+          <TouchableOpacity
+            style={styles.mapIconBtn}
+            onPress={handleResetNorth}
+            activeOpacity={0.85}
+          >
             <View style={{ transform: [{ rotate: `${-currentBearing}deg` }] }}>
               <Ionicons
                 name="compass"
@@ -414,34 +466,43 @@ export default function NavigationScreen() {
 
           {/* Nút bật/tắt Fake GPS (Mô phỏng bám cung đường) */}
           <TouchableOpacity
-            style={[styles.mapIconBtn, isSimulated && styles.mapIconBtnSimActive]}
+            style={[
+              styles.mapIconBtn,
+              isSimulated && styles.mapIconBtnSimActive,
+            ]}
             onPress={() => toggleSimulation()}
             activeOpacity={0.85}
           >
             <Ionicons
-              name={isSimulated ? 'walk' : 'navigate-circle-outline'}
+              name={isSimulated ? "walk" : "navigate-circle-outline"}
               size={20}
-              color={isSimulated ? '#ffffff' : Colors.ink}
+              color={isSimulated ? "#ffffff" : Colors.ink}
             />
           </TouchableOpacity>
 
           {/* Nút bật/tắt Map Matching (Snap vào tim đường) */}
           <TouchableOpacity
-            style={[styles.mapIconBtn, isMapMatchingEnabled && styles.mapIconBtnMatchActive]}
+            style={[
+              styles.mapIconBtn,
+              isMapMatchingEnabled && styles.mapIconBtnMatchActive,
+            ]}
             onPress={() => toggleMapMatching()}
             activeOpacity={0.85}
           >
             <Ionicons
               name="git-commit-outline"
               size={20}
-              color={isMapMatchingEnabled ? '#ffffff' : Colors.ink}
+              color={isMapMatchingEnabled ? "#ffffff" : Colors.ink}
             />
           </TouchableOpacity>
 
           <TouchableOpacity
             style={[
               styles.mapIconBtn,
-              isFollowingUser && isSessionActive && !isSessionPaused && styles.mapIconBtnFollowActive,
+              isFollowingUser &&
+                isSessionActive &&
+                !isSessionPaused &&
+                styles.mapIconBtnFollowActive,
             ]}
             onPress={handleCenterOnMe}
             activeOpacity={0.85}
@@ -449,8 +510,8 @@ export default function NavigationScreen() {
             <Ionicons
               name={
                 isFollowingUser && isSessionActive && !isSessionPaused
-                  ? 'navigate'
-                  : 'locate'
+                  ? "navigate"
+                  : "locate"
               }
               size={20}
               color={
@@ -461,7 +522,11 @@ export default function NavigationScreen() {
             />
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.mapIconBtn} onPress={handleFitAll} activeOpacity={0.85}>
+          <TouchableOpacity
+            style={styles.mapIconBtn}
+            onPress={handleFitAll}
+            activeOpacity={0.85}
+          >
             <Ionicons name="scan" size={20} color={Colors.ink} />
           </TouchableOpacity>
         </View>
@@ -472,15 +537,24 @@ export default function NavigationScreen() {
             <View style={styles.previewCardHeader}>
               <View style={styles.previewBadgeRow}>
                 <View style={styles.previewSequenceCircle}>
-                  <Text style={styles.previewSequenceText}>{selectedCp.sequence}</Text>
+                  <Text style={styles.previewSequenceText}>
+                    {selectedCp.sequence}
+                  </Text>
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.previewTitle} numberOfLines={1}>{selectedCp.name}</Text>
+                  <Text style={styles.previewTitle} numberOfLines={1}>
+                    {selectedCp.name}
+                  </Text>
                   <Text style={styles.previewSubtitle}>
-                    {arrivedCheckpointIds.includes(selectedCp.id) ? '✓ Đã đến mốc' : 'Chưa đến'}
-                    {getDistanceToUser(selectedCp.latitude, selectedCp.longitude)
+                    {arrivedCheckpointIds.includes(selectedCp.id)
+                      ? "✓ Đã đến mốc"
+                      : "Chưa đến"}
+                    {getDistanceToUser(
+                      selectedCp.latitude,
+                      selectedCp.longitude,
+                    )
                       ? ` · Cách bạn ${getDistanceToUser(selectedCp.latitude, selectedCp.longitude)}`
-                      : ''}
+                      : ""}
                   </Text>
                 </View>
               </View>
@@ -500,7 +574,9 @@ export default function NavigationScreen() {
                   setCheckpointSheetVisible(true);
                 }}
               >
-                <Text style={styles.previewActionText}>Xem danh sách mốc →</Text>
+                <Text style={styles.previewActionText}>
+                  Xem danh sách mốc →
+                </Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.previewLocateBackBtn}
@@ -520,21 +596,41 @@ export default function NavigationScreen() {
               <View style={styles.previewBadgeRow}>
                 <View style={styles.memberAvatarCircle}>
                   <Text style={styles.memberAvatarText}>
-                    {(selectedMember.fullName || 'U').charAt(0).toUpperCase()}
+                    {(selectedMember.fullName || "U").charAt(0).toUpperCase()}
                   </Text>
                 </View>
                 <View style={{ flex: 1 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Text style={styles.previewTitle} numberOfLines={1}>{selectedMember.fullName}</Text>
-                    <View style={[styles.roleMiniBadge, selectedMember.tripRole === 'LEADER' && styles.roleLeaderBadge]}>
-                      <Text style={styles.roleMiniText}>{selectedMember.tripRole}</Text>
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 6,
+                    }}
+                  >
+                    <Text style={styles.previewTitle} numberOfLines={1}>
+                      {selectedMember.fullName}
+                    </Text>
+                    <View
+                      style={[
+                        styles.roleMiniBadge,
+                        selectedMember.tripRole === "LEADER" &&
+                          styles.roleLeaderBadge,
+                      ]}
+                    >
+                      <Text style={styles.roleMiniText}>
+                        {selectedMember.tripRole}
+                      </Text>
                     </View>
                   </View>
                   <Text style={styles.previewSubtitle}>
                     Trạng thái: {selectedMember.locationStatus}
-                    {selectedMember.lastLocation && getDistanceToUser(selectedMember.lastLocation.latitude, selectedMember.lastLocation.longitude)
+                    {selectedMember.lastLocation &&
+                    getDistanceToUser(
+                      selectedMember.lastLocation.latitude,
+                      selectedMember.lastLocation.longitude,
+                    )
                       ? ` · Cách bạn ${getDistanceToUser(selectedMember.lastLocation.latitude, selectedMember.lastLocation.longitude)}`
-                      : ''}
+                      : ""}
                   </Text>
                 </View>
               </View>
@@ -577,15 +673,25 @@ export default function NavigationScreen() {
       </View>
 
       {/* 3. COMPACT DASHBOARD & CONTROLS PANEL (~1/3 màn hình, thiết kế Scandinavian Wise) */}
-      <View style={[styles.bottomPanel, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+      <View
+        style={[
+          styles.bottomPanel,
+          { paddingBottom: Math.max(insets.bottom, 16) },
+        ]}
+      >
         {/* CRITICAL ROUTE DEVIATION WARNING BAR (If deviated) */}
         {deviation.isDeviated && (
           <View style={styles.deviationCardCompact}>
             <Ionicons name="warning" size={16} color={Colors.negative} />
             <Text style={styles.deviationTextCompact} numberOfLines={1}>
-              LỆCH TUYẾN: Lệch ~{deviation.distanceM ? Math.round(deviation.distanceM) : 60}m khỏi cung đường đoàn!
+              LỆCH TUYẾN: Lệch ~
+              {deviation.distanceM ? Math.round(deviation.distanceM) : 60}m khỏi
+              cung đường đoàn!
             </Text>
-            <TouchableOpacity style={styles.reconnectBtnCompact} onPress={handleCenterOnMe}>
+            <TouchableOpacity
+              style={styles.reconnectBtnCompact}
+              onPress={handleCenterOnMe}
+            >
               <Text style={styles.reconnectBtnTextCompact}>Xem đường</Text>
             </TouchableOpacity>
           </View>
@@ -632,7 +738,8 @@ export default function NavigationScreen() {
             >
               <Ionicons name="flag" size={13} color={Colors.tertiary} />
               <Text style={styles.quickPillText} numberOfLines={1}>
-                Mốc {arrivedCheckpointIds.length}/{checkpoints.length} · {nextCheckpoint ? nextCheckpoint.name : 'Về đích'}
+                Mốc {arrivedCheckpointIds.length}/{checkpoints.length} ·{" "}
+                {nextCheckpoint ? nextCheckpoint.name : "Về đích"}
               </Text>
               <Ionicons name="chevron-forward" size={12} color={Colors.mute} />
             </TouchableOpacity>
@@ -651,89 +758,103 @@ export default function NavigationScreen() {
           </View>
         </View>
 
-      {/* 7. STICKY BOTTOM ACTION CONTROLS — Wise Design 24px Pill Buttons */}
-      <View style={styles.bottomControlsBar}>
-        {/* If Not Started (Stopped or no session) */}
-        {isSessionStopped && (
-          <TouchableOpacity
-            style={styles.primaryPillBtn}
-            activeOpacity={0.88}
-            onPress={handleStart}
-            disabled={loading || !context?.permissions.canRecord}
-          >
-            {loading ? (
-              <ActivityIndicator size="small" color={Colors.onPrimary} />
-            ) : (
-              <>
-                <Ionicons name="play" size={20} color={Colors.onPrimary} />
-                <Text style={styles.primaryPillText}>{!context?.permissions.canRecord
-                  ? (context?.tripStatus === 'COMPLETED' ? 'Chuyến đi đã kết thúc' : 'Chưa được phép ghi GPS')
-                  : session?.status === 'STOPPED' ? 'Ghi tiếp hành trình' : 'Bắt đầu ghi GPS'}</Text>
-              </>
-            )}
-          </TouchableOpacity>
-        )}
-
-        {/* If Active */}
-        {isSessionActive && (
-          <View style={styles.activeActionsRow}>
+        {/* 7. STICKY BOTTOM ACTION CONTROLS — Wise Design 24px Pill Buttons */}
+        <View style={styles.bottomControlsBar}>
+          {/* If Not Started (Stopped or no session) */}
+          {isSessionStopped && (
             <TouchableOpacity
-              style={styles.pauseBtn}
-              activeOpacity={0.85}
-              onPress={handlePause}
-              disabled={loading}
-            >
-              <Ionicons name="pause" size={18} color={Colors.ink} />
-              <Text style={styles.pauseBtnText}>Tạm dừng</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.finishBtn}
-              activeOpacity={0.85}
-              onPress={handleFinish}
-              disabled={loading}
-            >
-              <Ionicons name="stop" size={18} color="#ffffff" />
-              <Text style={styles.finishBtnText}>Kết thúc</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {/* If Paused */}
-        {isSessionPaused && (
-          <View style={styles.activeActionsRow}>
-            <TouchableOpacity
-              style={styles.resumeBtn}
+              style={styles.primaryPillBtn}
               activeOpacity={0.88}
-              onPress={handleResume}
-              disabled={loading}
+              onPress={handleStart}
+              disabled={loading || !context?.permissions.canRecord}
             >
-              <Ionicons name="play" size={18} color={Colors.onPrimary} />
-              <Text style={styles.resumeBtnText}>Tiếp tục ghi</Text>
+              {loading ? (
+                <ActivityIndicator size="small" color={Colors.onPrimary} />
+              ) : (
+                <>
+                  <Ionicons name="play" size={20} color={Colors.onPrimary} />
+                  <Text style={styles.primaryPillText}>
+                    {!context?.permissions.canRecord
+                      ? context?.tripStatus === "COMPLETED"
+                        ? "Chuyến đi đã kết thúc"
+                        : "Chưa được phép ghi GPS"
+                      : session?.status === "STOPPED"
+                        ? "Ghi tiếp hành trình"
+                        : "Bắt đầu ghi GPS"}
+                  </Text>
+                </>
+              )}
             </TouchableOpacity>
+          )}
 
-            <TouchableOpacity
-              style={styles.finishBtn}
-              activeOpacity={0.85}
-              onPress={handleFinish}
-              disabled={loading}
-            >
-              <Ionicons name="stop" size={18} color="#ffffff" />
-              <Text style={styles.finishBtnText}>Kết thúc</Text>
-            </TouchableOpacity>
-          </View>
-        )}
+          {/* If Active */}
+          {isSessionActive && (
+            <View style={styles.activeActionsRow}>
+              <TouchableOpacity
+                style={styles.pauseBtn}
+                activeOpacity={0.85}
+                onPress={handlePause}
+                disabled={loading}
+              >
+                <Ionicons name="pause" size={18} color={Colors.ink} />
+                <Text style={styles.pauseBtnText}>Tạm dừng</Text>
+              </TouchableOpacity>
 
-        {/* Tactile SOS & Radio Buttons */}
-        <TouchableOpacity style={styles.sosButton} onPress={handleSOS} activeOpacity={0.8}>
-          <Ionicons name="alert" size={20} color={Colors.negative} />
-        </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.finishBtn}
+                activeOpacity={0.85}
+                onPress={handleFinish}
+                disabled={loading}
+              >
+                <Ionicons name="stop" size={18} color="#ffffff" />
+                <Text style={styles.finishBtnText}>Kết thúc</Text>
+              </TouchableOpacity>
+            </View>
+          )}
 
-        <TouchableOpacity style={styles.radioButton} onPress={handleRadio} activeOpacity={0.8}>
-          <Ionicons name="radio" size={18} color={Colors.ink} />
-        </TouchableOpacity>
+          {/* If Paused */}
+          {isSessionPaused && (
+            <View style={styles.activeActionsRow}>
+              <TouchableOpacity
+                style={styles.resumeBtn}
+                activeOpacity={0.88}
+                onPress={handleResume}
+                disabled={loading}
+              >
+                <Ionicons name="play" size={18} color={Colors.onPrimary} />
+                <Text style={styles.resumeBtnText}>Tiếp tục ghi</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.finishBtn}
+                activeOpacity={0.85}
+                onPress={handleFinish}
+                disabled={loading}
+              >
+                <Ionicons name="stop" size={18} color="#ffffff" />
+                <Text style={styles.finishBtnText}>Kết thúc</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* Tactile SOS & Radio Buttons */}
+          <TouchableOpacity
+            style={styles.sosButton}
+            onPress={handleSOS}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="alert" size={20} color={Colors.negative} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.radioButton}
+            onPress={handleRadio}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="radio" size={18} color={Colors.ink} />
+          </TouchableOpacity>
+        </View>
       </View>
-    </View>
 
       {/* Roster Drawer Modal */}
       <TripGpsRosterDrawer
@@ -771,20 +892,20 @@ export default function NavigationScreen() {
 const styles = StyleSheet.create({
   screenContainer: {
     flex: 1,
-    backgroundColor: '#ffffff',
+    backgroundColor: "#ffffff",
   },
   topHudBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: 16,
-    backgroundColor: '#ffffff',
+    backgroundColor: "#ffffff",
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f2ee',
+    borderBottomColor: "#f0f2ee",
   },
   topHudLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 10,
     flex: 1,
   },
@@ -792,32 +913,32 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: Radius.full,
-    backgroundColor: '#e8ebe6',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: "#e8ebe6",
+    alignItems: "center",
+    justifyContent: "center",
   },
   hudTitle: {
     fontSize: 14,
-    fontWeight: '900',
+    fontWeight: "900",
     color: Colors.ink,
     maxWidth: 180,
   },
   hudSubtitle: {
     fontSize: 9,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Colors.mute,
     letterSpacing: 0.5,
   },
   topHudRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
   },
   statusPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 5,
-    backgroundColor: '#e8ebe6',
+    backgroundColor: "#e8ebe6",
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: Radius.pill,
@@ -829,12 +950,12 @@ const styles = StyleSheet.create({
   },
   statusPillText: {
     fontSize: 10,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Colors.ink,
   },
   accuracyBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 3,
     backgroundColor: Colors.primaryPale,
     paddingHorizontal: 8,
@@ -843,33 +964,33 @@ const styles = StyleSheet.create({
   },
   accuracyText: {
     fontSize: 10,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Colors.positiveDeep,
   },
   scrollContent: {
     paddingBottom: 24,
   },
   errorNotice: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
-    backgroundColor: '#ffdad6',
+    backgroundColor: "#ffdad6",
     paddingHorizontal: 16,
     paddingVertical: 10,
   },
   errorNoticeText: {
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: "700",
     color: Colors.negative,
     flex: 1,
   },
   mapArea: {
     flex: 1,
-    backgroundColor: '#141d13',
-    position: 'relative',
+    backgroundColor: "#141d13",
+    position: "relative",
   },
   mapFloatingControls: {
-    position: 'absolute',
+    position: "absolute",
     right: 14,
     top: 14,
     gap: 8,
@@ -879,14 +1000,14 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: Radius.full,
-    backgroundColor: '#ffffff',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: "#ffffff",
+    alignItems: "center",
+    justifyContent: "center",
     ...Shadows.card,
   },
   map3DText: {
     fontSize: 13,
-    fontWeight: '900',
+    fontWeight: "900",
     color: Colors.ink,
   },
   mapIconBtnActive: {
@@ -903,9 +1024,9 @@ const styles = StyleSheet.create({
     borderColor: Colors.primaryDark,
   },
   mapIconBtnSimActive: {
-    backgroundColor: '#ff9800',
+    backgroundColor: "#ff9800",
     borderWidth: 1.5,
-    borderColor: '#e65100',
+    borderColor: "#e65100",
   },
   mapIconBtnMatchActive: {
     backgroundColor: Colors.primaryDark,
@@ -913,27 +1034,27 @@ const styles = StyleSheet.create({
     borderColor: Colors.ink,
   },
   simPill: {
-    backgroundColor: '#fff3e0',
+    backgroundColor: "#fff3e0",
     paddingHorizontal: 7,
     paddingVertical: 3,
     borderRadius: Radius.pill,
     borderWidth: 1,
-    borderColor: '#ffe0b2',
+    borderColor: "#ffe0b2",
   },
   simPillText: {
     fontSize: 9,
-    fontWeight: '900',
-    color: '#e65100',
+    fontWeight: "900",
+    color: "#e65100",
     letterSpacing: 0.5,
   },
   mapFollowBadge: {
-    position: 'absolute',
+    position: "absolute",
     top: 14,
     left: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 6,
-    backgroundColor: 'rgba(255, 255, 255, 0.94)',
+    backgroundColor: "rgba(255, 255, 255, 0.94)",
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: Radius.pill,
@@ -947,31 +1068,31 @@ const styles = StyleSheet.create({
   },
   mapFollowText: {
     fontSize: 11,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Colors.ink,
   },
   mapPreviewCard: {
-    position: 'absolute',
+    position: "absolute",
     left: 14,
     right: 14,
     bottom: 14,
-    backgroundColor: 'rgba(255, 255, 255, 0.97)',
+    backgroundColor: "rgba(255, 255, 255, 0.97)",
     borderRadius: Radius.xl, // 24px Wise card
     padding: 14,
     ...Shadows.modal,
     zIndex: 20,
     borderWidth: 1,
-    borderColor: '#e8ebe6',
+    borderColor: "#e8ebe6",
   },
   previewCardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     gap: 10,
   },
   previewBadgeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 10,
     flex: 1,
   },
@@ -980,12 +1101,12 @@ const styles = StyleSheet.create({
     height: 32,
     borderRadius: Radius.full,
     backgroundColor: Colors.tertiaryContainer,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   previewSequenceText: {
     fontSize: 13,
-    fontWeight: '900',
+    fontWeight: "900",
     color: Colors.ink,
   },
   memberAvatarCircle: {
@@ -993,41 +1114,41 @@ const styles = StyleSheet.create({
     height: 32,
     borderRadius: Radius.full,
     backgroundColor: Colors.ink,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   memberAvatarText: {
     fontSize: 13,
-    fontWeight: '800',
-    color: '#ffffff',
+    fontWeight: "800",
+    color: "#ffffff",
   },
   previewTitle: {
     fontSize: 13,
-    fontWeight: '900',
+    fontWeight: "900",
     color: Colors.ink,
   },
   previewSubtitle: {
     fontSize: 11,
     color: Colors.mute,
     marginTop: 2,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   previewCloseBtn: {
     width: 28,
     height: 28,
     borderRadius: Radius.full,
-    backgroundColor: '#e8ebe6',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: "#e8ebe6",
+    alignItems: "center",
+    justifyContent: "center",
   },
   previewActionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     marginTop: 10,
     paddingTop: 8,
     borderTopWidth: 1,
-    borderTopColor: '#e8ebe6',
+    borderTopColor: "#e8ebe6",
     gap: 8,
   },
   previewActionBtn: {
@@ -1035,12 +1156,12 @@ const styles = StyleSheet.create({
   },
   previewActionText: {
     fontSize: 11,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Colors.primaryDark,
   },
   previewLocateBackBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 4,
     backgroundColor: Colors.primary,
     paddingHorizontal: 10,
@@ -1049,31 +1170,31 @@ const styles = StyleSheet.create({
   },
   previewLocateBackText: {
     fontSize: 10,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Colors.onPrimary,
   },
   roleMiniBadge: {
-    backgroundColor: '#e8ebe6',
+    backgroundColor: "#e8ebe6",
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: Radius.pill,
   },
   roleLeaderBadge: {
-    backgroundColor: '#fed018',
+    backgroundColor: "#fed018",
   },
   roleMiniText: {
     fontSize: 9,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Colors.ink,
   },
   syncingBadge: {
-    position: 'absolute',
+    position: "absolute",
     left: 14,
     bottom: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 6,
-    backgroundColor: 'rgba(255, 255, 255, 0.92)',
+    backgroundColor: "rgba(255, 255, 255, 0.92)",
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: Radius.pill,
@@ -1081,11 +1202,11 @@ const styles = StyleSheet.create({
   },
   syncingText: {
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: "700",
     color: Colors.ink,
   },
   bottomPanel: {
-    backgroundColor: '#ffffff',
+    backgroundColor: "#ffffff",
     borderTopLeftRadius: Radius.xl, // 24px signature rounded top corners
     borderTopRightRadius: Radius.xl,
     marginTop: -20, // Overlap onto the map so rounded corners sit seamlessly on the map
@@ -1093,15 +1214,15 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     ...Shadows.modal,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(0, 0, 0, 0.05)',
+    borderTopColor: "rgba(0, 0, 0, 0.05)",
   },
   deviationCardCompact: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
     marginHorizontal: 14,
     marginBottom: 8,
-    backgroundColor: '#fff1f2',
+    backgroundColor: "#fff1f2",
     borderWidth: 1,
     borderColor: Colors.negative,
     borderRadius: Radius.pill,
@@ -1111,7 +1232,7 @@ const styles = StyleSheet.create({
   deviationTextCompact: {
     flex: 1,
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: "700",
     color: Colors.negative,
   },
   reconnectBtnCompact: {
@@ -1122,8 +1243,8 @@ const styles = StyleSheet.create({
   },
   reconnectBtnTextCompact: {
     fontSize: 10,
-    fontWeight: '800',
-    color: '#ffffff',
+    fontWeight: "800",
+    color: "#ffffff",
   },
   compactDashboard: {
     paddingHorizontal: 16,
@@ -1131,111 +1252,111 @@ const styles = StyleSheet.create({
     marginBottom: 12, // Khoảng cách thở thoáng giữa hàng mốc/đoàn và hàng nút hành động
   },
   compactStatsBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f6f7f5',
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f6f7f5",
     borderRadius: Radius.lg,
     paddingVertical: 8,
     paddingHorizontal: 8,
     borderWidth: 1,
-    borderColor: '#e8ebe6',
+    borderColor: "#e8ebe6",
   },
   compactStatCol: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   compactDivider: {
     width: 1,
     height: 24,
-    backgroundColor: '#e1e5de',
+    backgroundColor: "#e1e5de",
   },
   compactStatLabel: {
     fontSize: 8.5,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Colors.mute,
     letterSpacing: 0.5,
     marginBottom: 2,
   },
   compactStatValRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
+    flexDirection: "row",
+    alignItems: "baseline",
     gap: 2,
   },
   compactStatVal: {
     fontSize: 18,
-    fontWeight: '900',
+    fontWeight: "900",
     color: Colors.ink,
   },
   compactStatUnit: {
     fontSize: 10,
-    fontWeight: '700',
+    fontWeight: "700",
     color: Colors.mute,
   },
   quickPillsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
   },
   quickPillBtn: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 6,
-    backgroundColor: '#f6f7f5',
+    backgroundColor: "#f6f7f5",
     paddingHorizontal: 10,
     paddingVertical: 7,
     borderRadius: Radius.pill,
     borderWidth: 1,
-    borderColor: '#e8ebe6',
+    borderColor: "#e8ebe6",
   },
   quickPillText: {
     flex: 1,
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: "700",
     color: Colors.ink,
   },
   bottomControlsBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
     paddingHorizontal: 16,
     paddingTop: 4,
-    backgroundColor: '#ffffff',
+    backgroundColor: "#ffffff",
   },
   primaryPillBtn: {
     flex: 1,
     height: 52,
     borderRadius: Radius.xl, // 24px pill-rectangle
     backgroundColor: Colors.primary, // Wise lime green (#9fe870)
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: 8,
   },
   primaryPillText: {
     fontSize: 16,
-    fontWeight: '900',
+    fontWeight: "900",
     color: Colors.onPrimary,
   },
   activeActionsRow: {
     flex: 1,
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 8,
   },
   pauseBtn: {
     flex: 1,
     height: 52,
     borderRadius: Radius.xl,
-    backgroundColor: '#e8ebe6',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: "#e8ebe6",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: 6,
   },
   pauseBtnText: {
     fontSize: 14,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Colors.ink,
   },
   resumeBtn: {
@@ -1243,14 +1364,14 @@ const styles = StyleSheet.create({
     height: 52,
     borderRadius: Radius.xl,
     backgroundColor: Colors.primary,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: 6,
   },
   resumeBtnText: {
     fontSize: 14,
-    fontWeight: '900',
+    fontWeight: "900",
     color: Colors.onPrimary,
   },
   finishBtn: {
@@ -1258,30 +1379,30 @@ const styles = StyleSheet.create({
     height: 52,
     borderRadius: Radius.xl,
     backgroundColor: Colors.ink,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: 6,
   },
   finishBtnText: {
     fontSize: 14,
-    fontWeight: '900',
-    color: '#ffffff',
+    fontWeight: "900",
+    color: "#ffffff",
   },
   sosButton: {
     width: 52,
     height: 52,
     borderRadius: Radius.full,
-    backgroundColor: '#ffdad6',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: "#ffdad6",
+    alignItems: "center",
+    justifyContent: "center",
   },
   radioButton: {
     width: 52,
     height: 52,
     borderRadius: Radius.full,
-    backgroundColor: '#e8ebe6',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: "#e8ebe6",
+    alignItems: "center",
+    justifyContent: "center",
   },
 });
