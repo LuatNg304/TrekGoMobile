@@ -701,7 +701,14 @@ export const rentalApi = {
 
   async transferRentalReturnToInventory(
     returnTaskId: string,
-    input: { unitIds: string[]; packageId?: string; pendingTransferId?: string; expectedVersion: number },
+    input: {
+      unitIds: string[];
+      missingInCustodyUnitIds?: string[];
+      incidentNote?: string;
+      packageId?: string;
+      pendingTransferId?: string;
+      expectedVersion: number;
+    },
     idempotencyKey: string,
     accessToken: string,
   ) {

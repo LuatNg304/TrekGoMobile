@@ -79,6 +79,8 @@ export default function StaffReturnScreen() {
   const [reviews, setReviews] = useState<Record<string, ItemReview>>({});
   const [evidenceDrafts, setEvidenceDrafts] = useState<Record<string, EvidenceDraft>>({});
   const [scanResult, setScanResult] = useState<RentalReturnScanResult>();
+  const [custodyPresentIds, setCustodyPresentIds] = useState<string[]>([]);
+  const [custodyIncidentNote, setCustodyIncidentNote] = useState("");
   const [stage, setStage] = useState<0 | 1 | 2>(0);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -158,6 +160,10 @@ export default function StaffReturnScreen() {
     [reviews, units],
   );
   const issueCount = units.filter((unit) => ["MISSING", "DAMAGED"].includes(reviews[unit.unitId]?.status)).length;
+  const missingInCustodyUnitIds = useMemo(
+    () => scanResult?.receivedUnits.map((unit) => unit.unitId).filter((unitId) => !custodyPresentIds.includes(unitId)) ?? [],
+    [custodyPresentIds, scanResult?.receivedUnits],
+  );
 
   const setReview = (unitId: string, update: Partial<ItemReview>) => {
     setReviews((current) => ({
@@ -230,6 +236,8 @@ export default function StaffReturnScreen() {
         accessToken,
       );
       setScanResult(result);
+      setCustodyPresentIds(result.receivedUnits.map((unit) => unit.unitId));
+      setCustodyIncidentNote("");
       setOrder((current) => current ? { ...current, order: { ...current.order, version: result.version } } : current);
       setStage(1);
     } catch (requestError) {
@@ -274,13 +282,22 @@ export default function StaffReturnScreen() {
 
   const transferToInventory = async () => {
     if (!accessToken || !task || !scanResult || busy) return;
+    if (missingInCustodyUnitIds.length && custodyIncidentNote.trim().length < 3) {
+      setFeedback({
+        title: "Cần mô tả sự việc",
+        message: "Thiết bị đã nhận từ khách nhưng không còn trong custody phải có ghi chú.",
+      });
+      return;
+    }
     setBusy(true);
     setError(undefined);
     try {
       await rentalApi.transferRentalReturnToInventory(
         scanResult.returnId,
         {
-          unitIds: scanResult.receivedUnits.map((unit) => unit.unitId),
+          unitIds: custodyPresentIds,
+          missingInCustodyUnitIds,
+          incidentNote: custodyIncidentNote.trim() || undefined,
           packageId: task.package?.id,
           expectedVersion: task.task.version,
         },
@@ -313,11 +330,11 @@ export default function StaffReturnScreen() {
 
       {stage === 1 && <View style={styles.card}><Text style={styles.section}>QUAN SÁT SƠ BỘ</Text><Ionicons name="clipboard-outline" size={44} color={Colors.primaryDark} /><Text style={styles.cardTitle}>Đã quét {scanResult?.receivedUnits.length ?? 0} thiết bị</Text><Text style={styles.muted}>{scanResult?.missingUnits.length ?? 0} thiết bị chưa được thu hồi và sẽ chuyển sang bước kiểm tra ngoại lệ.</Text><Text style={styles.policy}>Nhân viên giao nhận chỉ ghi nhận ngoại quan. Kho sẽ thực hiện kiểm định cuối cùng và xử lý hoàn cọc.</Text></View>}
 
-      {stage === 2 && <View style={styles.card}><Text style={styles.section}>BÀN GIAO VỀ KHO</Text><Ionicons name="business-outline" size={44} color={Colors.primaryDark} /><Text style={styles.cardTitle}>Sẵn sàng chuyển quyền quản lý</Text><Text style={styles.muted}>Kho sẽ xác nhận nhận hàng và thực hiện kiểm định chuyên sâu.</Text><Text style={styles.policy}>Thiết bị chưa sẵn sàng cho thuê lại ở bước này.</Text></View>}
+      {stage === 2 && <View style={styles.card}><Text style={styles.section}>BÀN GIAO VỀ KHO</Text><Ionicons name="business-outline" size={44} color={Colors.primaryDark} /><Text style={styles.cardTitle}>Xác nhận custody trước khi về kho</Text><Text style={styles.muted}>Bỏ chọn nếu món đã nhận từ khách nhưng bị thất lạc trong quá trình vận chuyển.</Text>{scanResult?.receivedUnits.map((unit) => { const present = custodyPresentIds.includes(unit.unitId); const taskUnit = units.find((item) => item.unitId === unit.unitId); return <TouchableOpacity key={unit.unitId} style={[styles.custodyRow, !present && styles.custodyMissing]} onPress={() => setCustodyPresentIds((current) => current.includes(unit.unitId) ? current.filter((id) => id !== unit.unitId) : [...current, unit.unitId])}><Ionicons name={present ? "checkbox" : "alert-circle"} size={22} color={present ? Colors.primaryDark : Colors.error} /><View style={{ flex: 1 }}><Text style={styles.checkLabel}>{taskUnit?.product?.name || "Thiết bị"}</Text><Text style={styles.assetCode}>{unit.assetCode} · {present ? "Còn trong custody" : "Báo thất lạc nội bộ"}</Text></View></TouchableOpacity>; })}{missingInCustodyUnitIds.length > 0 ? <TextInput value={custodyIncidentNote} onChangeText={setCustodyIncidentNote} multiline placeholder="Mô tả thời điểm, địa điểm và tình trạng niêm phong..." placeholderTextColor={Colors.onSurfaceMuted} style={styles.custodyNote} /> : null}<Text style={styles.policy}>Sai lệch này mở hồ sơ nội bộ và giữ cọc món liên quan; không tự quy lỗi cho khách.</Text></View>}
 
       {error ? <View style={styles.errorBox}><Text style={styles.errorText}>{error}</Text></View> : null}
       {busy ? <TrekkingLoader label="Đang chuyển bằng chứng qua chặng kiểm định..." compact /> : null}
-      <TouchableOpacity disabled={busy || (stage === 0 && !allReviewed)} style={[styles.primary, (busy || (stage === 0 && !allReviewed)) && styles.disabled]} onPress={() => void (stage === 0 ? scanReturn() : stage === 1 ? recordObservations() : transferToInventory())}><Text style={styles.primaryText}>{busy ? "ĐANG XỬ LÝ..." : stage === 0 ? "QUÉT NHẬN THIẾT BỊ" : stage === 1 ? "GHI NHẬN HIỆN TRẠNG" : "CHUYỂN VỀ KHO"}</Text><Ionicons name="arrow-forward" size={18} color="#fff" /></TouchableOpacity>
+      <TouchableOpacity disabled={busy || (stage === 0 && !allReviewed) || (stage === 2 && missingInCustodyUnitIds.length > 0 && custodyIncidentNote.trim().length < 3)} style={[styles.primary, (busy || (stage === 0 && !allReviewed) || (stage === 2 && missingInCustodyUnitIds.length > 0 && custodyIncidentNote.trim().length < 3)) && styles.disabled]} onPress={() => void (stage === 0 ? scanReturn() : stage === 1 ? recordObservations() : transferToInventory())}><Text style={styles.primaryText}>{busy ? "ĐANG XỬ LÝ..." : stage === 0 ? "QUÉT NHẬN THIẾT BỊ" : stage === 1 ? "GHI NHẬN HIỆN TRẠNG" : missingInCustodyUnitIds.length ? "BÁO SAI LỆCH & CHUYỂN VỀ KHO" : "CHUYỂN VỀ KHO"}</Text><Ionicons name="arrow-forward" size={18} color="#fff" /></TouchableOpacity>
     </ScrollView>
     <FieldModal visible={complete} title="Đã chuyển về kho" message="Kho sẽ xác nhận nhận hàng, kiểm định và xử lý hoàn cọc." icon="checkmark-circle" actionLabel="Về danh sách" onAction={() => { setComplete(false); router.replace("/field-operations" as never); }} onClose={() => setComplete(false)} />
     <FieldModal visible={feedback !== null} title={feedback?.title ?? ""} message={feedback?.message ?? ""} icon="information-circle" tone="warning" actionLabel="Đã hiểu" onAction={() => setFeedback(null)} onClose={() => setFeedback(null)} />
@@ -345,6 +362,9 @@ const styles = StyleSheet.create({
   card: { backgroundColor: "#fff", padding: 17, borderRadius: Radius.xl, marginBottom: 18, ...Shadows.card },
   section: { color: Colors.onSurfaceMuted, fontSize: 11, fontWeight: "600", letterSpacing: 0.8, marginBottom: 10 },
   item: { paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: Colors.surfaceContainer },
+  custodyRow: { flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderColor: Colors.primaryNeutral, borderRadius: Radius.sm, padding: 11, marginTop: 9 },
+  custodyMissing: { borderColor: Colors.error, backgroundColor: "#fff1ef" },
+  custodyNote: { minHeight: 82, borderWidth: 1, borderColor: Colors.error, borderRadius: Radius.sm, padding: 11, marginTop: 12, color: Colors.ink, textAlignVertical: "top" },
   checkLabel: { color: Colors.ink, fontSize: 14, fontWeight: "600" },
   assetCode: { color: Colors.onSurfaceMuted, fontSize: 11, marginTop: 3 },
   statusRow: { flexDirection: "row", gap: 6, marginTop: 8 },

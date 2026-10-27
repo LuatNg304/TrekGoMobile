@@ -100,6 +100,7 @@ export default function InventoryReturnsScreen() {
   const [detail, setDetail] = useState<StaffReturnDetail>();
   const [rules, setRules] = useState<DamageAssessmentRule[]>([]);
   const [scannedIds, setScannedIds] = useState<string[]>([]);
+  const [custodyIncidentNote, setCustodyIncidentNote] = useState("");
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -143,6 +144,7 @@ export default function InventoryReturnsScreen() {
         setDetail(next);
         setRules(nextRules);
         setScannedIds(next.pendingTransfer?.receivedUnitIds ?? []);
+        setCustodyIncidentNote("");
         setDrafts((current) => {
           const updated = { ...current };
           next.receivedUnits.forEach((unit) => {
@@ -250,11 +252,17 @@ export default function InventoryReturnsScreen() {
       (unitId) => !detail.pendingTransfer?.receivedUnitIds.includes(unitId),
     );
     const selected = scannedIds.filter((unitId) => pending.includes(unitId));
-    if (selected.length !== pending.length) {
-      setError(`Cần xác nhận đủ ${pending.length} thiết bị trước khi nhận vào kho.`);
+    if (selected.length < pending.length && custodyIncidentNote.trim().length < 3) {
+      setError(`Kho nhận thiếu ${pending.length - selected.length} thiết bị. Hãy ghi rõ sai lệch custody.`);
       return;
     }
-    await run("receive", () => staffReturnsApi.receive(detail, selected, accessToken), "Đã nhận thiết bị vào kho.");
+    await run(
+      "receive",
+      () => staffReturnsApi.receive(detail, selected, custodyIncidentNote, accessToken),
+      selected.length < pending.length
+        ? "Đã ghi nhận hàng thực nhận và mở hồ sơ sai lệch custody."
+        : "Đã nhận thiết bị vào kho.",
+    );
   }
 
   async function inspect() {
@@ -335,6 +343,23 @@ export default function InventoryReturnsScreen() {
                     </TouchableOpacity>
                   );
                 })}
+                {scannedIds.filter((unitId) => detail.pendingTransfer?.unitIds.includes(unitId)).length <
+                detail.pendingTransfer.unitIds.length ? (
+                  <View style={styles.incidentBox}>
+                    <Text style={styles.incidentTitle}>Có thiết bị không tới kho</Text>
+                    <Text style={styles.body}>
+                      Hồ sơ này là sai lệch custody nội bộ, không tự quy lỗi cho khách.
+                    </Text>
+                    <TextInput
+                      value={custodyIncidentNote}
+                      onChangeText={setCustodyIncidentNote}
+                      placeholder="Mô tả niêm phong, kiện hàng và thiết bị thiếu..."
+                      placeholderTextColor={Colors.onSurfaceMuted}
+                      multiline
+                      style={styles.incidentInput}
+                    />
+                  </View>
+                ) : null}
               </View>
               <Action label={busy === "receive" ? "ĐANG NHẬN..." : "XÁC NHẬN NHẬN VÀO KHO"} disabled={Boolean(busy)} onPress={() => void receive()} />
             </>
@@ -475,6 +500,9 @@ const styles = StyleSheet.create({
   meta: { color: Colors.onSurfaceMuted, fontSize: 11, marginTop: 5 },
   flex: { flex: 1 },
   unitRow: { flexDirection: "row", alignItems: "center", gap: 12, borderTopWidth: 1, borderTopColor: Colors.surfaceContainer, paddingVertical: 13 },
+  incidentBox: { marginTop: 12, borderWidth: 1, borderColor: Colors.error, borderRadius: Radius.md, backgroundColor: "#fff2f0", padding: 12 },
+  incidentTitle: { color: Colors.error, fontSize: 13, fontWeight: "600" },
+  incidentInput: { minHeight: 78, marginTop: 10, borderWidth: 1, borderColor: "#efaaa3", borderRadius: Radius.sm, backgroundColor: "#fff", padding: 11, color: Colors.ink, textAlignVertical: "top" },
   unitTitle: { color: Colors.ink, fontSize: 14, fontWeight: "600" },
   asset: { color: Colors.onSurfaceMuted, fontSize: 11, marginTop: 4 },
   rowBetween: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 10 },
