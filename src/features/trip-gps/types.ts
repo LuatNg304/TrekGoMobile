@@ -87,6 +87,7 @@ export interface TripCheckpointDto {
 }
 
 export interface GpsContextResponse {
+  capabilities?: GpsSyncLimits & { supportedSyncProtocols: number[]; socketPublishSupported: boolean };
   contractVersion: 'trip-gps/1.0.0';
   tripId: UUID;
   tripType: TripType;
@@ -99,6 +100,8 @@ export interface GpsContextResponse {
   checkpointMode: 'NONE' | 'GEOFENCE_ONCE';
   checkpoints: TripCheckpointDto[];
   permissions: {
+    canStartNewSession?: boolean;
+    canContinueExistingSession?: boolean;
     canViewGroupLocations: boolean;
     canRecord: boolean;
     cannotRecordReason: string | null;
@@ -150,6 +153,10 @@ export interface SessionDto {
 }
 
 export interface MemberStateDto {
+  connectionStatus?: 'ONLINE' | 'OFFLINE' | 'UNKNOWN';
+  locationFreshness?: 'NO_DATA' | 'STALE' | 'FRESH';
+  locationVersion?: number;
+  presenceVersion?: number;
   userId: UUID;
   fullName: string;
   avatarUrl: string | null;
@@ -182,11 +189,14 @@ export interface GpsStateResponse {
 }
 
 export interface StartSessionRequest {
+  protocolVersion?: 2;
   clientSessionId: UUID;
   deviceId: string;
 }
 
 export interface SessionResponse {
+  protocolVersion?: 2;
+  limits?: GpsSyncLimits;
   session: SessionDto;
   policy: GpsPolicyDto;
 }
@@ -336,3 +346,75 @@ export interface RouteFailedEventData {
 export interface AccessRevokedEventData {
   code: string;
 }
+
+export interface GpsSyncLimits {
+  maxBatchSamples: number;
+  maxBodyBytes: number;
+  maxCommandsPerRequest: number;
+  maxManifestEntriesPerPage: number;
+  maxSnapshotSamples: number;
+  publishMinIntervalSeconds: number;
+  publishMinDistanceM: number;
+  publishMovingMaxIntervalSeconds: number;
+  retryDelaysSeconds: number[];
+}
+export type LocalSyncStatus = 'PENDING' | 'SYNCING' | 'WAITING_NETWORK' | 'PROCESSING' | 'SYNCED' | 'NEEDS_ATTENTION';
+export interface SyncCommand {
+  commandId: string;
+  sequence: number;
+  action: 'PAUSE' | 'RESUME' | 'FINISH';
+  occurredAt: string;
+}
+export interface SyncMetadata {
+  requestId: string;
+  revision: number;
+  baseMetadataRevision: number;
+  commands: SyncCommand[];
+  recordingStatus: SessionStatus;
+  endedAt?: string | null;
+}
+export interface SyncBatch {
+  batchId: string;
+  payloadHash: string;
+  metadataRevision: number;
+  snapshotRevision: number;
+  samples: GpsSample[];
+}
+export interface ManifestEntry { batchId: string; payloadHash: string; sampleCount: number }
+export interface SyncManifest {
+  manifestId: string;
+  snapshotRevision: number;
+  pageIndex: number;
+  pageCount: number;
+  pageHash: string;
+  entries: ManifestEntry[];
+}
+export interface SyncComplete {
+  completionId: string;
+  snapshotRevision: number;
+  metadataRevision: number;
+  snapshotMaxSequence: number;
+  final: true;
+  expectedSampleCount: number;
+  manifestId: string;
+  manifestHash: string;
+  endedAt: string;
+}
+export interface SyncStatus {
+  sessionId: string;
+  metadataRevision: number;
+  receivedSnapshotRevision: number;
+  processedSnapshotRevision: number;
+  syncStatus: 'OPEN' | 'RECEIVING' | 'FINALIZE_PENDING' | 'PROCESSING' | 'COMPLETE' | 'NEEDS_ATTENTION';
+  acceptedCount: number;
+  rejectedCount: number;
+  missingBatchIds: string[];
+  nextCursor: number | null;
+  resultStatus: string | null;
+  actualRouteId: string | null;
+  lastError: { code: string; retryable: boolean; nextRetryAt: string } | null;
+  attempts: number;
+  serverTime: string;
+}
+export interface LocationUpdated { userId: string; sessionId: string; sequence: number; locationVersion: number; location: LastLocationDto }
+export interface PresenceUpdated { userId: string; connectionStatus: 'ONLINE' | 'OFFLINE' | 'UNKNOWN'; presenceVersion: number }

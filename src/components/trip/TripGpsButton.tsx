@@ -38,7 +38,7 @@ export function TripGpsButton({ tripId, tripType, tripTitle, tripStatus }: TripG
     return () => { active = false; clearInterval(timer); };
   }, [tripId]));
   const confirmEnd = () => Alert.alert('Kết thúc chuyến đi?',
-    'Sau khi xác nhận, chuyến sẽ hoàn thành và tất cả thành viên sẽ không thể ghi thêm GPS trong chuyến này.', [
+    'Chuyến sẽ chuyển sang hoàn thành. Thành viên có phiên GPS đang mở được phép ghi tiếp sẽ tự kết thúc phiên cá nhân.', [
       { text: 'Hủy', style: 'cancel' },
       { text: 'Kết thúc chuyến', style: 'destructive', onPress: async () => {
         if (ending) return;
@@ -47,14 +47,15 @@ export function TripGpsButton({ tripId, tripType, tripTitle, tripStatus }: TripG
           await endGpsTrip(tripId);
           setCanEnd(false);
           setServerTrip({ id: tripId, status: 'COMPLETED' });
-          Alert.alert('Đã kết thúc chuyến', 'Mọi phiên ghi GPS trong chuyến đã đóng.');
+          Alert.alert('Đã kết thúc chuyến', 'Chuyến đã hoàn thành. Hãy kết thúc phiên GPS cá nhân khi bạn đã dừng ghi.');
         } catch (err) {
           Alert.alert('Không thể kết thúc chuyến', err instanceof Error ? err.message : 'Vui lòng thử lại.');
         } finally { setEnding(false); }
       } },
     ]);
   // Render immediately from the detail screen, then reconcile with the API in the background.
-  if (isEnded(tripStatus) || (serverTrip?.id === tripId && isEnded(serverTrip.status))) return null;
+  const status = serverTrip?.id === tripId ? serverTrip.status : tripStatus;
+  if (['INTERRUPTED', 'CANCELLED'].includes(status)) return null;
 
   return (
     <View style={{ flexDirection: 'row', gap: 8 }}>

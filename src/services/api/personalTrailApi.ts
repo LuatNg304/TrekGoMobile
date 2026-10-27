@@ -69,7 +69,21 @@ export interface UpdateRecordingStatusResponseData {
   updatedAt: string;
 }
 
+export interface PersonalCheckpointInput {
+  name: string;
+  latitude: number;
+  longitude: number;
+  radiusMeters?: number;
+  info?: string | null;
+}
+
+export interface PersonalCheckpointDto extends PersonalCheckpointInput {
+  id: string;
+  sequence: number;
+}
+
 export interface FinishRecordingRequest {
+  checkpoints?: PersonalCheckpointInput[];
   clientRecordingId: string;
   endedAt: string;
   trailMetadata: {
@@ -500,7 +514,7 @@ export const personalTrailApi = {
     accessToken?: string,
   ): Promise<BackendResponse<PersonalTrailDto>> {
     const token = await resolveToken(accessToken);
-    return apiRequest<BackendResponse<PersonalTrailDto>>(
+    const response = await apiRequest<BackendResponse<PersonalTrailDto>>(
       `/api/v1/personal-trails/${trailId}`,
       {
         method: "GET",
@@ -511,6 +525,33 @@ export const personalTrailApi = {
         },
       },
     );
+    if (response.success && response.data) {
+      const checkpoints = await this.getTrailCheckpoints(trailId, token);
+      if (!checkpoints.success || !Array.isArray(checkpoints.data)) {
+        throw new Error("Máy chủ chưa trả về danh sách checkpoint hợp lệ.");
+      }
+      response.data.checkpoints = checkpoints.data.map((point) => ({
+        id: point.id,
+        order: point.sequence,
+        name: point.name,
+        status: "PENDING",
+        distanceFromStartKm: 0,
+        coords: { x: 0, y: 0 },
+        realCoords: { lat: point.latitude, lon: point.longitude },
+      }));
+    }
+    return response;
+  },
+
+  async getTrailCheckpoints(
+    trailId: string,
+    accessToken?: string,
+  ): Promise<BackendResponse<PersonalCheckpointDto[]>> {
+    const token = await resolveToken(accessToken);
+    return apiRequest(`/api/v1/personal-trails/${trailId}/checkpoints`, {
+      method: "GET",
+      accessToken: token,
+    });
   },
 
   /**

@@ -1686,7 +1686,7 @@ export const AppProvider: React.FC<{
       );
 
     const newTrail: PersonalTrail = {
-      id: `personal-trail-${Date.now()}`,
+      id: input.clientRecordingId ? `personal-trail-${input.clientRecordingId}` : `personal-trail-${Date.now()}`,
       ownerId: user.id,
       name: input.name.trim(),
       region: input.region.trim(),
@@ -1709,11 +1709,12 @@ export const AppProvider: React.FC<{
     };
 
     // SQLite là nguồn dữ liệu bền vững: chỉ cập nhật UI sau khi ghi thành công.
-    await recordingDatabase.savePersonalTrail(
-      newTrail,
-      newTrail.clientRecordingId,
-    );
-    setPersonalTrails((current) => [newTrail, ...current]);
+    if (input.clientRecordingId && input.endedAt) {
+      await recordingDatabase.finishPersonalTrail(newTrail, input.endedAt, input.elapsedSeconds ?? 0);
+    } else {
+      await recordingDatabase.savePersonalTrail(newTrail, newTrail.clientRecordingId);
+    }
+    setPersonalTrails((current) => [newTrail, ...current.filter(t => t.id !== newTrail.id)]);
 
     return newTrail;
   };

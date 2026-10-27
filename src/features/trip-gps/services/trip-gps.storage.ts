@@ -7,7 +7,7 @@ const DEVICE_ID_KEY = '@trekgo_gps_device_id';
 /**
  * 1. Định danh thiết bị ổn định (deviceId)
  */
-export async function getOrCreateDeviceId(): Promise<string> {
+export async function getOrCreateDeviceId(requirePersistent = false): Promise<string> {
   try {
     const existing = await AsyncStorage.getItem(DEVICE_ID_KEY);
     if (existing && existing.length > 5) {
@@ -17,6 +17,7 @@ export async function getOrCreateDeviceId(): Promise<string> {
     await AsyncStorage.setItem(DEVICE_ID_KEY, newId);
     return newId;
   } catch {
+    if (requirePersistent) throw new Error('Không lưu được định danh thiết bị GPS. Vui lòng kiểm tra bộ nhớ trước khi tạo phiên.');
     return `dev-${Date.now()}`;
   }
 }
@@ -227,6 +228,16 @@ export async function insertGpsSample(sessionId: string, sample: GpsSample): Pro
 }
 
 /** Lấy danh sách điểm GPS chưa đồng bộ để tạo batch gửi lên server (mặc định tối đa 200 điểm theo policy) */
+export async function getLatestSessionSampleTime(sessionId: string): Promise<string | null> {
+  await initTripGpsTables();
+  const db = await getDatabase();
+  const row = await db.getFirstAsync<{ recorded_at: string | null }>(
+    `SELECT MAX(recorded_at) AS recorded_at FROM trip_gps_samples WHERE session_id = ? AND synced != 2`,
+    [sessionId]
+  );
+  return row?.recorded_at ?? null;
+}
+
 export async function getPendingSamples(sessionId: string, limit = 200): Promise<GpsSample[]> {
   await initTripGpsTables();
   const db = await getDatabase();
