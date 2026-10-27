@@ -6,6 +6,7 @@ import {
   Alert,
   Clipboard,
   Modal,
+  Platform,
   Share,
   StyleSheet,
   Text,
@@ -20,6 +21,7 @@ export interface InviteShareModalProps {
   tripId?: string;
   expectedVersion?: number;
   inviteCode?: string;
+  expiresAt?: string;
   inviteUrl?: string;
   tripTitle?: string;
   loading?: boolean;
@@ -35,7 +37,8 @@ export function InviteShareModal({
   tripId,
   expectedVersion,
   inviteCode: propInviteCode,
-  inviteUrl: propInviteUrl,
+  expiresAt: propExpiresAt,
+  inviteUrl: _propInviteUrl,
   tripTitle,
   loading: propLoading = false,
   revoking = false,
@@ -50,21 +53,20 @@ export function InviteShareModal({
     generateInvite,
   } = useTripInvitation();
 
-  const inviteCode = propInviteCode || inviteData?.inviteCode;
-  const inviteUrl = propInviteUrl || inviteData?.inviteUrl;
+  const inviteCode = (propInviteCode || inviteData?.inviteCode || "").trim().toUpperCase();
+  const expiresAt = propExpiresAt || inviteData?.expiresAt;
   const loading = propLoading || hookLoading;
 
   const [copied, setCopied] = useState(false);
-  const [showCode, setShowCode] = useState(false);
 
-  // Payload for QR: prioritize full inviteUrl or inviteCode
-  const qrPayload = inviteUrl || inviteCode || "";
+  // Payload for QR: chỉ truyền đúng chuỗi inviteCode (6 ký tự)
+  const qrPayload = inviteCode;
 
   function handleCopyCode() {
     if (!inviteCode) return;
     Clipboard.setString(inviteCode);
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setTimeout(() => setCopied(false), 2500);
   }
 
   // Auto generate invite via hook ONLY IF parent didn't manage it (no onGenerateNewCode and not already loading)
@@ -103,11 +105,8 @@ export function InviteShareModal({
     if (!inviteCode) return;
     try {
       await Share.share({
-        title: `Mời tham gia chuyến: ${tripTitle || "Private Trip TrekGo"}`,
-        message:
-          `Tham gia chuyến đi "${tripTitle || "TrekGo"}" cùng mình nhé!\n` +
-          `Mã mời: ${inviteCode}\n` +
-          (inviteUrl ? `Link tham gia: ${inviteUrl}` : ""),
+        title: `Mã mời Private Trip: ${tripTitle || "TrekGo"}`,
+        message: `Tham gia chuyến đi "${tripTitle || "Private Trip"}" cùng mình trên TrekGo nhé!\nMã mời: ${inviteCode}`,
       });
     } catch {
       // Ignored
@@ -149,7 +148,7 @@ export function InviteShareModal({
 
           <Text style={styles.title}>Mã mời bạn bè</Text>
           <Text style={styles.subtitle}>
-            Chia sẻ mã hoặc link này với những người bạn muốn mời tham gia đoàn.
+            Chia sẻ mã mời 6 ký tự này để bạn bè nhập mã hoặc quét QR tham gia đoàn.
           </Text>
 
           {loading ? (
@@ -171,7 +170,7 @@ export function InviteShareModal({
                     />
                   </View>
                   <Text style={styles.qrHint}>
-                    Quét mã QR để tự động tham gia đoàn
+                    Quét mã QR để nhận mã mời 6 ký tự
                   </Text>
                 </View>
               ) : null}
@@ -179,54 +178,68 @@ export function InviteShareModal({
               {/* Code Container */}
               <View style={styles.codeContainer}>
                 <View style={styles.codeHeaderRow}>
-                  <Text style={styles.codeLabel}>MÃ MỜI THAM GIA</Text>
-                  <View style={styles.codeActionButtonsRow}>
-                    <TouchableOpacity
-                      style={styles.toggleVisibilityBtn}
-                      onPress={() => setShowCode((prev) => !prev)}
-                      activeOpacity={0.7}
+                  <Text style={styles.codeLabel}>MÃ MỜI THAM GIA (6 KÝ TỰ)</Text>
+                  <TouchableOpacity
+                    style={styles.copyButton}
+                    onPress={handleCopyCode}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons
+                      name={copied ? "checkmark-circle" : "copy-outline"}
+                      size={14}
+                      color={copied ? "#059669" : Colors.primaryDark}
+                    />
+                    <Text
+                      style={[
+                        styles.copyText,
+                        copied && { color: "#059669", fontWeight: "700" },
+                      ]}
                     >
-                      <Ionicons
-                        name={showCode ? "eye-off-outline" : "eye-outline"}
-                        size={13}
-                        color={Colors.onSurfaceVariant}
-                      />
-                      <Text style={styles.toggleVisibilityText}>
-                        {showCode ? "Ẩn mã" : "Hiện mã"}
-                      </Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={styles.copyButton}
-                      onPress={handleCopyCode}
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons
-                        name={copied ? "checkmark-circle" : "copy-outline"}
-                        size={13}
-                        color={copied ? "#059669" : Colors.primaryDark}
-                      />
-                      <Text
-                        style={[
-                          styles.copyText,
-                          copied && { color: "#059669", fontWeight: "700" },
-                        ]}
-                      >
-                        {copied ? "Đã chép" : "Sao chép"}
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
+                      {copied ? "Đã chép" : "Sao chép"}
+                    </Text>
+                  </TouchableOpacity>
                 </View>
 
-                {showCode ? (
-                  <Text style={styles.codeText} selectable numberOfLines={3}>
-                    {inviteCode || "Đang lấy mã..."}
+                {/* Big Monospace Code Display */}
+                <View style={styles.codeBox}>
+                  <Text style={styles.codeText} selectable>
+                    {inviteCode || "------"}
                   </Text>
-                ) : (
-                  <Text style={styles.codeMaskedText}>
-                    ••••••••••••••••••••••••
-                  </Text>
-                )}
+                </View>
+
+                {/* Expiration date if present */}
+                {expiresAt ? (
+                  <View style={styles.expiresRow}>
+                    <Ionicons
+                      name="time-outline"
+                      size={13}
+                      color={Colors.onSurfaceVariant}
+                    />
+                    <Text style={styles.expiresText}>
+                      Hết hạn:{" "}
+                      {new Date(expiresAt).toLocaleTimeString("vi-VN", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}{" "}
+                      -{" "}
+                      {new Date(expiresAt).toLocaleDateString("vi-VN", {
+                        day: "2-digit",
+                        month: "2-digit",
+                        year: "numeric",
+                      })}
+                    </Text>
+                  </View>
+                ) : null}
+
+                {/* Feedback Toast */}
+                {copied ? (
+                  <View style={styles.copiedToast}>
+                    <Ionicons name="checkmark-circle" size={14} color="#059669" />
+                    <Text style={styles.copiedToastText}>
+                      Đã sao chép mã mời!
+                    </Text>
+                  </View>
+                ) : null}
               </View>
             </View>
           )}
@@ -366,72 +379,85 @@ const styles = StyleSheet.create({
   },
   codeContainer: {
     width: "100%",
-    padding: 12,
+    padding: 14,
     borderRadius: Radius.lg,
     backgroundColor: Colors.surfaceContainerLow,
     borderWidth: 1,
     borderColor: Colors.surfaceContainerHigh,
+    gap: 8,
   },
   codeHeaderRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 6,
+    marginBottom: 4,
   },
   codeLabel: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: "800",
     color: Colors.onSurfaceVariant,
-    letterSpacing: 0.5,
-  },
-  codeActionButtonsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  toggleVisibilityBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 3,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.surfaceContainerLowest,
-    borderWidth: 1,
-    borderColor: Colors.surfaceContainerHigh,
-  },
-  toggleVisibilityText: {
-    fontSize: 10.5,
-    fontWeight: "600",
-    color: Colors.onSurfaceVariant,
+    letterSpacing: 0.8,
   },
   copyButton: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
     borderRadius: Radius.full,
     backgroundColor: Colors.surfaceContainerHigh,
   },
   copyText: {
     fontSize: 11,
-    fontWeight: "600",
+    fontWeight: "700",
     color: Colors.primaryDark,
+  },
+  codeBox: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.surfaceContainerLowest,
+    borderWidth: 1.5,
+    borderColor: Colors.primaryContainer,
+    alignItems: "center",
+    justifyContent: "center",
   },
   codeText: {
-    fontSize: 13,
-    fontWeight: "700",
+    fontSize: 28,
+    fontWeight: "900",
     color: Colors.primaryDark,
-    letterSpacing: 0.8,
-    fontFamily: "monospace",
+    letterSpacing: 6,
+    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+    textTransform: "uppercase",
   },
-  codeMaskedText: {
-    fontSize: 14,
-    fontWeight: "700",
+  expiresRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    marginTop: 2,
+  },
+  expiresText: {
+    fontSize: 11.5,
     color: Colors.onSurfaceVariant,
-    letterSpacing: 2,
-    paddingVertical: 2,
+    fontWeight: "500",
+  },
+  copiedToast: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    backgroundColor: "#DCFCE7",
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: Radius.full,
+    alignSelf: "center",
+    marginTop: 2,
+  },
+  copiedToastText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#166534",
   },
   actionButtons: {
     width: "100%",

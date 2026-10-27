@@ -106,6 +106,8 @@ export function BookingCheckoutScreen({
   const bookingId =
     propId || (Array.isArray(params.id) ? params.id[0] : params.id) || "";
 
+  const [isWaitingPaymentConfirmation, setIsWaitingPaymentConfirmation] = useState<boolean>(false);
+
   const {
     booking,
     setBooking,
@@ -114,7 +116,7 @@ export function BookingCheckoutScreen({
     remainingSeconds,
     isHoldExpired,
     refetch,
-  } = useBookingDetail(bookingId, true);
+  } = useBookingDetail(bookingId, true, isWaitingPaymentConfirmation);
 
   const { createPayment, isSubmitting } = useBookingMutations();
   const { gateways } = usePaymentOptions();
@@ -126,7 +128,6 @@ export function BookingCheckoutScreen({
   const [qrModalData, setQrModalData] = useState<string | null>(null);
   const [paymentWebViewUrl, setPaymentWebViewUrl] = useState<string | null>(null);
   const [showSuccessModal, setShowSuccessModal] = useState<boolean>(false);
-  const [isWaitingPaymentConfirmation, setIsWaitingPaymentConfirmation] = useState<boolean>(false);
 
   // M6 Ticket Management State
   const [selectedParticipantForQr, setSelectedParticipantForQr] = useState<Participant | null>(null);
@@ -249,17 +250,20 @@ export function BookingCheckoutScreen({
         bookingApiService.clearBookingPaymentSession(bookingId);
         setIsWaitingPaymentConfirmation(true);
 
-        // Retry refetch để đảm bảo backend đã kịp ghi nhận webhook / return và đổi trạng thái sang CONFIRMED
+        const isSuccessStatus = (s?: string) =>
+          ["CONFIRMED", "PARTIAL_CHECKIN", "CHECKED_IN", "COMPLETED"].includes(s || "");
+
+        // Retry refetch (mỗi 1s) để đảm bảo backend đã kịp ghi nhận webhook / return và đổi trạng thái sang CONFIRMED
         let updated = await refetch();
-        if (updated?.status !== "CONFIRMED") {
-          for (let attempt = 0; attempt < 8; attempt++) {
-            await new Promise((r) => setTimeout(r, 1500));
+        if (!isSuccessStatus(updated?.status)) {
+          for (let attempt = 0; attempt < 10; attempt++) {
+            await new Promise((r) => setTimeout(r, 1000));
             updated = await refetch();
-            if (updated?.status === "CONFIRMED") break;
+            if (isSuccessStatus(updated?.status)) break;
           }
         }
         setIsWaitingPaymentConfirmation(false);
-        if (updated?.status === "CONFIRMED") {
+        if (isSuccessStatus(updated?.status)) {
           setShowSuccessModal(true);
         } else {
           Alert.alert(
@@ -513,6 +517,18 @@ export function BookingCheckoutScreen({
               })}
             </Text>
           </View>
+
+          {(booking.trip as any)?.leader?.fullName ? (
+            <View style={styles.metaRow}>
+              <Ionicons name="person-outline" size={16} color={Colors.primaryDark} />
+              <View style={styles.flex1}>
+                <Text style={styles.metaBoldText}>Người dẫn đoàn:</Text>
+                <Text style={styles.metaText}>
+                  {(booking.trip as any).leader.fullName}
+                </Text>
+              </View>
+            </View>
+          ) : null}
 
           {booking.pickup ? (
             <View style={styles.metaRow}>

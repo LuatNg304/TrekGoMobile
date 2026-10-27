@@ -2,6 +2,7 @@ import { ApiError } from "@/lib/api-client";
 import { useCallback, useEffect, useState } from "react";
 import { previewTripInvite } from "../services/private-trips.api";
 import type { InvitePreviewData } from "../types";
+import { getInviteErrorMessage } from "../utils/inviteErrorUtils";
 
 export function usePreviewTripInvite(inviteCode?: string, autoFetch = true) {
   const [preview, setPreview] = useState<InvitePreviewData | null>(null);
@@ -25,14 +26,9 @@ export function usePreviewTripInvite(inviteCode?: string, autoFetch = true) {
         setPreview(res);
         return res;
       } catch (err: any) {
-        const isGone = err instanceof ApiError && err.status === 410;
-        const codeErr = err instanceof ApiError ? err.code : null;
-        setErrorCode(codeErr ?? (isGone ? "INVITATION_GONE" : null));
-        const msg = isGone
-          ? "Lời mời này đã hết hạn hoặc đã bị chủ phòng thu hồi."
-          : err instanceof ApiError
-          ? err.message
-          : "Không thể tải thông tin lời mời tham gia.";
+        const codeErr = err?.code ?? err?.response?.data?.error?.code ?? (err instanceof ApiError ? err.code : null);
+        setErrorCode(codeErr ?? null);
+        const msg = getInviteErrorMessage(err);
         setError(msg);
         return null;
       } finally {

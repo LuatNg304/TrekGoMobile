@@ -83,9 +83,11 @@ export function LeaderTripRouteStep({
           <TouchableOpacity onPress={onBack} style={styles.backBtn} activeOpacity={0.7}>
             <Ionicons name="arrow-back" size={20} color="#121c2a" />
           </TouchableOpacity>
-          <View>
-            <Text style={styles.headerTitle}>Thiết lập Cung đường & Trạm dừng</Text>
-            <Text style={styles.headerSubtitle}>
+          <View style={{ flex: 1, minWidth: 0, paddingRight: 6 }}>
+            <Text style={styles.headerTitle} numberOfLines={1} ellipsizeMode="tail">
+              Thiết lập Cung đường & Trạm dừng
+            </Text>
+            <Text style={styles.headerSubtitle} numberOfLines={1} ellipsizeMode="tail">
               Chọn cung đường đã xác minh và thiết lập checkpoint • {destinationName || "VFRS"}
             </Text>
           </View>
@@ -378,10 +380,12 @@ export function LeaderTripRouteStep({
           </View>
           <View style={{ flex: 1, minWidth: 0 }}>
             <View style={styles.checkpointHeaderTitleRow}>
-              <Text style={styles.cardTitle}>2. Trạm dừng & Checkpoints An toàn</Text>
+              <Text style={[styles.cardTitle, { flexShrink: 1 }]} numberOfLines={1}>
+                2. Trạm dừng & Checkpoints
+              </Text>
               {currentCheckpoints.length > 0 && (
                 <View style={styles.reqCpBadgeDark}>
-                  <Text style={styles.reqCpBadgeDarkText}>
+                  <Text style={styles.reqCpBadgeDarkText} numberOfLines={1}>
                     {currentCheckpoints.length} MỐC BẮT BUỘC
                   </Text>
                 </View>
@@ -442,7 +446,7 @@ export function LeaderTripRouteStep({
       {/* ─── Bottom Actions matching Web ─── */}
       <View style={styles.bottomActionsRow}>
         <TouchableOpacity style={styles.backStep1Btn} onPress={onBack} activeOpacity={0.8}>
-          <Text style={styles.backStep1BtnText}>← Quay lại Bước 1</Text>
+          <Text style={styles.backStep1BtnText} numberOfLines={1}>← Quay lại</Text>
         </TouchableOpacity>
 
         <View style={styles.rightActionsGroup}>
@@ -451,7 +455,7 @@ export function LeaderTripRouteStep({
             onPress={onSaveDraft || (() => Alert.alert("Đã lưu nháp", "Lộ trình đã được lưu vào bản nháp."))}
             activeOpacity={0.8}
           >
-            <Text style={styles.saveDraftBtnText}>Lưu bản nháp</Text>
+            <Text style={styles.saveDraftBtnText} numberOfLines={1}>Lưu nháp</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -463,7 +467,7 @@ export function LeaderTripRouteStep({
             {isLoading ? (
               <ActivityIndicator size="small" color="#fff" />
             ) : (
-              <Text style={styles.primaryProceedBtnText}>Tiếp tục: Xem lại & Công khai →</Text>
+              <Text style={styles.primaryProceedBtnText} numberOfLines={1}>Tiếp tục →</Text>
             )}
           </TouchableOpacity>
         </View>
@@ -508,6 +512,7 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
   draftTopBtn: {
+    flexShrink: 0,
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
@@ -920,13 +925,17 @@ const styles = StyleSheet.create({
   checkpointHeaderTitleRow: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
     gap: 6,
+    flexWrap: "wrap",
+    marginBottom: 2,
   },
   reqCpBadgeDark: {
     backgroundColor: "#125238",
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    paddingHorizontal: 7,
+    paddingVertical: 2.5,
     borderRadius: Radius.pill,
+    flexShrink: 0,
   },
   reqCpBadgeDarkText: {
     color: "#ffffff",
