@@ -1,3 +1,4 @@
+import { readStoredAuth } from "@/features/auth/storage";
 import { useCallback, useEffect, useState } from "react";
 import { Alert } from "react-native";
 import {
@@ -54,6 +55,18 @@ export function useDirectMemberInvitations(tripId?: string) {
       return { success: false, error: "Vui lòng nhập địa chỉ email hợp lệ." };
     }
 
+    const storedAuth = await readStoredAuth();
+    if (
+      storedAuth?.user?.email &&
+      storedAuth.user.email.trim().toLowerCase() === email.toLowerCase()
+    ) {
+      return {
+        success: false,
+        error:
+          "Đây là email của bạn (Host chuyến đi). Bạn đã có mặt trong đoàn rồi, không thể tự gửi lời mời cho chính mình.",
+      };
+    }
+
     setSending(true);
     try {
       const created = await createDirectMemberInvitation(tripId, {
@@ -77,15 +90,20 @@ export function useDirectMemberInvitations(tripId?: string) {
         "";
       const message = String(err?.message || "");
 
+      console.warn("[sendDirectInvite] Failed to send invite:", {
+        code,
+        message,
+        details: err?.details,
+      });
+
       let errorMsg = message || "Không thể gửi lời mời lúc này.";
 
       if (
         code === "INVITATION_RECIPIENT_UNAVAILABLE" ||
-        message.includes("INVITATION_RECIPIENT_UNAVAILABLE") ||
-        message.includes("recipient")
+        message.includes("INVITATION_RECIPIENT_UNAVAILABLE")
       ) {
         errorMsg =
-          "Không tìm thấy tài khoản TrekGO với email này hoặc tài khoản đã là thành viên trong đoàn.";
+          "Không tìm thấy tài khoản TrekGO với email này (tài khoản cần đăng nhập TrekGO ít nhất một lần để khởi tạo) hoặc tài khoản đã tham gia đoàn.";
       } else if (
         code === "PENDING_INVITATION_EXISTS" ||
         message.includes("PENDING_INVITATION_EXISTS")

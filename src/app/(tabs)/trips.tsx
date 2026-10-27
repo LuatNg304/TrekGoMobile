@@ -1,8 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
 import { type Href, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -15,6 +17,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { TopHeader } from "@/components/TopHeader";
 import { TripPrepModal } from "@/components/TripPrepModal";
+import { EmptyState, LoadingState } from "@/components/ui";
 import { Colors, Radius, Shadows } from "@/constants/theme";
 import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/features/auth/AuthContext";
@@ -24,9 +27,9 @@ import { DirectInviteCard } from "@/features/private-trips/components/DirectInvi
 import { PrivateTripCard } from "@/features/private-trips/components/PrivateTripCard";
 import { useMyPrivateTrips } from "@/features/private-trips/hooks/useMyPrivateTrips";
 import { useMyReceivedInvitations } from "@/features/private-trips/hooks/useMyReceivedInvitations";
-import type { PrivateTrip } from "@/features/private-trips/types";
 import { TripCard } from "@/features/trips/components";
 import { usePublicTrips } from "@/features/trips/hooks";
+import { useMyTickets } from "@/features/invitations";
 
 type MainTab = "MY_TRIPS" | "PUBLIC_TRIPS";
 type TripFilter = "UPCOMING" | "PENDING" | "HISTORY" | "PRIVATE" | "INVITATIONS";
@@ -55,7 +58,7 @@ const completedTrip = {
 
 export default function TripsScreen() {
   const router = useRouter();
-  const { trips: appTrips, activeTrip, user } = useApp();
+  const { activeTrip, user } = useApp();
   const { user: authUser, accessToken } = useAuth();
   const isLeader = authUser?.role === "LEADER" || user?.role === "LEADER";
 
@@ -89,8 +92,33 @@ export default function TripsScreen() {
   const {
     trips: publicTripsList,
     loading: loadingPublicTrips,
+    loadingMore: loadingMorePublicTrips,
     refresh: refreshPublicTrips,
+    loadMore: loadMorePublicTrips,
   } = usePublicTrips({ pageSize: 50 });
+
+  const {
+    tickets: myTickets,
+    loading: loadingTickets,
+    refetch: refetchTickets,
+  } = useMyTickets();
+
+  // Tải thêm trang kế tiếp khi cuộn gần đáy (chỉ áp dụng cho tab PUBLIC_TRIPS)
+  const loadMoreLockRef = useRef(false);
+  const handlePublicTripsScroll = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      if (mainTab !== "PUBLIC_TRIPS") return;
+      const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+      const distanceFromEnd =
+        contentSize.height - (contentOffset.y + layoutMeasurement.height);
+      if (distanceFromEnd > 600 || loadMoreLockRef.current) return;
+      loadMoreLockRef.current = true;
+      void loadMorePublicTrips().finally(() => {
+        loadMoreLockRef.current = false;
+      });
+    },
+    [mainTab, loadMorePublicTrips],
+  );
 
   const [refreshing, setRefreshing] = useState(false);
 
@@ -101,9 +129,10 @@ export default function TripsScreen() {
       refreshPublicTrips(),
       refetchPrivateTrips(),
       refetchInvitations(),
+      refetchTickets(),
     ]);
     setRefreshing(false);
-  }, [refetchBookings, refreshPublicTrips, refetchPrivateTrips, refetchInvitations]);
+  }, [refetchBookings, refreshPublicTrips, refetchPrivateTrips, refetchInvitations, refetchTickets]);
 
   const params = useLocalSearchParams<{ tab?: string; filter?: string }>();
 
@@ -128,12 +157,13 @@ export default function TripsScreen() {
     }
   }, [params.tab, params.filter]);
 
-  // Refetch private trips, bookings & invitations automatically on focus
+  // Refetch private trips, bookings, invitations & tickets automatically on focus
   useFocusEffect(
     useCallback(() => {
       void refetchBookings();
       void refetchPrivateTrips();
       void refetchInvitations();
+      void refetchTickets();
       if (params.tab === "PUBLIC_TRIPS") {
         setMainTab("PUBLIC_TRIPS");
       } else if (params.tab === "MY_TRIPS") {
@@ -144,7 +174,7 @@ export default function TripsScreen() {
       } else if (params.filter === "INVITATIONS") {
         setActiveFilter("INVITATIONS");
       }
-    }, [refetchBookings, refetchPrivateTrips, refetchInvitations, params.tab, params.filter]),
+    }, [refetchBookings, refetchPrivateTrips, refetchInvitations, refetchTickets, params.tab, params.filter]),
   );
 
   const displayedPublicTrips = useMemo(() => {
@@ -184,35 +214,33 @@ export default function TripsScreen() {
     [bookings],
   );
 
-  // Map local private trips from AppContext (e.g. offline/mock trips)
-  const localPrivateTrips = useMemo(() => {
-    return (appTrips || [])
-      .filter((t) => t.type === "PRIVATE")
-      .map(
-        (t) =>
-          ({
-            id: t.id,
-            title: t.name,
-            description: (t as any).description || null,
-            startAt: t.startDate || new Date().toISOString(),
-            endAt: t.endDate || new Date().toISOString(),
-            maxPax: t.capacity || 10,
-            pickupPointId: "",
-            destinationId: t.destination || "",
-            status: (t.status === "UPCOMING" ? "OPEN" : t.status) as any,
-            version: 1,
-            inviteCode: t.inviteCode,
-          }) as PrivateTrip,
+  // Vé cá nhân nhận từ người khác hoặc tự claim (loại trừ nếu chính user là buyer của booking đó để tránh trùng lặp)
+  const companionTickets = useMemo(() => {
+    return myTickets.filter((ticket) => {
+      const tripId = ticket.trip?.id;
+      const alreadyInBookings = bookings.some(
+        (b) => (b.trip?.id || (b as any).tripId) === tripId,
       );
-  }, [appTrips]);
+      const isCancelled = ticket.bookingStatus === "CANCELLED";
+      return !alreadyInBookings && !isCancelled;
+    });
+  }, [myTickets, bookings]);
 
-  // Combined private trips (backend API taking precedence, local fallback)
-  const privateTrips = useMemo(() => {
-    const map = new Map<string, PrivateTrip>();
-    localPrivateTrips.forEach((pt) => map.set(pt.id, pt));
-    backendPrivateTrips.forEach((pt) => map.set(pt.id, pt));
-    return Array.from(map.values());
-  }, [localPrivateTrips, backendPrivateTrips]);
+  const upcomingTickets = useMemo(() => {
+    const now = new Date();
+    return companionTickets.filter((t) => {
+      const endAt = t.trip?.endAt ? new Date(t.trip.endAt) : null;
+      const isPast = endAt && !isNaN(endAt.getTime()) && endAt < now;
+      return !isPast && t.bookingStatus !== "COMPLETED";
+    });
+  }, [companionTickets]);
+
+  const historyTickets = useMemo(() => {
+    return companionTickets.filter((t) => !upcomingTickets.includes(t));
+  }, [companionTickets, upcomingTickets]);
+
+  // Private trips lấy trực tiếp từ backend API (bỏ merge mock từ AppContext)
+  const privateTrips = backendPrivateTrips;
 
   // Split private trips by status (Tất cả chuyến riêng chưa hoàn thành/chưa hủy đều thuộc chuyến sắp tới)
   const upcomingPrivateTrips = useMemo(
@@ -297,10 +325,10 @@ export default function TripsScreen() {
             Sắp tới
           </Text>
 
-          {confirmedBookings.length + upcomingPrivateTrips.length > 0 && (
+          {confirmedBookings.length + upcomingTickets.length + upcomingPrivateTrips.length > 0 && (
             <View style={styles.countBadge}>
               <Text style={styles.countBadgeText}>
-                {confirmedBookings.length + upcomingPrivateTrips.length}
+                {confirmedBookings.length + upcomingTickets.length + upcomingPrivateTrips.length}
               </Text>
             </View>
           )}
@@ -383,10 +411,10 @@ export default function TripsScreen() {
             Lịch sử đã đi
           </Text>
 
-          {historyBookings.length + historyPrivateTrips.length > 0 && (
+          {historyBookings.length + historyTickets.length + historyPrivateTrips.length > 0 && (
             <View style={styles.historyCountBadge}>
               <Text style={styles.historyCountBadgeText}>
-                {historyBookings.length + historyPrivateTrips.length}
+                {historyBookings.length + historyTickets.length + historyPrivateTrips.length}
               </Text>
             </View>
           )}
@@ -501,7 +529,9 @@ export default function TripsScreen() {
 
   function renderUpcomingTrips() {
     const hasUpcoming =
-      confirmedBookings.length > 0 || upcomingPrivateTrips.length > 0;
+      confirmedBookings.length > 0 ||
+      upcomingTickets.length > 0 ||
+      upcomingPrivateTrips.length > 0;
 
     if (!hasUpcoming) {
       return (
@@ -557,18 +587,22 @@ export default function TripsScreen() {
 
     return (
       <View style={{ paddingHorizontal: 16 }}>
-        {/* Nhóm Chuyến đi công khai (Public Trips) */}
-        {confirmedBookings.length > 0 && (
+        {/* Nhóm Chuyến đi công khai (Public Trips & Vé tham gia) */}
+        {(confirmedBookings.length > 0 || upcomingTickets.length > 0) && (
           <View style={{ marginBottom: 16 }}>
             {upcomingPrivateTrips.length > 0 && (
               <View style={styles.upcomingSectionHeader}>
                 <Ionicons name="compass-outline" size={16} color={Colors.primaryDark} />
                 <Text style={styles.upcomingSectionTitle}>Chuyến đi công khai</Text>
                 <View style={styles.upcomingSectionBadge}>
-                  <Text style={styles.upcomingSectionBadgeText}>{confirmedBookings.length}</Text>
+                  <Text style={styles.upcomingSectionBadgeText}>
+                    {confirmedBookings.length + upcomingTickets.length}
+                  </Text>
                 </View>
               </View>
             )}
+
+            {/* 1. Các đơn đặt chỗ chính chủ (Buyer) */}
             {confirmedBookings.map((b) => {
               const tripId = b.trip?.id || (b as any).tripId;
               return (
@@ -590,6 +624,86 @@ export default function TripsScreen() {
                     }}
                   />
                 </View>
+              );
+            })}
+
+            {/* 2. Các vé tham gia được bạn bè mời & đã chấp nhận (Companion) */}
+            {upcomingTickets.map((ticket) => {
+              const trip = ticket.trip;
+              const tripId = trip?.id;
+              const startDate = trip?.startAt ? new Date(trip.startAt) : null;
+              const formattedDate =
+                startDate && !isNaN(startDate.getTime())
+                  ? startDate.toLocaleDateString("vi-VN", {
+                      weekday: "short",
+                      day: "2-digit",
+                      month: "2-digit",
+                      year: "numeric",
+                    })
+                  : "Chưa xác định";
+
+              return (
+                <TouchableOpacity
+                  key={`ticket-${ticket.id}`}
+                  style={[styles.companionTicketCard, Shadows.card]}
+                  activeOpacity={0.88}
+                  onPress={() => {
+                    router.push({
+                      pathname: "/trips/[id]/ticket",
+                      params: { id: ticket.id },
+                    } as any);
+                  }}
+                >
+                  <View style={styles.ticketCardHeader}>
+                    <View style={styles.ticketBadge}>
+                      <Ionicons name="ticket" size={13} color="#00796B" />
+                      <Text style={styles.ticketBadgeText}>VÉ THAM GIA · ĐƯỢC MỜI</Text>
+                    </View>
+                    <View style={styles.ticketStatusBadge}>
+                      <Ionicons
+                        name={ticket.checkinStatus === "CHECKED_IN" ? "checkmark-circle" : "qr-code"}
+                        size={12}
+                        color={ticket.checkinStatus === "CHECKED_IN" ? "#16A34A" : Colors.primaryDark}
+                      />
+                      <Text
+                        style={[
+                          styles.ticketStatusText,
+                          ticket.checkinStatus === "CHECKED_IN" && { color: "#16A34A" },
+                        ]}
+                      >
+                        {ticket.checkinStatus === "CHECKED_IN" ? "Đã điểm danh" : "Sẵn sàng QR"}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <Text style={styles.ticketTripTitle} numberOfLines={2}>
+                    {trip?.title || "Chuyến đi công khai"}
+                  </Text>
+
+                  <View style={styles.ticketMetaRow}>
+                    <Ionicons name="calendar-outline" size={14} color={Colors.primaryDark} />
+                    <Text style={styles.ticketMetaText}>{formattedDate}</Text>
+                  </View>
+
+                  {trip?.destination?.name ? (
+                    <View style={styles.ticketMetaRow}>
+                      <Ionicons name="location-outline" size={14} color={Colors.primaryDark} />
+                      <Text style={styles.ticketMetaText} numberOfLines={1}>
+                        {trip.destination.name}
+                      </Text>
+                    </View>
+                  ) : null}
+
+                  <View style={styles.ticketCardFooter}>
+                    <Text style={styles.ticketMemberLabel}>
+                      Thành viên: <Text style={styles.ticketMemberName}>{ticket.participantName || "Bạn"}</Text>
+                    </Text>
+                    <View style={styles.ticketViewAction}>
+                      <Text style={styles.ticketViewActionText}>Mở vé & QR điểm danh</Text>
+                      <Ionicons name="chevron-forward" size={14} color={Colors.primaryDark} />
+                    </View>
+                  </View>
+                </TouchableOpacity>
               );
             })}
           </View>
@@ -815,28 +929,28 @@ export default function TripsScreen() {
 
         {/* Trips List / Empty / Loading */}
         {loadingPublicTrips && publicTripsList.length === 0 ? (
-          <View style={[styles.emptyState, { paddingVertical: 40 }]}>
-            <ActivityIndicator size="large" color={Colors.primaryDark} />
-            <Text style={[styles.emptyDescription, { marginTop: 12 }]}>
-              Đang tải danh sách chuyến đi mở bán...
-            </Text>
-          </View>
+          <LoadingState
+            label="Đang tải danh sách chuyến đi mở bán..."
+            style={{ paddingVertical: 40 }}
+          />
         ) : displayedPublicTrips.length === 0 ? (
-          <View style={styles.emptyState}>
-            <View style={styles.emptyIcon}>
-              <Ionicons
-                name="compass-outline"
-                size={34}
-                color={Colors.primaryDark}
-              />
-            </View>
-            <Text style={styles.emptyTitle}>Không tìm thấy chuyến đi phù hợp</Text>
-            <Text style={styles.emptyDescription}>
-              {publicSearch.trim() || selectedDifficulty !== "Tất cả"
+          <EmptyState
+            icon={
+              <View style={styles.emptyIcon}>
+                <Ionicons
+                  name="compass-outline"
+                  size={34}
+                  color={Colors.primaryDark}
+                />
+              </View>
+            }
+            title="Không tìm thấy chuyến đi phù hợp"
+            description={
+              publicSearch.trim() || selectedDifficulty !== "Tất cả"
                 ? "Thử thay đổi từ khóa tìm kiếm hoặc chọn mức độ khó khác."
-                : "Hiện tại chưa có chuyến đi công khai nào đang mở bán."}
-            </Text>
-          </View>
+                : "Hiện tại chưa có chuyến đi công khai nào đang mở bán."
+            }
+          />
         ) : (
           <View style={{ paddingHorizontal: 16 }}>
             {displayedPublicTrips.map((pt) => (
@@ -846,6 +960,12 @@ export default function TripsScreen() {
                 onPress={() => openTripDetail(pt.id)}
               />
             ))}
+            {loadingMorePublicTrips && (
+              <ActivityIndicator
+                style={{ marginVertical: 16 }}
+                color={Colors.primaryDark}
+              />
+            )}
           </View>
         )}
       </View>
@@ -854,7 +974,9 @@ export default function TripsScreen() {
 
   function renderHistory() {
     const hasHistory =
-      historyBookings.length > 0 || historyPrivateTrips.length > 0;
+      historyBookings.length > 0 ||
+      historyTickets.length > 0 ||
+      historyPrivateTrips.length > 0;
 
     if (!hasHistory) {
       return (
@@ -909,6 +1031,35 @@ export default function TripsScreen() {
             </View>
           );
         })}
+
+        {historyTickets.map((ticket) => (
+          <TouchableOpacity
+            key={`ticket-hist-${ticket.id}`}
+            style={[styles.companionTicketCard, { borderColor: Colors.surfaceContainerHigh }]}
+            activeOpacity={0.88}
+            onPress={() => {
+              router.push({
+                pathname: "/trips/[id]/ticket",
+                params: { id: ticket.id },
+              } as any);
+            }}
+          >
+            <View style={styles.ticketCardHeader}>
+              <View style={[styles.ticketBadge, { backgroundColor: Colors.surfaceContainerLow }]}>
+                <Ionicons name="ticket" size={13} color={Colors.onSurfaceVariant} />
+                <Text style={[styles.ticketBadgeText, { color: Colors.onSurfaceVariant }]}>
+                  VÉ THAM GIA
+                </Text>
+              </View>
+              <Text style={[styles.ticketStatusText, { color: Colors.mute }]}>
+                {ticket.checkinStatus === "CHECKED_IN" ? "Đã đi" : "Đã kết thúc"}
+              </Text>
+            </View>
+            <Text style={styles.ticketTripTitle} numberOfLines={2}>
+              {ticket.trip?.title || "Chuyến đi công khai"}
+            </Text>
+          </TouchableOpacity>
+        ))}
 
         {historyPrivateTrips.map((pt) => (
           <View key={pt.id} style={{ marginBottom: 14 }}>
@@ -1125,6 +1276,8 @@ export default function TripsScreen() {
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
+        onScroll={handlePublicTripsScroll}
+        scrollEventThrottle={16}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -2140,6 +2293,90 @@ const styles = StyleSheet.create({
   upcomingSectionBadgeText: {
     fontSize: 11,
     fontWeight: "800",
+    color: Colors.primaryDark,
+  },
+  companionTicketCard: {
+    backgroundColor: Colors.surfaceContainerLowest,
+    borderRadius: Radius.lg,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "#B2DFDB",
+    marginBottom: 14,
+  },
+  ticketCardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  ticketBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#E0F2F1",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: Radius.full,
+  },
+  ticketBadgeText: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#00796B",
+    letterSpacing: 0.5,
+  },
+  ticketStatusBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  ticketStatusText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: Colors.primaryDark,
+  },
+  ticketTripTitle: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: Colors.onSurface,
+    lineHeight: 20,
+    marginBottom: 8,
+  },
+  ticketMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 5,
+  },
+  ticketMetaText: {
+    fontSize: 12.5,
+    color: Colors.onSurfaceVariant,
+    fontWeight: "500",
+  },
+  ticketCardFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: Colors.surfaceContainerLow,
+  },
+  ticketMemberLabel: {
+    fontSize: 12,
+    color: Colors.onSurfaceVariant,
+  },
+  ticketMemberName: {
+    fontWeight: "700",
+    color: Colors.onSurface,
+  },
+  ticketViewAction: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+  },
+  ticketViewActionText: {
+    fontSize: 12,
+    fontWeight: "700",
     color: Colors.primaryDark,
   },
 });

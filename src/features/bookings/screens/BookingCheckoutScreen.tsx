@@ -975,7 +975,8 @@ export function BookingCheckoutScreen({
                 <View style={styles.successModalRow}>
                   <Text style={styles.successModalLabel}>Mã đặt chỗ</Text>
                   <Text style={styles.successModalVal}>
-                    #BK-{booking.id.slice(0, 8).toUpperCase()}
+                    {booking.bookingCode ||
+                      `#BK-${booking.id.slice(0, 8).toUpperCase()}`}
                   </Text>
                 </View>
 

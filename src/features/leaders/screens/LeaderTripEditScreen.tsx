@@ -54,6 +54,27 @@ function parseDateToIso(str: string, timeStr = "06:00:00"): string {
   return new Date(trimmed).toISOString();
 }
 
+/** Parse "DD/MM/YYYY" + "HH:mm" theo GIỜ ĐỊA PHƯƠNG (deadline cần khớp đúng giờ leader nhập). Trả null nếu sai định dạng. */
+function parseLocalDateTimeToIso(dateStr: string, timeStr: string): string | null {
+  const trimmed = dateStr.trim();
+  const parts = trimmed.includes("/")
+    ? trimmed.split("/")
+    : null;
+  if (!parts || parts.length !== 3) return null;
+  const [hh, mm] = timeStr.split(":");
+  const local = new Date(
+    Number(parts[2]),
+    Number(parts[1]) - 1,
+    Number(parts[0]),
+    Number(hh),
+    Number(mm),
+    0,
+    0,
+  );
+  if (isNaN(local.getTime())) return null;
+  return local.toISOString();
+}
+
 export function LeaderTripEditScreen() {
   const router = useRouter();
   const searchParams = useLocalSearchParams<{ tripId?: string; id?: string }>();
@@ -75,6 +96,9 @@ export function LeaderTripEditScreen() {
   const [minPax, setMinPax] = useState(5);
   const [price, setPrice] = useState("2850000");
   const [priceExplanation, setPriceExplanation] = useState("");
+  // Hạn đóng form (registrationDeadlineAt) — để trống giữ nguyên giá trị hiện tại
+  const [deadlineDate, setDeadlineDate] = useState("");
+  const [deadlineTime, setDeadlineTime] = useState("12:30");
 
   // Modal hủy chuyến
   const [showCancelModal, setShowCancelModal] = useState(false);
@@ -96,6 +120,15 @@ export function LeaderTripEditScreen() {
       setMinPax(res.minPax || 5);
       setPrice(String(res.price || res.pricePerPax || "2850000").replace(/\D/g, ""));
       setPriceExplanation(res.priceExplanation || "");
+      setDeadlineDate(formatIsoToVnDate(res.registrationDeadlineAt));
+      const existingDeadline = res.registrationDeadlineAt
+        ? new Date(res.registrationDeadlineAt)
+        : null;
+      setDeadlineTime(
+        existingDeadline && !isNaN(existingDeadline.getTime())
+          ? `${String(existingDeadline.getHours()).padStart(2, "0")}:${String(existingDeadline.getMinutes()).padStart(2, "0")}`
+          : "12:30",
+      );
     } catch (err: any) {
       setError(err?.message || "Không thể tải thông tin chuyến đi.");
     } finally {
@@ -131,6 +164,36 @@ export function LeaderTripEditScreen() {
       return;
     }
 
+    // Hạn đóng form (tuỳ chọn) — chỉ gửi lên khi leader có nhập
+    let deadlineIso: string | undefined;
+    if (deadlineDate.trim()) {
+      const trimmedTime = deadlineTime.trim() || "12:30";
+      if (!/^\d{1,2}:\d{2}$/.test(trimmedTime)) {
+        Alert.alert("Lỗi giờ", "Giờ đóng form phải theo định dạng HH:mm (ví dụ 12:30).");
+        return;
+      }
+      const [rawHour, rawMin] = trimmedTime.split(":");
+      if (Number(rawHour) > 23 || Number(rawMin) > 59) {
+        Alert.alert("Lỗi giờ", "Giờ đóng form không hợp lệ.");
+        return;
+      }
+      deadlineIso =
+        parseLocalDateTimeToIso(
+          deadlineDate,
+          `${rawHour.padStart(2, "0")}:${rawMin}`,
+        ) ?? undefined;
+      const deadlineObj = deadlineIso ? new Date(deadlineIso) : null;
+      const startObj = new Date(parseDateToIso(startDate, "06:00:00"));
+      if (!deadlineObj || isNaN(deadlineObj.getTime()) || isNaN(startObj.getTime())) {
+        Alert.alert("Lỗi ngày tháng", "Ngày đóng form không hợp lệ. Định dạng: DD/MM/YYYY.");
+        return;
+      }
+      if (deadlineObj.getTime() >= startObj.getTime()) {
+        Alert.alert("Lỗi ngày tháng", "Hạn đóng form phải trước giờ khởi hành của chuyến đi.");
+        return;
+      }
+    }
+
     setIsSubmitting(true);
     setError(null);
 
@@ -149,6 +212,7 @@ export function LeaderTripEditScreen() {
           price: cleanPrice,
           startAt: startIso,
           endAt: endIso,
+          ...(deadlineIso ? { registrationDeadlineAt: deadlineIso } : {}),
         },
         accessToken,
       );
@@ -410,6 +474,41 @@ export function LeaderTripEditScreen() {
               style={[styles.textInput, styles.multilineInput]}
             />
           </View>
+        </View>
+
+        {/* 4. HẠN ĐÓNG FORM ĐĂNG KÝ */}
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <Ionicons name="lock-closed-outline" size={18} color="#125238" />
+            <Text style={styles.cardTitle}>4. HẠN ĐÓNG FORM ĐĂNG KÝ</Text>
+          </View>
+
+          <View style={styles.dateRow}>
+            <View style={[styles.inputGroup, { flex: 1 }]}>
+              <Text style={styles.inputLabel}>Ngày đóng form</Text>
+              <TextInput
+                value={deadlineDate}
+                onChangeText={setDeadlineDate}
+                placeholder="DD/MM/YYYY"
+                placeholderTextColor="#707972"
+                style={styles.textInput}
+              />
+            </View>
+            <View style={[styles.inputGroup, { flex: 1 }]}>
+              <Text style={styles.inputLabel}>Giờ đóng form</Text>
+              <TextInput
+                value={deadlineTime}
+                onChangeText={setDeadlineTime}
+                placeholder="HH:mm"
+                placeholderTextColor="#707972"
+                style={styles.textInput}
+              />
+            </View>
+          </View>
+          <Text style={styles.inputHint}>
+            Hệ thống tự đóng sổ nhận đăng ký khi tới hạn (mặc định trước khởi hành 2 ngày, tối
+            thiểu trước 1 ngày). Để trống nếu muốn giữ nguyên hạn hiện tại.
+          </Text>
         </View>
 
         {/* Action Buttons */}

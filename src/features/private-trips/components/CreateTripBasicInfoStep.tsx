@@ -1,3 +1,4 @@
+import { FormField, Input, SurfaceCard, Textarea } from "@/components/ui";
 import { Colors, Radius, Shadows } from "@/constants/theme";
 import { WheelDatePickerModal } from "@/features/leaders/components";
 import { parseVnDate } from "@/features/leaders/utils/tripDateUtils";
@@ -77,28 +78,33 @@ function partsToIso(dateStr: string, timeStr: string): string | null {
   return d.toISOString();
 }
 
-function getDayOfWeek(dateStr: string): string {
+function formatDisplayDate(dateStr: string): { dayName: string; formatted: string } {
   const parts = dateStr.includes("/") ? dateStr.split("/") : dateStr.includes("-") ? dateStr.split("-") : [];
-  if (parts.length !== 3) return "";
+  if (parts.length !== 3) return { dayName: "", formatted: dateStr || "Chọn ngày" };
 
   let day: number, month: number, year: number;
   if (parts[0].length === 4) {
     year = parseInt(parts[0], 10);
-    month = parseInt(parts[1], 10) - 1;
+    month = parseInt(parts[1], 10);
     day = parseInt(parts[2], 10);
   } else {
     day = parseInt(parts[0], 10);
-    month = parseInt(parts[1], 10) - 1;
+    month = parseInt(parts[1], 10);
     year = parseInt(parts[2], 10);
   }
 
-  const d = new Date(year, month, day);
-  if (isNaN(d.getTime())) return "";
+  const d = new Date(year, month - 1, day);
+  if (isNaN(d.getTime())) return { dayName: "", formatted: dateStr || "Chọn ngày" };
 
   const days = ["Chủ nhật", "Thứ hai", "Thứ ba", "Thứ tư", "Thứ năm", "Thứ sáu", "Thứ bảy"];
-  return days[d.getDay()];
+  const dayName = days[d.getDay()];
+  const formatted = `${padZero(day)}/${padZero(month)}/${year}`;
+  return { dayName, formatted };
 }
 
+/**
+ * Tính toán thời lượng chuyến đi chính xác theo số ngày và số đêm lịch
+ */
 function computeDurationText(startIso: string, endIso: string): { durationText: string; isInvalid: boolean } {
   const s = new Date(startIso);
   const e = new Date(endIso);
@@ -109,15 +115,22 @@ function computeDurationText(startIso: string, endIso: string): { durationText: 
 
   const diffMs = e.getTime() - s.getTime();
   if (diffMs <= 0) {
-    return { durationText: "Thời gian kết thúc phải sau thời gian bắt đầu", isInvalid: true };
+    return { durationText: "Thời gian kết thúc phải sau thời gian khởi hành", isInvalid: true };
   }
 
   const totalHours = Math.round(diffMs / (1000 * 60 * 60));
-  const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24)) + 1;
-  const days = Math.max(1, diffDays);
-  const nights = Math.max(0, days - 1);
 
-  const label = nights === 0 ? "Trong ngày" : `${days}N${nights}Đ (${days} ngày ${nights} đêm)`;
+  const sDateOnly = new Date(s.getFullYear(), s.getMonth(), s.getDate());
+  const eDateOnly = new Date(e.getFullYear(), e.getMonth(), e.getDate());
+  const diffCalendarDays = Math.round((eDateOnly.getTime() - sDateOnly.getTime()) / (1000 * 60 * 60 * 24));
+
+  if (diffCalendarDays === 0) {
+    return { durationText: `Đi trong ngày • Khoảng ${totalHours} tiếng`, isInvalid: false };
+  }
+
+  const days = diffCalendarDays + 1;
+  const nights = diffCalendarDays;
+  const label = `${days} ngày ${nights} đêm (${days}N${nights}Đ)`;
   return { durationText: `${label} • Khoảng ${totalHours} tiếng`, isInvalid: false };
 }
 
@@ -224,7 +237,7 @@ export function CreateTripBasicInfoStep({
     onChangeEndAt(end.toISOString());
   }
 
-  // Presets calculation
+  // Presets calculation (Không dùng icon tia sét / AI, chỉ gợi ý các mốc thời gian thiết thực)
   const quickPresets = useMemo(() => {
     const now = new Date();
     const day = now.getDay();
@@ -239,7 +252,7 @@ export function CreateTripBasicInfoStep({
         action: () => applyPreset(diffToSaturday, 2, 6, 18),
       },
       {
-        label: "Tuần sau đó",
+        label: "Tuần sau nữa",
         sub: "2N1Đ (T7 - CN)",
         action: () => applyPreset(diffToNextSat, 2, 6, 18),
       },
@@ -249,15 +262,16 @@ export function CreateTripBasicInfoStep({
         action: () => applyPreset(diffToFriday, 3, 6, 18),
       },
       {
-        label: "Trong ngày",
-        sub: "Chủ Nhật (1N)",
+        label: "Đi trong ngày",
+        sub: "Chủ nhật (1N)",
         action: () => applyPreset(diffToSaturday + 1, 1, 5, 17),
       },
     ];
   }, []);
 
-  const startDayName = useMemo(() => getDayOfWeek(startDateInput), [startDateInput]);
-  const endDayName = useMemo(() => getDayOfWeek(endDateInput), [endDateInput]);
+  const startDisplay = useMemo(() => formatDisplayDate(startDateInput), [startDateInput]);
+  const endDisplay = useMemo(() => formatDisplayDate(endDateInput), [endDateInput]);
+
   const { durationText, isInvalid: isTimeInvalid } = useMemo(
     () => computeDurationText(startAt, endAt),
     [startAt, endAt],
@@ -270,114 +284,94 @@ export function CreateTripBasicInfoStep({
         Đặt tên và ghi chú thời gian khởi hành để các thành viên nắm rõ lịch trình.
       </Text>
 
-      {/* 1. Tên chuyến đi */}
-      <View style={styles.field}>
-        <Text style={styles.label}>
-          Tên chuyến đi <Text style={styles.required}>*</Text>
-        </Text>
-        <TextInput
-          style={styles.input}
+      {/* 1. Tên chuyến đi (Sử dụng UI Component FormField + Input chuẩn) */}
+      <FormField label="Tên chuyến đi" required style={styles.field}>
+        <Input
           placeholder="Ví dụ: Chuyến đi: Cung đường Cột Điện - Đỉnh Núi Bà Đen"
-          placeholderTextColor={Colors.mute}
           value={title}
           onChangeText={onChangeTitle}
           maxLength={150}
         />
-      </View>
+      </FormField>
 
-      {/* 2. Mô tả / Ghi chú */}
-      <View style={styles.field}>
-        <Text style={styles.label}>Mô tả / Ghi chú cho đoàn</Text>
-        <TextInput
-          style={[styles.input, styles.textArea]}
+      {/* 2. Mô tả / Ghi chú cho đoàn (Sử dụng Textarea chuẩn) */}
+      <FormField label="Mô tả / Ghi chú cho đoàn" style={styles.field}>
+        <Textarea
           placeholder="Ví dụ: Mang theo lều, đồ ăn nhẹ và 2 lít nước..."
-          placeholderTextColor={Colors.mute}
           value={description}
           onChangeText={onChangeDescription}
-          multiline
-          numberOfLines={3}
+          rows={3}
           maxLength={5000}
         />
-      </View>
+      </FormField>
 
-      {/* 3. Lịch trình chuyến đi (Thân thiện, trực quan) */}
-      <View style={styles.scheduleCard}>
-        <View style={styles.scheduleCardHeader}>
+      {/* 3. Lịch trình chuyến đi (Chuẩn SurfaceCard & Clean UX) */}
+      <SurfaceCard padding="md" style={styles.scheduleCard}>
+        {/* Header mục lịch trình: Gọn gàng, loại bỏ các badge AI / tự động tính */}
+        <View style={styles.scheduleHeader}>
           <View style={styles.scheduleTitleRow}>
-            <Ionicons name="calendar" size={18} color={Colors.primaryDark} />
-            <Text style={styles.scheduleTitle}>Thời gian & Lịch trình</Text>
-          </View>
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>Dễ nhập & Tự động tính</Text>
+            <View style={styles.scheduleIconWrap}>
+              <Ionicons name="calendar" size={16} color={Colors.primary} />
+            </View>
+            <View>
+              <Text style={styles.scheduleTitle}>Thời gian & Lịch trình</Text>
+              <Text style={styles.scheduleSubtitle}>Chọn ngày xuất phát và dự kiến trở về</Text>
+            </View>
           </View>
         </View>
 
-        {/* Quick Presets */}
-        <Text style={styles.presetsLabel}>Chọn nhanh lịch trình phổ biến:</Text>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.presetsScroll}
-        >
-          {quickPresets.map((preset, idx) => (
-            <TouchableOpacity
-              key={idx}
-              style={styles.presetChip}
-              onPress={preset.action}
-              activeOpacity={0.75}
-            >
-              <Ionicons name="flash-outline" size={12} color={Colors.primaryDark} />
-              <View>
-                <Text style={styles.presetChipLabel}>{preset.label}</Text>
-                <Text style={styles.presetChipSub}>{preset.sub}</Text>
-              </View>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
+        {/* Gợi ý lịch trình nhanh: Bỏ tia sét/icon AI, dùng icon lịch nhỏ tinh tế */}
+        <View style={styles.presetsContainer}>
+          <Text style={styles.presetsLabel}>Gợi ý lịch trình phổ biến:</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.presetsScroll}
+          >
+            {quickPresets.map((preset, idx) => (
+              <TouchableOpacity
+                key={idx}
+                style={styles.presetChip}
+                onPress={preset.action}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="calendar-clear-outline" size={13} color={Colors.primary} />
+                <View>
+                  <Text style={styles.presetChipLabel}>{preset.label}</Text>
+                  <Text style={styles.presetChipSub}>{preset.sub}</Text>
+                </View>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
 
-        {/* Date Time Picker Inputs */}
+        {/* Date Time Selection: Bố cục 2 cột thoáng đãng, dễ chạm */}
         <View style={styles.dateTimeGrid}>
-          {/* Cột Ngày giờ bắt đầu */}
-          <View style={styles.dateTimeCol}>
+          {/* Cột 1: Khởi hành */}
+          <View style={styles.colContainer}>
             <View style={styles.colHeader}>
-              <Ionicons name="flag-outline" size={14} color="#059669" />
+              <View style={[styles.colDot, { backgroundColor: "#16A34A" }]} />
               <Text style={styles.colTitle}>Khởi hành *</Text>
             </View>
 
-            <View style={styles.timeCard}>
-              {/* Ngày */}
-              <TouchableOpacity
-                style={styles.inputSubRow}
-                onPress={() => setDatePickerTarget("start")}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="calendar-outline" size={16} color={Colors.primaryDark} />
-                <Text
-                  style={[
-                    styles.dateDisplayValue,
-                    !startDateInput && styles.datePlaceholder,
-                  ]}
-                  numberOfLines={1}
-                >
-                  {startDateInput || "DD/MM/YYYY"}
-                </Text>
-                <Ionicons
-                  name="chevron-down"
-                  size={14}
-                  color={Colors.onSurfaceVariant}
-                  style={{ marginLeft: "auto" }}
-                />
-              </TouchableOpacity>
+            {/* Khối chọn Ngày */}
+            <TouchableOpacity
+              style={styles.datePickerCard}
+              onPress={() => setDatePickerTarget("start")}
+              activeOpacity={0.75}
+            >
+              <View style={styles.dateTextGroup}>
+                <Text style={styles.dayOfWeekText}>{startDisplay.dayName || "Ngày đi"}</Text>
+                <Text style={styles.dateMainText}>{startDisplay.formatted}</Text>
+              </View>
+              <Ionicons name="chevron-down" size={15} color={Colors.primary} />
+            </TouchableOpacity>
 
-              {startDayName ? (
-                <View style={styles.dayTag}>
-                  <Text style={styles.dayTagText}>{startDayName}</Text>
-                </View>
-              ) : null}
-
-              {/* Giờ xuất phát */}
-              <View style={styles.timeSubRow}>
-                <Ionicons name="time-outline" size={16} color={Colors.primaryDark} />
+            {/* Khối chọn Giờ */}
+            <View style={styles.timeSection}>
+              <View style={styles.timeInputRow}>
+                <Ionicons name="time-outline" size={14} color={Colors.onSurfaceVariant} />
+                <Text style={styles.timeLabel}>Giờ xuất phát:</Text>
                 <TextInput
                   style={styles.timeTextInput}
                   placeholder="06:00"
@@ -389,74 +383,62 @@ export function CreateTripBasicInfoStep({
                 />
               </View>
 
-              {/* Quick time pills */}
+              {/* Các mốc giờ nhanh */}
               <View style={styles.quickTimeRow}>
-                {["05:30", "06:00", "07:00"].map((t) => (
-                  <TouchableOpacity
-                    key={t}
-                    style={[
-                      styles.quickTimePill,
-                      startTimeInput === t && styles.quickTimePillActive,
-                    ]}
-                    onPress={() => handleUpdateStart(startDateInput, t)}
-                  >
-                    <Text
+                {["05:30", "06:00", "07:00"].map((t) => {
+                  const isSelected = startTimeInput === t;
+                  return (
+                    <TouchableOpacity
+                      key={t}
                       style={[
-                        styles.quickTimeText,
-                        startTimeInput === t && styles.quickTimeTextActive,
+                        styles.quickTimePill,
+                        isSelected && styles.quickTimePillActiveStart,
                       ]}
+                      onPress={() => handleUpdateStart(startDateInput, t)}
+                      activeOpacity={0.75}
                     >
-                      {t}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
+                      <Text
+                        style={[
+                          styles.quickTimeText,
+                          isSelected && styles.quickTimeTextActive,
+                        ]}
+                      >
+                        {t}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
             </View>
           </View>
 
-          {/* Cột Ngày giờ kết thúc */}
-          <View style={styles.dateTimeCol}>
+          {/* Cột 2: Dự kiến về */}
+          <View style={styles.colContainer}>
             <View style={styles.colHeader}>
-              <Ionicons name="checkmark-done-circle-outline" size={14} color="#0284C7" />
+              <View style={[styles.colDot, { backgroundColor: "#0284C7" }]} />
               <Text style={styles.colTitle}>Dự kiến về *</Text>
             </View>
 
-            <View style={styles.timeCard}>
-              {/* Ngày */}
-              <TouchableOpacity
-                style={styles.inputSubRow}
-                onPress={() => setDatePickerTarget("end")}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="calendar-outline" size={16} color="#0284C7" />
-                <Text
-                  style={[
-                    styles.dateDisplayValue,
-                    !endDateInput && styles.datePlaceholder,
-                  ]}
-                  numberOfLines={1}
-                >
-                  {endDateInput || "DD/MM/YYYY"}
+            {/* Khối chọn Ngày */}
+            <TouchableOpacity
+              style={[styles.datePickerCard, styles.datePickerCardEnd]}
+              onPress={() => setDatePickerTarget("end")}
+              activeOpacity={0.75}
+            >
+              <View style={styles.dateTextGroup}>
+                <Text style={[styles.dayOfWeekText, { color: "#0284C7" }]}>
+                  {endDisplay.dayName || "Ngày về"}
                 </Text>
-                <Ionicons
-                  name="chevron-down"
-                  size={14}
-                  color={Colors.onSurfaceVariant}
-                  style={{ marginLeft: "auto" }}
-                />
-              </TouchableOpacity>
+                <Text style={styles.dateMainText}>{endDisplay.formatted}</Text>
+              </View>
+              <Ionicons name="chevron-down" size={15} color="#0284C7" />
+            </TouchableOpacity>
 
-              {endDayName ? (
-                <View style={[styles.dayTag, styles.dayTagEnd]}>
-                  <Text style={[styles.dayTagText, styles.dayTagTextEnd]}>
-                    {endDayName}
-                  </Text>
-                </View>
-              ) : null}
-
-              {/* Giờ về */}
-              <View style={styles.timeSubRow}>
-                <Ionicons name="time-outline" size={16} color="#0284C7" />
+            {/* Khối chọn Giờ */}
+            <View style={styles.timeSection}>
+              <View style={styles.timeInputRow}>
+                <Ionicons name="time-outline" size={14} color={Colors.onSurfaceVariant} />
+                <Text style={styles.timeLabel}>Giờ về:</Text>
                 <TextInput
                   style={styles.timeTextInput}
                   placeholder="18:00"
@@ -468,33 +450,37 @@ export function CreateTripBasicInfoStep({
                 />
               </View>
 
-              {/* Quick time pills */}
+              {/* Các mốc giờ nhanh */}
               <View style={styles.quickTimeRow}>
-                {["16:00", "17:00", "18:00"].map((t) => (
-                  <TouchableOpacity
-                    key={t}
-                    style={[
-                      styles.quickTimePill,
-                      endTimeInput === t && styles.quickTimePillActiveEnd,
-                    ]}
-                    onPress={() => handleUpdateEnd(endDateInput, t)}
-                  >
-                    <Text
+                {["16:00", "17:00", "18:00"].map((t) => {
+                  const isSelected = endTimeInput === t;
+                  return (
+                    <TouchableOpacity
+                      key={t}
                       style={[
-                        styles.quickTimeText,
-                        endTimeInput === t && styles.quickTimeTextActiveEnd,
+                        styles.quickTimePill,
+                        isSelected && styles.quickTimePillActiveEnd,
                       ]}
+                      onPress={() => handleUpdateEnd(endDateInput, t)}
+                      activeOpacity={0.75}
                     >
-                      {t}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
+                      <Text
+                        style={[
+                          styles.quickTimeText,
+                          isSelected && styles.quickTimeTextActive,
+                        ]}
+                      >
+                        {t}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
             </View>
           </View>
         </View>
 
-        {/* Duration summary bar */}
+        {/* Duration Summary Bar (Hiển thị thời lượng được tính đúng chuẩn ngày đêm) */}
         <View
           style={[
             styles.durationBar,
@@ -502,9 +488,9 @@ export function CreateTripBasicInfoStep({
           ]}
         >
           <Ionicons
-            name={isTimeInvalid ? "alert-circle" : "hourglass-outline"}
+            name={isTimeInvalid ? "alert-circle" : "time-outline"}
             size={16}
-            color={isTimeInvalid ? "#DC2626" : Colors.primaryDark}
+            color={isTimeInvalid ? "#DC2626" : "#166534"}
           />
           <Text
             style={[
@@ -515,7 +501,7 @@ export function CreateTripBasicInfoStep({
             {durationText}
           </Text>
         </View>
-      </View>
+      </SurfaceCard>
 
       {/* Wheel Date Picker Modals */}
       <WheelDatePickerModal
@@ -558,199 +544,166 @@ const styles = StyleSheet.create({
   field: {
     marginBottom: 14,
   },
-  label: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: Colors.onSurface,
-    marginBottom: 6,
-  },
-  required: {
-    color: "#DC2626",
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: Colors.surfaceContainerHigh,
-    borderRadius: Radius.md,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-    color: Colors.onSurface,
-    backgroundColor: Colors.surfaceContainerLow,
-  },
-  textArea: {
-    minHeight: 70,
-    textAlignVertical: "top",
-  },
   scheduleCard: {
-    padding: 14,
-    borderRadius: Radius.lg,
-    backgroundColor: Colors.surfaceContainerLowest,
-    borderWidth: 1,
-    borderColor: Colors.surfaceContainerHigh,
-    ...Shadows.card,
     marginBottom: 16,
   },
-  scheduleCardHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 10,
+  scheduleHeader: {
+    marginBottom: 12,
   },
   scheduleTitleRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
   },
+  scheduleIconWrap: {
+    width: 30,
+    height: 30,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.primaryPale,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   scheduleTitle: {
     fontSize: 14,
     fontWeight: "800",
     color: Colors.onSurface,
   },
-  badge: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: Radius.full,
-    backgroundColor: "#DCFCE7",
+  scheduleSubtitle: {
+    fontSize: 11.5,
+    color: Colors.onSurfaceVariant,
+    marginTop: 1,
   },
-  badgeText: {
-    fontSize: 10,
-    fontWeight: "700",
-    color: "#059669",
+  presetsContainer: {
+    marginBottom: 14,
   },
   presetsLabel: {
     fontSize: 11,
     fontWeight: "700",
     color: Colors.onSurfaceVariant,
-    marginBottom: 8,
+    marginBottom: 6,
   },
   presetsScroll: {
     gap: 8,
-    paddingBottom: 12,
+    paddingBottom: 2,
   },
   presetChip: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: Radius.md,
-    backgroundColor: "#F0FDF4",
+    paddingVertical: 7,
+    paddingHorizontal: 11,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.surfaceContainerLowest,
     borderWidth: 1,
-    borderColor: "#BBF7D0",
+    borderColor: Colors.surfaceContainerHigh,
   },
   presetChipLabel: {
-    fontSize: 12,
+    fontSize: 11.5,
     fontWeight: "700",
-    color: Colors.primaryDark,
+    color: Colors.onSurface,
   },
   presetChipSub: {
     fontSize: 10,
     color: Colors.onSurfaceVariant,
+    fontWeight: "500",
   },
   dateTimeGrid: {
     flexDirection: "row",
     gap: 10,
-    marginTop: 4,
+    marginBottom: 10,
   },
-  dateTimeCol: {
+  colContainer: {
     flex: 1,
+    gap: 8,
   },
   colHeader: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
-    marginBottom: 6,
+    gap: 5,
+  },
+  colDot: {
+    width: 7,
+    height: 7,
+    borderRadius: Radius.full,
   },
   colTitle: {
     fontSize: 12,
     fontWeight: "700",
     color: Colors.onSurface,
   },
-  timeCard: {
-    padding: 10,
-    borderRadius: Radius.md,
-    backgroundColor: Colors.surfaceContainerLow,
-    borderWidth: 1,
-    borderColor: Colors.surfaceContainer,
-    gap: 6,
-  },
-  inputSubRow: {
+  datePickerCard: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    backgroundColor: "#FFFFFF",
-    borderRadius: Radius.sm,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
+    justifyContent: "space-between",
+    backgroundColor: Colors.surfaceContainerLow,
+    borderRadius: Radius.md,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
     borderWidth: 1,
-    borderColor: Colors.surfaceContainerHigh,
+    borderColor: "#A7F3D0",
   },
-  dateDisplayValue: {
+  datePickerCardEnd: {
+    borderColor: "#BAE6FD",
+  },
+  dateTextGroup: {
     flex: 1,
-    fontSize: 13,
-    fontWeight: "700",
-    color: Colors.onSurface,
   },
-  datePlaceholder: {
-    color: Colors.mute,
-    fontWeight: "400",
-  },
-  dayTag: {
-    alignSelf: "flex-start",
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: Radius.sm,
-    backgroundColor: "#DCFCE7",
-  },
-  dayTagEnd: {
-    backgroundColor: "#E0F2FE",
-  },
-  dayTagText: {
-    fontSize: 10,
+  dayOfWeekText: {
+    fontSize: 10.5,
     fontWeight: "700",
     color: "#059669",
+    marginBottom: 1,
   },
-  dayTagTextEnd: {
-    color: "#0284C7",
+  dateMainText: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: Colors.onSurface,
   },
-  timeSubRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: "#FFFFFF",
-    borderRadius: Radius.sm,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
+  timeSection: {
+    backgroundColor: Colors.surfaceContainerLow,
+    borderRadius: Radius.md,
+    padding: 8,
     borderWidth: 1,
     borderColor: Colors.surfaceContainerHigh,
+    gap: 6,
+  },
+  timeInputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  timeLabel: {
+    fontSize: 10.5,
+    color: Colors.onSurfaceVariant,
+    fontWeight: "600",
   },
   timeTextInput: {
     flex: 1,
-    fontSize: 13,
-    fontWeight: "700",
+    fontSize: 12.5,
+    fontWeight: "800",
     color: Colors.onSurface,
+    textAlign: "right",
     padding: 0,
   },
   quickTimeRow: {
     flexDirection: "row",
     gap: 4,
-    marginTop: 2,
   },
   quickTimePill: {
     flex: 1,
     alignItems: "center",
-    paddingVertical: 3,
-    borderRadius: Radius.sm,
+    paddingVertical: 4,
+    borderRadius: Radius.xs,
     backgroundColor: Colors.surfaceContainerLowest,
     borderWidth: 1,
     borderColor: Colors.surfaceContainerHigh,
   },
-  quickTimePillActive: {
-    backgroundColor: "#DCFCE7",
-    borderColor: Colors.primaryDark,
+  quickTimePillActiveStart: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
   },
   quickTimePillActiveEnd: {
-    backgroundColor: "#E0F2FE",
+    backgroundColor: "#0284C7",
     borderColor: "#0284C7",
   },
   quickTimeText: {
@@ -759,23 +712,20 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   quickTimeTextActive: {
-    color: Colors.primaryDark,
-    fontWeight: "700",
-  },
-  quickTimeTextActiveEnd: {
-    color: "#0284C7",
+    color: "#FFFFFF",
     fontWeight: "700",
   },
   durationBar: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    padding: 10,
+    gap: 7,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
     borderRadius: Radius.md,
     backgroundColor: "#F0FDF4",
     borderWidth: 1,
     borderColor: "#BBF7D0",
-    marginTop: 10,
+    marginTop: 4,
   },
   durationBarError: {
     backgroundColor: "#FEF2F2",
@@ -783,7 +733,7 @@ const styles = StyleSheet.create({
   },
   durationText: {
     flex: 1,
-    fontSize: 11,
+    fontSize: 11.5,
     fontWeight: "700",
     color: "#166534",
   },

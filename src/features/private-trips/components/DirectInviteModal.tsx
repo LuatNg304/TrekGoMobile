@@ -14,6 +14,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useAuth } from "@/features/auth/AuthContext";
 import { useDirectMemberInvitations } from "../hooks/useDirectMemberInvitations";
 import type { InvitationStatus, PrivateMemberInvitationItem } from "../types";
 
@@ -32,6 +33,7 @@ export function DirectInviteModal({
   onClose,
   onInviteSentSuccess,
 }: DirectInviteModalProps) {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<"SEND" | "HISTORY">("SEND");
   const [emailInput, setEmailInput] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
@@ -57,6 +59,13 @@ export function DirectInviteModal({
     }
     if (!email.includes("@") || !email.includes(".")) {
       setLocalError("Email không đúng định dạng.");
+      return;
+    }
+
+    if (user?.email && user.email.trim().toLowerCase() === email.toLowerCase()) {
+      setLocalError(
+        "Đây là email của bạn (Host chuyến đi). Bạn đã có mặt trong đoàn rồi, không thể tự gửi lời mời cho chính mình.",
+      );
       return;
     }
 

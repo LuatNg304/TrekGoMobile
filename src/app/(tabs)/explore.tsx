@@ -1,4 +1,3 @@
-import { CreatePrivateTripModal } from "@/components/CreatePrivateTripModal";
 import {
   MapCheckpoint,
   MapLibre3DView,
@@ -55,8 +54,6 @@ export default function ExploreScreen() {
   const [selectedTrail, setSelectedTrail] = useState<Trail>(trails[0]);
   const [selectedPersonalTrail, setSelectedPersonalTrail] =
     useState<PersonalTrail | null>(personalTrails[0] || null);
-  const [createPrivateModalVisible, setCreatePrivateModalVisible] =
-    useState(false);
   const [isRecordingModalVisible, setIsRecordingModalVisible] = useState(false);
 
   const filters = ["Tất cả", "Gần bạn", "Dễ", "Trung bình", "Khó", "Đã sở hữu"];
@@ -528,7 +525,7 @@ export default function ExploreScreen() {
 
                   <TouchableOpacity
                     style={styles.secondaryCta}
-                    onPress={() => setCreatePrivateModalVisible(true)}
+                    onPress={() => router.push("/private-trips/create" as Href)}
                     activeOpacity={0.8}
                   >
                     <Ionicons
@@ -923,10 +920,6 @@ export default function ExploreScreen() {
         }}
       />
 
-      <CreatePrivateTripModal
-        visible={createPrivateModalVisible}
-        onClose={() => setCreatePrivateModalVisible(false)}
-      />
     </SafeAreaView>
   );
 }

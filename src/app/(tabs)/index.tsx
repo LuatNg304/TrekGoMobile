@@ -1,4 +1,3 @@
-import { CreatePrivateTripModal } from "@/components/CreatePrivateTripModal";
 import { TopHeader } from "@/components/TopHeader";
 import { TripPrepModal } from "@/components/TripPrepModal";
 import { Colors, Radius, Shadows } from "@/constants/theme";
@@ -45,7 +44,6 @@ export default function HomeScreen() {
   const isLeader = authUser?.role === "LEADER" || user.role === "LEADER";
 
   const [tripPrepVisible, setTripPrepVisible] = useState(false);
-  const [createPrivateVisible, setCreatePrivateVisible] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
   // Real backend API for leader trips
@@ -952,11 +950,6 @@ export default function HomeScreen() {
             },
           })
         }
-      />
-
-      <CreatePrivateTripModal
-        visible={createPrivateVisible}
-        onClose={() => setCreatePrivateVisible(false)}
       />
     </SafeAreaView>
   );

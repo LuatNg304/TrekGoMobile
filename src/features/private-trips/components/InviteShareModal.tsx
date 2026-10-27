@@ -55,6 +55,7 @@ export function InviteShareModal({
   const loading = propLoading || hookLoading;
 
   const [copied, setCopied] = useState(false);
+  const [showCode, setShowCode] = useState(false);
 
   // Payload for QR: prioritize full inviteUrl or inviteCode
   const qrPayload = inviteUrl || inviteCode || "";
@@ -66,9 +67,17 @@ export function InviteShareModal({
     setTimeout(() => setCopied(false), 2000);
   }
 
-  // Auto generate invite via hook if tripId is provided and no inviteCode passed
+  // Auto generate invite via hook ONLY IF parent didn't manage it (no onGenerateNewCode and not already loading)
   useEffect(() => {
-    if (visible && tripId && expectedVersion !== undefined && !propInviteCode && !inviteData) {
+    if (
+      visible &&
+      tripId &&
+      expectedVersion !== undefined &&
+      !propInviteCode &&
+      !inviteData &&
+      !propLoading &&
+      !onGenerateNewCode
+    ) {
       void (async () => {
         try {
           const res = await generateInvite(tripId, expectedVersion);
@@ -78,7 +87,17 @@ export function InviteShareModal({
         }
       })();
     }
-  }, [visible, tripId, expectedVersion, propInviteCode, inviteData, generateInvite, onInviteGenerated]);
+  }, [
+    visible,
+    tripId,
+    expectedVersion,
+    propInviteCode,
+    inviteData,
+    propLoading,
+    onGenerateNewCode,
+    generateInvite,
+    onInviteGenerated,
+  ]);
 
   async function handleShare() {
     if (!inviteCode) return;
@@ -161,29 +180,53 @@ export function InviteShareModal({
               <View style={styles.codeContainer}>
                 <View style={styles.codeHeaderRow}>
                   <Text style={styles.codeLabel}>MÃ MỜI THAM GIA</Text>
-                  <TouchableOpacity
-                    style={styles.copyButton}
-                    onPress={handleCopyCode}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons
-                      name={copied ? "checkmark-circle" : "copy-outline"}
-                      size={14}
-                      color={copied ? "#059669" : Colors.primaryDark}
-                    />
-                    <Text
-                      style={[
-                        styles.copyText,
-                        copied && { color: "#059669", fontWeight: "700" },
-                      ]}
+                  <View style={styles.codeActionButtonsRow}>
+                    <TouchableOpacity
+                      style={styles.toggleVisibilityBtn}
+                      onPress={() => setShowCode((prev) => !prev)}
+                      activeOpacity={0.7}
                     >
-                      {copied ? "Đã chép" : "Sao chép"}
-                    </Text>
-                  </TouchableOpacity>
+                      <Ionicons
+                        name={showCode ? "eye-off-outline" : "eye-outline"}
+                        size={13}
+                        color={Colors.onSurfaceVariant}
+                      />
+                      <Text style={styles.toggleVisibilityText}>
+                        {showCode ? "Ẩn mã" : "Hiện mã"}
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.copyButton}
+                      onPress={handleCopyCode}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons
+                        name={copied ? "checkmark-circle" : "copy-outline"}
+                        size={13}
+                        color={copied ? "#059669" : Colors.primaryDark}
+                      />
+                      <Text
+                        style={[
+                          styles.copyText,
+                          copied && { color: "#059669", fontWeight: "700" },
+                        ]}
+                      >
+                        {copied ? "Đã chép" : "Sao chép"}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
-                <Text style={styles.codeText} selectable numberOfLines={3}>
-                  {inviteCode || "Đang lấy mã..."}
-                </Text>
+
+                {showCode ? (
+                  <Text style={styles.codeText} selectable numberOfLines={3}>
+                    {inviteCode || "Đang lấy mã..."}
+                  </Text>
+                ) : (
+                  <Text style={styles.codeMaskedText}>
+                    ••••••••••••••••••••••••
+                  </Text>
+                )}
               </View>
             </View>
           )}
@@ -341,6 +384,27 @@ const styles = StyleSheet.create({
     color: Colors.onSurfaceVariant,
     letterSpacing: 0.5,
   },
+  codeActionButtonsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  toggleVisibilityBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.surfaceContainerLowest,
+    borderWidth: 1,
+    borderColor: Colors.surfaceContainerHigh,
+  },
+  toggleVisibilityText: {
+    fontSize: 10.5,
+    fontWeight: "600",
+    color: Colors.onSurfaceVariant,
+  },
   copyButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -361,6 +425,13 @@ const styles = StyleSheet.create({
     color: Colors.primaryDark,
     letterSpacing: 0.8,
     fontFamily: "monospace",
+  },
+  codeMaskedText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: Colors.onSurfaceVariant,
+    letterSpacing: 2,
+    paddingVertical: 2,
   },
   actionButtons: {
     width: "100%",

@@ -1,3 +1,4 @@
+import { ConfirmModal, ScreenShell, StepIndicator } from "@/components/ui";
 import { Colors } from "@/constants/theme";
 import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/features/auth/AuthContext";
@@ -23,7 +24,7 @@ import {
 import { validateTripDates } from "@/features/leaders/utils/tripDateUtils";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Alert, BackHandler, ScrollView, StyleSheet } from "react-native";
+import { BackHandler, StyleSheet } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 function formatIsoToVnDate(isoStr?: string | null): string {
@@ -60,6 +61,12 @@ function parseDateToIso(str: string, timeStr = "06:00:00"): string {
 interface LeaderCreateTripScreenProps {
   onNavigateTab?: (tabKey: "dashboard" | "trips" | "profile") => void;
 }
+
+const WIZARD_STEPS = [
+  { key: "form", label: "Thông tin chuyến" },
+  { key: "route", label: "Lộ trình & Checkpoint" },
+  { key: "review", label: "Kiểm tra & Xuất bản" },
+];
 
 export function LeaderCreateTripScreen({ onNavigateTab }: LeaderCreateTripScreenProps = {}) {
   const router = useRouter();
@@ -135,6 +142,10 @@ export function LeaderCreateTripScreen({ onNavigateTab }: LeaderCreateTripScreen
     title: string;
     code: string;
   } | null>(null);
+
+  // Modal xác nhận "Lưu nháp" (thay Alert.alert mặc định)
+  const [showDraftModal, setShowDraftModal] = useState(false);
+  const [draftModalHasDraft, setDraftModalHasDraft] = useState(false);
 
   // Load existing trip if initialTripId is passed (Editing Public Trip)
   useEffect(() => {
@@ -397,7 +408,7 @@ export function LeaderCreateTripScreen({ onNavigateTab }: LeaderCreateTripScreen
         const updated = await updateTrip(activeDraftId, {
           expectedVersion: activeVersion,
           title: form.name.trim(),
-          description: form.description.trim(),
+          ...(form.description.trim() ? { description: form.description.trim() } : {}),
           startAt: startIso,
           endAt: endIso,
           pickupPointId: form.pickupPointId || (pickupPoints[0]?.id ?? ""),
@@ -567,6 +578,21 @@ export function LeaderCreateTripScreen({ onNavigateTab }: LeaderCreateTripScreen
 
     try {
       // Re-check readiness right before publishing
+      // Lưu mô tả nhập ở Bước 3 trước khi xuất bản
+      if (form.description.trim()) {
+        try {
+          const pre = await checkReadiness(draftTripId);
+          const ver = typeof pre.version === "number" ? pre.version : draftTripVersion;
+          const saved = await updateTrip(draftTripId, {
+            expectedVersion: ver,
+            description: form.description.trim(),
+          });
+          setDraftTripVersion(saved.version);
+        } catch (descErr) {
+          console.warn("Không lưu được mô tả trước khi xuất bản:", descErr);
+        }
+      }
+
       const readiness = await checkReadiness(draftTripId);
       const currentVer = typeof readiness.version === "number" ? readiness.version : draftTripVersion;
       setCanPublish(readiness.canPublish);
@@ -668,32 +694,48 @@ export function LeaderCreateTripScreen({ onNavigateTab }: LeaderCreateTripScreen
     );
   }
 
-  const handleSaveDraft = () => {
-    Alert.alert(
-      "Đã lưu bản nháp",
-      "Chuyến đi và toàn bộ cấu hình đã được lưu an toàn. Bạn có thể quay lại duyệt hoặc xuất bản bất kỳ lúc nào.",
-      [
-        { text: "Tiếp tục chỉnh sửa", style: "cancel" },
-        {
-          text: "Về danh sách",
-          onPress: () => {
-            if (onNavigateTab) {
-              onNavigateTab("trips");
-            } else {
-              router.replace("/field-operations" as any);
-            }
-          },
-        },
-      ],
-    );
+  const handleGoToTripsList = () => {
+    setShowDraftModal(false);
+    if (onNavigateTab) {
+      onNavigateTab("trips");
+    } else {
+      router.replace("/field-operations" as any);
+    }
   };
+
+  const handleSaveDraft = () => {
+    // Chưa qua bước 1 thì chưa có gì được lưu trên server — thông báo phải trung thực
+    setDraftModalHasDraft(Boolean(draftTripId));
+    setShowDraftModal(true);
+  };
+
+  const draftModal = (
+    <ConfirmModal
+      visible={showDraftModal}
+      title={
+        draftModalHasDraft
+          ? "Bản nháp đã lưu trên hệ thống"
+          : "Chưa có bản nháp để lưu"
+      }
+      description={
+        draftModalHasDraft
+          ? "Chuyến đi và toàn bộ cấu hình đã được lưu an toàn. Bạn có thể quay lại duyệt hoặc xuất bản bất kỳ lúc nào."
+          : "Chuyến đi sẽ được tạo và lưu dưới dạng bản nháp khi bạn hoàn tất bước thông tin và chuyển sang bước lộ trình."
+      }
+      confirmLabel="Về danh sách"
+      cancelLabel="Tiếp tục chỉnh sửa"
+      variant="primary"
+      onConfirm={handleGoToTripsList}
+      onClose={() => setShowDraftModal(false)}
+    />
+  );
 
   // BƯỚC 3: XEM LẠI & XUẤT BẢN
   if (step === "review") {
     return (
-      <SafeAreaView style={styles.safe}>
-        <ScrollView contentContainerStyle={styles.content}>
-          <LeaderTripReviewStep
+      <ScreenShell scrollable contentContainerStyle={styles.content}>
+        <StepIndicator steps={WIZARD_STEPS} currentStepIndex={2} style={styles.stepBar} />
+        <LeaderTripReviewStep
             form={form}
             tripId={draftTripId || ""}
             expectedVersion={draftTripVersion}
@@ -719,18 +761,18 @@ export function LeaderCreateTripScreen({ onNavigateTab }: LeaderCreateTripScreen
             onVersionUpdated={(newVer) => setDraftTripVersion(newVer)}
             onUpdateDescription={(desc) => updateField("description", desc)}
             onSaveDraft={handleSaveDraft}
-          />
-        </ScrollView>
-      </SafeAreaView>
+        />
+        {draftModal}
+      </ScreenShell>
     );
   }
 
   // BƯỚC 2: THIẾT LẬP LỘ TRÌNH (CHỌN SYSTEM TRAIL & CHECKPOINTS TƯƠNG ỨNG)
   if (step === "route") {
     return (
-      <SafeAreaView style={styles.safe}>
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-          <LeaderTripRouteStep
+      <ScreenShell scrollable contentContainerStyle={styles.content}>
+        <StepIndicator steps={WIZARD_STEPS} currentStepIndex={1} style={styles.stepBar} />
+        <LeaderTripRouteStep
             tripTitle={form.name}
             destinationName={selectedDestination?.name}
             trailSuggestions={trailSuggestions}
@@ -753,17 +795,17 @@ export function LeaderCreateTripScreen({ onNavigateTab }: LeaderCreateTripScreen
               }
             }}
             onSaveDraft={handleSaveDraft}
-          />
-        </ScrollView>
-      </SafeAreaView>
+        />
+        {draftModal}
+      </ScreenShell>
     );
   }
 
   // BƯỚC 1: THIẾT LẬP THÔNG TIN CHUYẾN ĐI
   return (
-    <SafeAreaView style={styles.safe}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <LeaderTripFormStep
+    <ScreenShell scrollable contentContainerStyle={styles.content}>
+      <StepIndicator steps={WIZARD_STEPS} currentStepIndex={0} style={styles.stepBar} />
+      <LeaderTripFormStep
           form={form}
           errors={errors}
           destinations={destinations}
@@ -775,9 +817,9 @@ export function LeaderCreateTripScreen({ onNavigateTab }: LeaderCreateTripScreen
           onProceed={() => void handleProceedToRoute()}
           onBack={handleSafeGoBack}
           onRetryLoadMeta={fetchDestinations}
-        />
-      </ScrollView>
-    </SafeAreaView>
+      />
+      {draftModal}
+    </ScreenShell>
   );
 }
 
@@ -789,5 +831,8 @@ const styles = StyleSheet.create({
   content: {
     padding: 16,
     paddingBottom: 36,
+  },
+  stepBar: {
+    marginBottom: 16,
   },
 });

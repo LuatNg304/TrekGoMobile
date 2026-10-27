@@ -638,10 +638,12 @@ export function LeaderTripReviewStep({
             )}
           </View>
 
-          {confirmedPriceExplanation || (form.priceExplanation && form.priceExplanation.trim()) ? (
+          {isPriceConfirmed || confirmedPriceExplanation || (form.priceExplanation && form.priceExplanation.trim()) ? (
             <View style={styles.explanationContentBox}>
               <Text style={styles.explanationText}>
-                {confirmedPriceExplanation || form.priceExplanation}
+                {confirmedPriceExplanation ||
+                  form.priceExplanation ||
+                  `Đã chốt giá vé ${Number(form.price || 0).toLocaleString("vi-VN")} đ/người cho quy mô tối thiểu ${form.minPax || 5} khách. Cơ cấu chi phí đã được thẩm định tự động theo chuẩn TG-PTR-PRICING-01.`}
               </Text>
             </View>
           ) : (

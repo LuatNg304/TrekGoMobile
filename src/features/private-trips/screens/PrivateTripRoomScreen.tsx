@@ -154,17 +154,32 @@ export function PrivateTripRoomScreen({
     if (!tripId || !roomData) return;
     setShowInviteModal(true);
 
-    if (!inviteData) {
-      try {
-        const res = await generateInvite(tripId, roomData.trip.version);
-        setRoomData((prev) =>
-          prev
-            ? { ...prev, trip: { ...prev.trip, version: res.tripVersion } }
-            : prev,
-        );
-      } catch (err: any) {
-        Alert.alert("Lỗi", err?.message || "Không thể tạo mã mời.");
+    if (inviteData?.inviteCode) {
+      return;
+    }
+
+    try {
+      const res = await generateInvite(tripId, roomData.trip.version);
+      setRoomData((prev) =>
+        prev
+          ? {
+              ...prev,
+              trip: {
+                ...prev.trip,
+                version: res.tripVersion,
+              },
+            }
+          : prev,
+      );
+    } catch (err: any) {
+      const isConflict =
+        err?.code === "PRIVATE_TRIP_VERSION_CONFLICT" ||
+        err?.message?.includes("reload") ||
+        err?.message?.includes("version");
+      if (isConflict) {
+        reloadAll();
       }
+      Alert.alert("Lỗi", err?.message || "Không thể tạo mã mời.");
     }
   }
 
@@ -174,10 +189,23 @@ export function PrivateTripRoomScreen({
       const res = await generateInvite(tripId, roomData.trip.version);
       setRoomData((prev) =>
         prev
-          ? { ...prev, trip: { ...prev.trip, version: res.tripVersion } }
+          ? {
+              ...prev,
+              trip: {
+                ...prev.trip,
+                version: res.tripVersion,
+              },
+            }
           : prev,
       );
     } catch (err: any) {
+      const isConflict =
+        err?.code === "PRIVATE_TRIP_VERSION_CONFLICT" ||
+        err?.message?.includes("reload") ||
+        err?.message?.includes("version");
+      if (isConflict) {
+        reloadAll();
+      }
       Alert.alert("Lỗi tạo lại mã", err?.message || "Không thể tạo mã mới.");
     }
   }

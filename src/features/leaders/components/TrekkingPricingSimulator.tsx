@@ -1,16 +1,14 @@
-import { Radius, Shadows } from "@/constants/theme";
+import { Radius } from "@/constants/theme";
 import {
-  computeLocalPricingSimulation,
   confirmTripPricing,
-  previewTripPricing,
   type CostItem,
-  type PricingPreviewResponse,
 } from "@/features/leaders/services/leader-pricing.api";
 import { Ionicons } from "@expo/vector-icons";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -33,7 +31,60 @@ export interface TrekkingPricingSimulatorProps {
     newVersion: number,
   ) => void;
   isConfirmed?: boolean;
+  /** Phí sàn + phí thanh toán (bps). Mặc định 1000 = 10% */
+  feeBps?: number;
+  /** Dự phòng chi phí (bps). Mặc định 500 = 5% */
+  contingencyBps?: number;
 }
+
+// ─── HELPERS ────────────────────────────────────────────────────────────────
+
+/** Định dạng tiền VNĐ dạng 2.850.000đ (không phụ thuộc Intl của Hermes) */
+function vnd(n: number): string {
+  if (!Number.isFinite(n)) return "0đ";
+  const sign = n < 0 ? "-" : "";
+  const abs = Math.round(Math.abs(n)).toString();
+  return `${sign}${abs.replace(/\B(?=(\d{3})+(?!\d))/g, ".")}đ`;
+}
+
+function pct(n: number): string {
+  if (!Number.isFinite(n)) return "0%";
+  return `${(Math.round(n * 10) / 10).toString().replace(".", ",")}%`;
+}
+
+/** Tách chi phí cố định (gồm STEP theo số khách) và biến phí / khách */
+function costBreakdown(items: CostItem[], pax: number) {
+  let fixed = 0;
+  let variablePerPax = 0;
+  items
+    .filter((it) => it.isEnabled && it.includedInPrice)
+    .forEach((it) => {
+      const qty = Math.max(1, Number(it.quantity) || 1);
+      const dur = Math.max(1, Number(it.durationUnits) || 1);
+      const price = Number(it.unitPrice) || 0;
+      if (it.kind === "VARIABLE") {
+        variablePerPax += price * qty * dur;
+      } else if (it.kind === "STEP") {
+        const cap = Math.max(1, Number(it.capacityPerUnit) || 15);
+        const headcount = pax + Math.max(0, Number(it.extraNonPayingPax) || 0);
+        fixed += price * Math.max(1, Math.ceil(headcount / cap)) * dur;
+      } else {
+        fixed += price * qty * dur;
+      }
+    });
+  return { fixed, variablePerPax };
+}
+
+interface PaxRow {
+  pax: number;
+  revenue: number;
+  totalCost: number;
+  profit: number;
+  marginPct: number;
+  status: "LOSS" | "BREAKEVEN" | "TARGET";
+}
+
+// ─── COMPONENT ──────────────────────────────────────────────────────────────
 
 export function TrekkingPricingSimulator({
   tripId,
@@ -45,595 +96,590 @@ export function TrekkingPricingSimulator({
   items,
   onPriceConfirmed,
   isConfirmed = false,
+  feeBps = 1000,
+  contingencyBps = 500,
 }: TrekkingPricingSimulatorProps) {
-  // Simulator Controls
-  const [targetPax, setTargetPax] = useState<number>(Math.max(minPax, Math.min(maxPax, 10)));
-  const [targetMarginPct, setTargetMarginPct] = useState<number>(20); // 20%
+  const safeMax = Math.max(1, maxPax || 15);
+  const safeMin = Math.max(1, Math.min(minPax || 1, safeMax));
+
+  const [targetPax, setTargetPax] = useState<number>(safeMax);
+  const [targetProfitPct, setTargetProfitPct] = useState<number>(12);
   const [selectedPrice, setSelectedPrice] = useState<number>(
     initialPrice > 0 ? initialPrice : 2850000,
   );
-
+  const [priceText, setPriceText] = useState<string>(String(selectedPrice));
+  const [showTable, setShowTable] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false);
   const [confirmedSuccess, setConfirmedSuccess] = useState(isConfirmed);
 
-  // Local calculation immediate fallback
-  const localSim = useMemo(() => {
-    return computeLocalPricingSimulation(
-      items,
-      targetPax,
-      targetMarginPct * 100,
-      selectedPrice,
-      minPax,
-    );
-  }, [items, targetPax, targetMarginPct, selectedPrice, minPax]);
-
-  const [simResult, setSimResult] = useState<PricingPreviewResponse>(localSim);
-  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Sync with backend preview with debouncing
+  useEffect(() => setConfirmedSuccess(isConfirmed), [isConfirmed]);
   useEffect(() => {
-    setSimResult(localSim);
+    setTargetPax((p) => Math.max(1, Math.min(safeMax, p)));
+  }, [safeMax]);
 
-    if (!tripId || !accessToken) return;
+  const feeRate = feeBps / 10000;
+  const contRate = contingencyBps / 10000;
+  const targetRate = targetProfitPct / 100;
 
-    if (debounceTimer.current) {
-      clearTimeout(debounceTimer.current);
+  const calc = useMemo(() => {
+    const rows: PaxRow[] = [];
+    for (let n = 1; n <= safeMax; n++) {
+      const { fixed, variablePerPax } = costBreakdown(items, n);
+      const totalCost = (fixed + variablePerPax * n) * (1 + contRate);
+      const revenue = selectedPrice * n;
+      const profit = revenue * (1 - feeRate) - totalCost;
+      const marginPct = revenue > 0 ? (profit / revenue) * 100 : 0;
+      rows.push({
+        pax: n,
+        revenue,
+        totalCost,
+        profit,
+        marginPct,
+        status:
+          profit < 0 ? "LOSS" : marginPct >= targetProfitPct ? "TARGET" : "BREAKEVEN",
+      });
     }
 
-    debounceTimer.current = setTimeout(async () => {
-      try {
-        const preview = await previewTripPricing(
-          tripId,
-          {
-            targetPax,
-            targetMarginBps: targetMarginPct * 100,
-            selectedPrice,
-            selectedMinPax: minPax,
-            items,
-          },
-          accessToken,
-        );
-        if (preview?.summary) {
-          setSimResult(preview);
-        }
-      } catch {
-        // use local calculation
-      }
-    }, 400);
+    const atTarget = rows[targetPax - 1] ?? rows[rows.length - 1];
+    const breakEvenPax = rows.find((r) => r.profit >= 0)?.pax ?? null;
+    const targetReachedPax = rows.find((r) => r.status === "TARGET")?.pax ?? null;
 
-    return () => {
-      if (debounceTimer.current) clearTimeout(debounceTimer.current);
-    };
-  }, [items, targetPax, targetMarginPct, selectedPrice, minPax, tripId, accessToken, localSim]);
+    // Giá đề xuất: lợi nhuận / doanh thu = tỷ lệ mục tiêu tại số khách dự kiến
+    const divisor = Math.max(0.05, 1 - feeRate - targetRate);
+    const suggestedPrice =
+      Math.ceil(atTarget.totalCost / divisor / Math.max(1, targetPax) / 10000) * 10000;
 
-  // Handlers for sliders / steppers
-  const handlePaxChange = (delta: number) => {
-    const next = Math.max(minPax, Math.min(maxPax, targetPax + delta));
-    setTargetPax(next);
-    setConfirmedSuccess(false);
+    const headerCost = costBreakdown(items, targetPax);
+    return { rows, atTarget, breakEvenPax, targetReachedPax, suggestedPrice, headerCost };
+  }, [items, safeMax, selectedPrice, feeRate, contRate, targetRate, targetProfitPct, targetPax]);
+
+  const markDirty = () => setConfirmedSuccess(false);
+
+  const updatePrice = (next: number) => {
+    const v = Math.max(0, Math.min(50_000_000, Math.round(next)));
+    setSelectedPrice(v);
+    setPriceText(String(v));
+    markDirty();
   };
 
-  const handleMarginChange = (delta: number) => {
-    const next = Math.max(5, Math.min(50, targetMarginPct + delta));
-    setTargetMarginPct(next);
-    setConfirmedSuccess(false);
+  const changePax = (d: number) => {
+    setTargetPax((p) => Math.max(1, Math.min(safeMax, p + d)));
+    markDirty();
   };
 
-  const handlePriceChange = (delta: number) => {
-    const next = Math.max(100000, selectedPrice + delta);
-    setSelectedPrice(next);
-    setConfirmedSuccess(false);
+  const changeTarget = (d: number) => {
+    setTargetProfitPct((p) => Math.max(0, Math.min(50, p + d)));
+    markDirty();
   };
 
-  const handleApplySuggestedPrice = () => {
-    if (simResult.summary.suggestedPrice > 0) {
-      setSelectedPrice(simResult.summary.suggestedPrice);
-      setConfirmedSuccess(false);
-    }
+  const buildLocalExplanation = () => {
+    const { fixed, variablePerPax } = calc.headerCost;
+    return [
+      `Giá vé ${vnd(selectedPrice)}/người được tính cho đoàn dự kiến ${targetPax} khách.`,
+      `• Chi phí cố định (xe, porter, dẫn đường...): ${vnd(fixed)}.`,
+      `• Chi phí theo đầu người (ăn uống, vé, bảo hiểm...): ${vnd(variablePerPax)}/người.`,
+      `• Dự phòng phát sinh ${pct(contingencyBps / 100)}, phí nền tảng & thanh toán ${pct(feeBps / 100)}.`,
+      calc.breakEvenPax
+        ? `• Đoàn bắt đầu có lãi từ ${calc.breakEvenPax} khách.`
+        : "• Với mức giá này đoàn chưa thể có lãi trong giới hạn số khách.",
+      `• Lợi nhuận dự kiến tại ${targetPax} khách: ${vnd(calc.atTarget.profit)} (${pct(calc.atTarget.marginPct)} doanh thu).`,
+    ].join("\n");
   };
 
-  // Confirm Price Call (Chốt & Áp dụng giá vé)
-  const handleConfirmPricing = async () => {
+  const handleConfirm = async () => {
     if (!tripId || !accessToken) {
       Alert.alert("Chưa lưu chuyến", "Vui lòng hoàn tất lưu chuyến trước khi chốt giá vé.");
       return;
     }
-
+    if (selectedPrice <= 0) {
+      Alert.alert("Giá vé không hợp lệ", "Vui lòng nhập giá vé lớn hơn 0.");
+      return;
+    }
     setIsConfirming(true);
     try {
-      const res = await confirmTripPricing(
+      const res: any = await confirmTripPricing(
         tripId,
-        {
-          expectedVersion,
-          selectedPrice,
-          selectedMinPax: minPax,
-          targetPax,
-        },
+        { expectedVersion, selectedPrice, selectedMinPax: safeMin, targetPax },
         accessToken,
       );
+      const explanation: string =
+        res?.priceExplanation ||
+        res?.trip?.priceExplanation ||
+        res?.explanation ||
+        buildLocalExplanation();
+      const newVersion: number =
+        res?.version ?? res?.tripVersion ?? res?.trip?.version ?? expectedVersion + 1;
 
-      setIsConfirming(false);
       setConfirmedSuccess(true);
+      onPriceConfirmed?.(selectedPrice, safeMin, explanation, newVersion);
       Alert.alert(
-        "Chốt giá vé thành công! 🎉",
-        `Đã chốt giá ${selectedPrice.toLocaleString("vi-VN")} đ/người cho quy mô tối thiểu ${minPax} khách. Backend đã tự động tạo giải trình cơ cấu giá chuẩn VFRS.`,
+        "Đã chốt giá vé",
+        `Giá ${vnd(selectedPrice)}/người cho đoàn tối thiểu ${safeMin} khách.`,
       );
-
-      if (onPriceConfirmed) {
-        onPriceConfirmed(
-          selectedPrice,
-          minPax,
-          res.priceExplanation,
-          res.version || expectedVersion + 1,
-        );
-      }
     } catch (err: any) {
+      Alert.alert("Không thể chốt giá vé", err?.message || "Đã xảy ra lỗi khi xác nhận giá vé.");
+    } finally {
       setIsConfirming(false);
-      Alert.alert(
-        "Không thể chốt giá vé",
-        err?.message || "Đã xảy ra lỗi khi xác nhận giá vé với máy chủ.",
-      );
     }
   };
 
-  const summary = simResult.summary;
-  const breakEven = summary.breakEvenPax;
-  const isBreakEvenSafe = breakEven <= targetPax;
-  const isLoss = summary.isDeficit || summary.netProfitAtTarget < 0;
+  const { atTarget, breakEvenPax, targetReachedPax, suggestedPrice, headerCost } = calc;
+  const profitColor = atTarget.profit < 0 ? C.red : C.green;
 
   return (
-    <View style={styles.darkCard}>
-      {/* Top Header */}
+    <View style={styles.card}>
+      {/* Header */}
       <View style={styles.headerRow}>
-        <View style={styles.badgeSim}>
-          <Ionicons name="analytics" size={13} color="#9fe870" />
-          <Text style={styles.badgeSimText}>FINANCIAL SIMULATOR</Text>
+        <View style={styles.headerIcon}>
+          <Ionicons name="receipt-outline" size={16} color={C.green} />
         </View>
-        <Text style={styles.cardHeaderMeta}>TG-PTR-PRICING-01</Text>
-      </View>
-
-      <Text style={styles.cardTitle}>MÔ PHỎNG TÀI CHÍNH & HÒA VỐN</Text>
-      <Text style={styles.cardSub}>
-        Kéo chỉnh quy mô kỳ vọng, biên lợi nhuận và giá vé để hệ thống cân đối tài chính thời gian thực.
-      </Text>
-
-      {/* KPI Dashboard */}
-      <View style={styles.kpiRow}>
-        {/* KPI 1: Break-even Pax */}
-        <View style={styles.kpiBox}>
-          <Text style={styles.kpiLabel}>ĐIỂM HÒA VỐN</Text>
-          <View style={styles.kpiValRow}>
-            <Text
-              style={[
-                styles.kpiValue,
-                { color: isBreakEvenSafe ? "#9fe870" : "#ffd11a" },
-              ]}
-            >
-              {breakEven > maxPax ? ">" + maxPax : breakEven}
-            </Text>
-            <Text style={styles.kpiUnit}>khách</Text>
+        <View style={{ flex: 1 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+            <Text style={styles.title}>Trekking Pricing Simulator</Text>
+            <View style={styles.liveBadge}>
+              <Text style={styles.liveBadgeText}>Mô phỏng thời gian thực</Text>
+            </View>
           </View>
-          <Text style={styles.kpiHint}>
-            {breakEven <= minPax
-              ? "✓ Đạt hòa vốn từ minPax"
-              : breakEven <= targetPax
-              ? `Hòa vốn ở mức ${breakEven} pax`
-              : "⚠️ Cần tăng giá để hòa vốn"}
+          <Text style={styles.headerMeta}>
+            Cố định: <Text style={styles.headerMetaStrong}>{vnd(headerCost.fixed)}</Text>
+            {"  •  "}Biến phí:{" "}
+            <Text style={styles.headerMetaStrong}>{vnd(headerCost.variablePerPax)}/người</Text>
+          </Text>
+          <Text style={styles.headerMeta}>
+            Phí sàn & TT: <Text style={styles.headerMetaStrong}>{pct(feeBps / 100)}</Text>
+            {"  •  "}Dự phòng:{" "}
+            <Text style={styles.headerMetaStrong}>{pct(contingencyBps / 100)}</Text>
           </Text>
         </View>
+      </View>
 
-        {/* KPI 2: Suggested Price */}
-        <View style={styles.kpiBox}>
-          <Text style={styles.kpiLabel}>GIÁ ĐỀ XUẤT HỆ THỐNG</Text>
-          <View style={styles.kpiValRow}>
-            <Text style={[styles.kpiValue, { color: "#ffffff" }]}>
-              {(summary.suggestedPrice / 1000).toLocaleString("vi-VN")}K
-            </Text>
-            <Text style={styles.kpiUnit}>đ / pax</Text>
+      {/* Control 1: số khách */}
+      <View style={styles.control}>
+        <View style={styles.controlHead}>
+          <Text style={styles.controlLabel}>Số khách dự kiến thanh toán (targetPax)</Text>
+          <Text style={styles.controlValue}>
+            {targetPax} người <Text style={styles.controlValueMute}>/ tối đa {safeMax}</Text>
+          </Text>
+        </View>
+        <View style={styles.stepRow}>
+          <StepBtn icon="remove" onPress={() => changePax(-1)} />
+          <View style={styles.track}>
+            <View style={[styles.trackFill, { width: `${(targetPax / safeMax) * 100}%` }]} />
           </View>
-          <TouchableOpacity onPress={handleApplySuggestedPrice}>
-            <Text style={styles.kpiAction}>Áp dụng giá này</Text>
+          <StepBtn icon="add" onPress={() => changePax(1)} />
+        </View>
+        <View style={styles.hintRow}>
+          <Text style={styles.hint}>1 khách</Text>
+          <Text style={styles.hint}>Tối thiểu khởi hành: {safeMin}</Text>
+          <Text style={styles.hint}>Tối đa: {safeMax}</Text>
+        </View>
+      </View>
+
+      {/* Control 2: giá vé */}
+      <View style={styles.control}>
+        <View style={styles.controlHead}>
+          <Text style={styles.controlLabel}>Giá vé thu mỗi người (selectedPrice)</Text>
+          <View style={styles.priceInputWrap}>
+            <TextInput
+              style={styles.priceInput}
+              value={priceText}
+              keyboardType="numeric"
+              onChangeText={(v) => {
+                const digits = v.replace(/[^0-9]/g, "");
+                setPriceText(digits);
+                setSelectedPrice(parseInt(digits, 10) || 0);
+                markDirty();
+              }}
+              onBlur={() => setPriceText(String(selectedPrice))}
+            />
+            <Text style={styles.priceUnit}>đ/người</Text>
+          </View>
+        </View>
+        <View style={styles.chipRow}>
+          {[-100000, -10000, 10000, 100000].map((d) => (
+            <TouchableOpacity
+              key={d}
+              style={styles.chip}
+              onPress={() => updatePrice(selectedPrice + d)}
+              activeOpacity={0.75}
+            >
+              <Text style={styles.chipText}>
+                {d > 0 ? "+" : "-"}
+                {Math.abs(d) / 1000}K
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+        <View style={styles.hintRow}>
+          <Text style={styles.hint}>100.000đ</Text>
+          <Text style={styles.hint}>Bước chỉnh: 10.000đ</Text>
+          <Text style={styles.hint}>5.000.000đ</Text>
+        </View>
+      </View>
+
+      {/* Control 3: tỷ lệ lãi mong muốn (Biên lợi nhuận ròng) */}
+      <View style={styles.control}>
+        <View style={styles.controlHead}>
+          <Text style={styles.controlLabel}>Biên lợi nhuận ròng mục tiêu (Lãi dự kiến)</Text>
+          <Text style={styles.controlValue}>{targetProfitPct}% doanh thu</Text>
+        </View>
+        <View style={styles.stepRow}>
+          <StepBtn icon="remove" onPress={() => changeTarget(-1)} />
+          <View style={styles.track}>
+            <View style={[styles.trackFill, { width: `${(targetProfitPct / 50) * 100}%` }]} />
+          </View>
+          <StepBtn icon="add" onPress={() => changeTarget(1)} />
+        </View>
+        <View style={styles.hintRow}>
+          <Text style={styles.hint}>0% (Hòa vốn)</Text>
+          <Text style={styles.hint}>Khuyên dùng: 12% - 20%</Text>
+          <Text style={styles.hint}>50%</Text>
+        </View>
+      </View>
+
+      {/* KPI grid */}
+      <View style={styles.kpiGrid}>
+        <View style={styles.kpi}>
+          <Text style={styles.kpiLabel}>Lợi nhuận tại {targetPax} khách</Text>
+          <Text style={[styles.kpiValue, { color: profitColor }]} numberOfLines={1} adjustsFontSizeToFit>
+            {vnd(atTarget.profit)}
+          </Text>
+          <Text style={styles.kpiSub}>{pct(atTarget.marginPct)} doanh thu</Text>
+        </View>
+
+        <View style={styles.kpi}>
+          <Text style={styles.kpiLabel}>Giá đề xuất ({targetProfitPct}%)</Text>
+          <Text style={[styles.kpiValue, { color: C.yellow }]} numberOfLines={1} adjustsFontSizeToFit>
+            {vnd(suggestedPrice)}
+          </Text>
+          <TouchableOpacity onPress={() => updatePrice(suggestedPrice)} hitSlop={8}>
+            <Text style={styles.kpiAction}>↳ Áp dụng giá này</Text>
           </TouchableOpacity>
         </View>
 
-        {/* KPI 3: Expected Profit */}
-        <View style={styles.kpiBox}>
-          <Text style={styles.kpiLabel}>LỢI NHUẬN DỰ KIẾN</Text>
-          <View style={styles.kpiValRow}>
-            <Text
-              style={[
-                styles.kpiValue,
-                { color: isLoss ? "#d03238" : "#9fe870" },
-              ]}
-            >
-              {isLoss ? "-" : "+"}
-              {(Math.abs(summary.netProfitAtTarget) / 1000).toLocaleString("vi-VN")}K
-            </Text>
-          </View>
-          <Text style={styles.kpiHint}>
-            Margin {summary.marginPctAtTarget}% (tại {targetPax} pax)
+        <View style={styles.kpi}>
+          <Text style={styles.kpiLabel}>Hòa vốn sớm nhất</Text>
+          <Text style={[styles.kpiValue, { color: C.blue }]}>
+            {breakEvenPax ? `${breakEvenPax} khách` : "Chưa đạt"}
           </Text>
+          <Text style={styles.kpiSub}>
+            {breakEvenPax ? "Không bị lỗ vốn" : `Cần tăng giá vé`}
+          </Text>
+        </View>
+
+        <View style={styles.kpi}>
+          <Text style={styles.kpiLabel}>Đạt mục tiêu {targetProfitPct}%</Text>
+          <Text style={[styles.kpiValue, { color: C.purple }]}>
+            {targetReachedPax ? `${targetReachedPax} khách` : "Chưa đạt"}
+          </Text>
+          <Text style={styles.kpiSub}>Đạt biên kỳ vọng</Text>
         </View>
       </View>
 
-      {/* Warning Deficit Banner if Price is too low */}
-      {isLoss && (
-        <View style={styles.deficitBanner}>
-          <Ionicons name="warning" size={18} color="#d03238" />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.deficitTitle}>Cảnh báo bù lỗ vận hành!</Text>
-            <Text style={styles.deficitText}>
-              Giá vé {selectedPrice.toLocaleString("vi-VN")} đ chưa đủ bù đắp chi phí cố định và biến phí.
-              Dự kiến bù lỗ{" "}
-              {summary.deficitAmount?.toLocaleString("vi-VN")} đ nếu chỉ đạt {targetPax} khách. Vui lòng tăng giá vé hoặc tăng quy mô đoàn.
-            </Text>
-          </View>
+      {atTarget.profit < 0 && (
+        <View style={styles.lossBanner}>
+          <Ionicons name="warning-outline" size={16} color={C.red} />
+          <Text style={styles.lossText}>
+            Với {targetPax} khách, giá {vnd(selectedPrice)} đang lỗ {vnd(-atTarget.profit)}. Hãy tăng giá
+            vé hoặc bấm "Áp dụng giá này".
+          </Text>
         </View>
       )}
 
-      {/* Control 1: Target Pax */}
-      <View style={styles.controlSection}>
-        <View style={styles.controlHeader}>
-          <Text style={styles.controlLabel}>1. Số khách kỳ vọng (Target Pax)</Text>
-          <Text style={styles.controlBadge}>{targetPax} khách (Min: {minPax} - Max: {maxPax})</Text>
-        </View>
-        <View style={styles.stepperRow}>
-          <TouchableOpacity
-            style={styles.stepBtn}
-            onPress={() => handlePaxChange(-1)}
-          >
-            <Ionicons name="remove" size={18} color="#ffffff" />
-          </TouchableOpacity>
-          <View style={styles.stepDisplay}>
-            <Text style={styles.stepNum}>{targetPax}</Text>
-            <Text style={styles.stepSub}>Trekker tham gia</Text>
-          </View>
-          <TouchableOpacity
-            style={styles.stepBtn}
-            onPress={() => handlePaxChange(1)}
-          >
-            <Ionicons name="add" size={18} color="#ffffff" />
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* Control 2: Target Margin */}
-      <View style={styles.controlSection}>
-        <View style={styles.controlHeader}>
-          <Text style={styles.controlLabel}>2. Biên lợi nhuận mong muốn</Text>
-          <Text style={styles.controlBadge}>{targetMarginPct}% Margin</Text>
-        </View>
-        <View style={styles.stepperRow}>
-          <TouchableOpacity
-            style={styles.stepBtn}
-            onPress={() => handleMarginChange(-5)}
-          >
-            <Ionicons name="remove" size={18} color="#ffffff" />
-          </TouchableOpacity>
-          <View style={styles.stepDisplay}>
-            <Text style={styles.stepNum}>{targetMarginPct}%</Text>
-            <Text style={styles.stepSub}>Biên an toàn tài chính</Text>
-          </View>
-          <TouchableOpacity
-            style={styles.stepBtn}
-            onPress={() => handleMarginChange(5)}
-          >
-            <Ionicons name="add" size={18} color="#ffffff" />
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* Control 3: Selected Price */}
-      <View style={styles.controlSection}>
-        <View style={styles.controlHeader}>
-          <Text style={styles.controlLabel}>3. Giá vé thu mỗi khách (Selected Price)</Text>
-          <Text style={[styles.controlBadge, { backgroundColor: "#163300", color: "#9fe870" }]}>
-            {selectedPrice.toLocaleString("vi-VN")} đ
-          </Text>
-        </View>
-        <View style={styles.priceRow}>
-          <TouchableOpacity
-            style={styles.priceDeltaBtn}
-            onPress={() => handlePriceChange(-50000)}
-          >
-            <Text style={styles.priceDeltaText}>-50K</Text>
-          </TouchableOpacity>
-          <TextInput
-            style={styles.priceInputBox}
-            value={String(selectedPrice)}
-            onChangeText={(v) => {
-              const num = parseInt(v.replace(/[^0-9]/g, ""), 10) || 0;
-              setSelectedPrice(num);
-              setConfirmedSuccess(false);
-            }}
-            keyboardType="numeric"
-          />
-          <TouchableOpacity
-            style={styles.priceDeltaBtn}
-            onPress={() => handlePriceChange(50000)}
-          >
-            <Text style={styles.priceDeltaText}>+50K</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* Confirm Price Button */}
-      <View style={styles.confirmWrapper}>
-        {confirmedSuccess && (
-          <View style={styles.confirmedBadge}>
-            <Ionicons name="checkmark-done-circle" size={16} color="#054d28" />
-            <Text style={styles.confirmedBadgeText}>
-              ĐÃ CHỐT CẤU TRÚC GIÁ VÉ: {selectedPrice.toLocaleString("vi-VN")} Đ/PAX
-            </Text>
-          </View>
-        )}
-
-        <TouchableOpacity
-          style={[styles.confirmBtn, isConfirming && styles.btnDisabled]}
-          onPress={handleConfirmPricing}
-          disabled={isConfirming}
-          activeOpacity={0.88}
-        >
-          {isConfirming ? (
-            <ActivityIndicator size="small" color="#0e0f0c" />
-          ) : (
-            <>
-              <Ionicons name="lock-closed" size={17} color="#0e0f0c" />
-              <Text style={styles.confirmBtnText}>
-                {confirmedSuccess ? "CẬP NHẬT & CHỐT LẠI GIÁ VÉ" : "CHỐT & ÁP DỤNG GIÁ VÉ NÀY"}
-              </Text>
-            </>
-          )}
-        </TouchableOpacity>
-        <Text style={styles.confirmHint}>
-          Khi bấm chốt, Backend sẽ tự động sinh văn bản giải trình tài chính (priceExplanation) và mở khóa xuất bản chuyến đi.
+      {/* Bảng chi tiết */}
+      <TouchableOpacity
+        style={styles.tableToggle}
+        onPress={() => setShowTable((s) => !s)}
+        activeOpacity={0.7}
+      >
+        <Ionicons name={showTable ? "caret-up" : "caret-down"} size={12} color={C.mute} />
+        <Text style={styles.tableToggleText}>
+          {showTable ? "▲ Ẩn" : "▼ Xem"} bảng tính chi tiết từng mức khách (1 .. {safeMax})
         </Text>
-      </View>
+      </TouchableOpacity>
+
+      {showTable && (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tableWrap}>
+          <View>
+            <View style={[styles.tr, styles.thRow]}>
+              {COLS.map((c) => (
+                <Text key={c.key} style={[styles.th, { width: c.w }]}>
+                  {c.label}
+                </Text>
+              ))}
+            </View>
+            {calc.rows.map((r) => {
+              const active = r.pax === targetPax;
+              const statusText =
+                r.status === "LOSS" ? "Lỗ vốn" : r.status === "TARGET" ? "Đạt mục tiêu" : "Có lãi";
+              const statusColor =
+                r.status === "LOSS" ? C.red : r.status === "TARGET" ? C.purple : C.blue;
+              return (
+                <TouchableOpacity
+                  key={r.pax}
+                  style={[styles.tr, active && styles.trActive]}
+                  onPress={() => {
+                    setTargetPax(r.pax);
+                    markDirty();
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.td, { width: COLS[0].w }, active && styles.tdActive]}>
+                    {r.pax} khách
+                  </Text>
+                  <Text style={[styles.td, { width: COLS[1].w }, active && styles.tdActive]}>
+                    {vnd(r.revenue)}
+                  </Text>
+                  <Text style={[styles.td, { width: COLS[2].w }, active && styles.tdActive]}>
+                    {vnd(r.totalCost)}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.td,
+                      styles.tdBold,
+                      { width: COLS[3].w, color: r.profit < 0 ? C.red : C.green },
+                    ]}
+                  >
+                    {vnd(r.profit)}
+                  </Text>
+                  <Text style={[styles.td, { width: COLS[4].w }, active && styles.tdActive]}>
+                    {pct(r.marginPct)}
+                  </Text>
+                  <Text style={[styles.td, { width: COLS[5].w, color: statusColor }]}>
+                    {statusText}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </ScrollView>
+      )}
+
+      {/* Confirm */}
+      {confirmedSuccess && (
+        <View style={styles.confirmedBadge}>
+          <Ionicons name="checkmark-circle" size={15} color={C.green} />
+          <Text style={styles.confirmedText}>Đã chốt giá vé: {vnd(selectedPrice)}/người</Text>
+        </View>
+      )}
+      <TouchableOpacity
+        style={[styles.confirmBtn, isConfirming && { opacity: 0.6 }]}
+        onPress={handleConfirm}
+        disabled={isConfirming}
+        activeOpacity={0.85}
+      >
+        {isConfirming ? (
+          <ActivityIndicator size="small" color="#04120c" />
+        ) : (
+          <Text style={styles.confirmBtnText}>
+            ✓ {confirmedSuccess ? "Cập nhật & chốt lại" : "Lưu dự toán & Chốt"} giá vé ({vnd(selectedPrice)})
+          </Text>
+        )}
+      </TouchableOpacity>
     </View>
   );
 }
 
+function StepBtn({ icon, onPress }: { icon: "add" | "remove"; onPress: () => void }) {
+  return (
+    <TouchableOpacity style={styles.stepBtn} onPress={onPress} activeOpacity={0.7} hitSlop={6}>
+      <Ionicons name={icon} size={18} color="#ffffff" />
+    </TouchableOpacity>
+  );
+}
+
+const COLS = [
+  { key: "pax", label: "Số khách", w: 70 },
+  { key: "rev", label: "Doanh thu", w: 100 },
+  { key: "cost", label: "Tổng chi phí", w: 100 },
+  { key: "profit", label: "Lợi nhuận", w: 100 },
+  { key: "margin", label: "Tỷ lệ lãi", w: 70 },
+  { key: "status", label: "Trạng thái", w: 90 },
+];
+
+const C = {
+  bg: "#0b1220",
+  panel: "#111a2b",
+  border: "#1f2a3d",
+  text: "#e5e7eb",
+  mute: "#8b95a7",
+  green: "#10b981",
+  yellow: "#f5b301",
+  blue: "#60a5fa",
+  purple: "#c084fc",
+  red: "#f43f5e",
+};
+
 const styles = StyleSheet.create({
-  darkCard: {
-    backgroundColor: "#0e0f0c",
+  card: {
+    backgroundColor: C.bg,
     borderRadius: Radius.xl,
-    padding: 18,
+    padding: 16,
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: "#1e2617",
-    ...Shadows.card,
+    borderColor: C.border,
   },
   headerRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 8,
+    gap: 10,
+    paddingBottom: 12,
+    marginBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: C.border,
   },
-  badgeSim: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    backgroundColor: "#163300",
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: Radius.pill,
-  },
-  badgeSimText: {
-    fontSize: 10,
-    fontWeight: "900",
-    color: "#9fe870",
-    letterSpacing: 0.8,
-  },
-  cardHeaderMeta: {
-    fontSize: 10,
-    color: "#868685",
-    fontWeight: "600",
-  },
-  cardTitle: {
-    fontSize: 15,
-    fontWeight: "900",
-    color: "#ffffff",
-    letterSpacing: 0.5,
-  },
-  cardSub: {
-    fontSize: 11,
-    color: "#c5edab",
-    marginTop: 4,
-    marginBottom: 14,
-    lineHeight: 16,
-  },
-  kpiRow: {
-    flexDirection: "row",
-    gap: 8,
-    marginBottom: 14,
-  },
-  kpiBox: {
-    flex: 1,
-    backgroundColor: "#1b1c19",
-    borderRadius: Radius.md,
-    padding: 10,
-    borderWidth: 1,
-    borderColor: "#2c3029",
-  },
-  kpiLabel: {
-    fontSize: 8,
-    fontWeight: "800",
-    color: "#868685",
-    letterSpacing: 0.5,
-  },
-  kpiValRow: {
-    flexDirection: "row",
-    alignItems: "baseline",
-    gap: 3,
-    marginTop: 4,
-  },
-  kpiValue: {
-    fontSize: 16,
-    fontWeight: "900",
-  },
-  kpiUnit: {
-    fontSize: 9,
-    color: "#868685",
-  },
-  kpiHint: {
-    fontSize: 9,
-    color: "#c5edab",
-    marginTop: 4,
-  },
-  kpiAction: {
-    fontSize: 9,
-    color: "#9fe870",
-    fontWeight: "700",
-    textDecorationLine: "underline",
-    marginTop: 4,
-  },
-  deficitBanner: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 8,
-    backgroundColor: "#320707",
-    borderWidth: 1,
-    borderColor: "#a72027",
-    borderRadius: Radius.md,
-    padding: 10,
-    marginBottom: 14,
-  },
-  deficitTitle: {
-    fontSize: 11,
-    fontWeight: "800",
-    color: "#ffc091",
-  },
-  deficitText: {
-    fontSize: 10,
-    color: "#f5f4ee",
-    marginTop: 2,
-    lineHeight: 14,
-  },
-  controlSection: {
-    backgroundColor: "#161814",
-    borderRadius: Radius.md,
-    padding: 12,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: "#23291f",
-  },
-  controlHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  controlLabel: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#ffffff",
-  },
-  controlBadge: {
-    fontSize: 10,
-    fontWeight: "700",
-    color: "#c5edab",
-    backgroundColor: "#222a1e",
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: Radius.pill,
-  },
-  stepperRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  stepBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: Radius.full,
-    backgroundColor: "#2c3326",
+  headerIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: "#0f2a22",
     alignItems: "center",
     justifyContent: "center",
   },
-  stepDisplay: {
-    flex: 1,
-    alignItems: "center",
+  title: { fontSize: 15, fontWeight: "800", color: "#ffffff" },
+  liveBadge: {
+    backgroundColor: "#163300",
+    borderRadius: Radius.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
   },
-  stepNum: {
-    fontSize: 18,
-    fontWeight: "900",
+  liveBadgeText: {
+    fontSize: 9.5,
+    fontWeight: "700",
     color: "#9fe870",
   },
-  stepSub: {
-    fontSize: 10,
-    color: "#868685",
-  },
-  priceRow: {
+  headerMeta: { fontSize: 11, color: C.mute, lineHeight: 16 },
+  headerMetaStrong: { color: "#ffffff", fontWeight: "700" },
+
+  control: { marginBottom: 16 },
+  controlHead: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
     gap: 8,
   },
-  priceDeltaBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    backgroundColor: "#2c3326",
-    borderRadius: Radius.md,
+  controlLabel: { flex: 1, fontSize: 12.5, fontWeight: "700", color: C.text },
+  controlValue: { fontSize: 13, fontWeight: "800", color: C.green },
+  controlValueMute: { color: C.mute, fontWeight: "600", fontSize: 11 },
+  stepRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  stepBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "#1c2740",
+    alignItems: "center",
+    justifyContent: "center",
   },
-  priceDeltaText: {
-    fontSize: 11,
-    fontWeight: "800",
-    color: "#ffffff",
-  },
-  priceInputBox: {
+  track: {
     flex: 1,
-    backgroundColor: "#000000",
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#253149",
+    overflow: "hidden",
+  },
+  trackFill: { height: "100%", backgroundColor: C.green, borderRadius: 4 },
+  hintRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 6 },
+  hint: { fontSize: 10, color: C.mute },
+
+  priceInputWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: C.panel,
     borderWidth: 1,
-    borderColor: "#333d2e",
-    borderRadius: Radius.md,
-    paddingHorizontal: 12,
+    borderColor: "#2b3a55",
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    minWidth: 130,
+  },
+  priceInput: {
+    flex: 1,
+    paddingVertical: 6,
+    fontSize: 14,
+    fontWeight: "800",
+    color: C.green,
+    textAlign: "right",
+  },
+  priceUnit: { marginLeft: 4, fontSize: 12, color: C.mute, fontWeight: "700" },
+  chipRow: { flexDirection: "row", gap: 8 },
+  chip: {
+    flex: 1,
+    alignItems: "center",
     paddingVertical: 8,
-    fontSize: 16,
-    fontWeight: "900",
-    color: "#9fe870",
-    textAlign: "center",
+    borderRadius: 8,
+    backgroundColor: "#1c2740",
   },
-  confirmWrapper: {
-    marginTop: 8,
+  chipText: { fontSize: 12, fontWeight: "700", color: "#ffffff" },
+
+  kpiGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 12 },
+  kpi: {
+    width: "48.5%",
+    flexGrow: 1,
+    flexBasis: "46%",
+    backgroundColor: C.panel,
+    borderRadius: 10,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: C.border,
   },
+  kpiLabel: { fontSize: 11, color: C.mute, marginBottom: 6 },
+  kpiValue: { fontSize: 18, fontWeight: "900" },
+  kpiSub: { fontSize: 10.5, color: C.mute, marginTop: 4 },
+  kpiAction: { fontSize: 11, color: C.yellow, fontWeight: "700", marginTop: 4 },
+
+  lossBanner: {
+    flexDirection: "row",
+    gap: 8,
+    alignItems: "flex-start",
+    backgroundColor: "#2a0f17",
+    borderWidth: 1,
+    borderColor: "#5b1a2a",
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 12,
+  },
+  lossText: { flex: 1, fontSize: 11, color: "#fecdd3", lineHeight: 16 },
+
+  tableToggle: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 6 },
+  tableToggleText: { fontSize: 11.5, color: C.mute, fontWeight: "600" },
+  tableWrap: {
+    marginTop: 6,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 10,
+    backgroundColor: "#0d1526",
+  },
+  tr: {
+    flexDirection: "row",
+    paddingVertical: 9,
+    paddingHorizontal: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#18223a",
+  },
+  thRow: { backgroundColor: C.panel },
+  trActive: { backgroundColor: "#0c2a22" },
+  th: { fontSize: 10.5, fontWeight: "700", color: C.mute },
+  td: { fontSize: 11, color: C.text },
+  tdBold: { fontWeight: "800" },
+  tdActive: { color: "#6ee7b7", fontWeight: "700" },
+
   confirmedBadge: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
-    backgroundColor: "#e2f6d5",
+    backgroundColor: "#0c2a22",
+    borderRadius: 8,
     paddingVertical: 8,
-    borderRadius: Radius.md,
     marginBottom: 8,
   },
-  confirmedBadgeText: {
-    fontSize: 11,
-    fontWeight: "900",
-    color: "#054d28",
-    letterSpacing: 0.5,
-  },
+  confirmedText: { fontSize: 12, fontWeight: "800", color: C.green },
   confirmBtn: {
-    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
-    backgroundColor: "#9fe870",
+    backgroundColor: C.green,
     paddingVertical: 14,
-    borderRadius: Radius.xl,
+    borderRadius: 10,
   },
-  btnDisabled: {
-    opacity: 0.6,
-  },
-  confirmBtnText: {
-    fontSize: 13,
-    fontWeight: "900",
-    color: "#0e0f0c",
-    letterSpacing: 0.5,
-  },
-  confirmHint: {
-    fontSize: 10,
-    color: "#868685",
-    textAlign: "center",
-    marginTop: 6,
-    lineHeight: 14,
-  },
+  confirmBtnText: { fontSize: 13, fontWeight: "800", color: "#04120c" },
 });

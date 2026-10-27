@@ -95,6 +95,13 @@ export function generateUUID(): string {
   });
 }
 
+function unwrapCheckin<T>(res: any): T {
+  if (res && typeof res === "object" && "data" in res && res.data !== null && res.data !== undefined) {
+    return res.data as T;
+  }
+  return res as T;
+}
+
 /**
  * Lấy danh sách thành viên đoàn và thống kê tiến độ check-in dành cho Trưởng đoàn
  * GET /api/v1/leader/public-trips/:id/participants
@@ -117,9 +124,10 @@ export async function fetchTripParticipants(
   const qs = query.toString();
   const url = `/api/v1/leader/public-trips/${encodeURIComponent(tripId)}/participants${qs ? `?${qs}` : ""}`;
 
-  return apiRequest<LeaderRosterResponse>(url, {
+  const raw = await apiRequest<any>(url, {
     method: "GET",
   });
+  return unwrapCheckin<LeaderRosterResponse>(raw);
 }
 
 /**
@@ -147,7 +155,7 @@ export async function performCheckIn(
     }
   }
 
-  return apiRequest<CheckInResponse>(url, {
+  const raw = await apiRequest<any>(url, {
     method: "POST",
     headers: {
       "Idempotency-Key": key,
@@ -155,4 +163,5 @@ export async function performCheckIn(
     },
     body: JSON.stringify(body),
   });
+  return unwrapCheckin<CheckInResponse>(raw);
 }
