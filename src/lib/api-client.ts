@@ -186,7 +186,7 @@ async function refreshStoredSession(): Promise<StoredAuthState> {
 
     if (error instanceof ApiError) throw error;
 
-    const timedOut = error instanceof Error && error.name === "AbortError";
+    const timedOut = controller.signal.aborted || (error instanceof Error && error.name === "AbortError");
     throw new ApiError(
       timedOut
         ? "API làm mới phiên đăng nhập phản hồi quá lâu."
@@ -262,7 +262,7 @@ export async function apiRequest<T>(
   } catch (error) {
     if (error instanceof ApiError) throw error;
 
-    const timedOut = error instanceof Error && error.name === "AbortError";
+    const timedOut = controller.signal.aborted || (error instanceof Error && error.name === "AbortError");
     throw new ApiError(
       timedOut
         ? "API phản hồi quá lâu. Vui lòng thử lại."
