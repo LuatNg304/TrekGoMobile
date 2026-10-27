@@ -1,4 +1,5 @@
 import { FieldModal } from "@/components/FieldModal";
+import { AssetQrScannerModal } from "@/components/common/AssetQrScannerModal";
 import { TrekkingLoader } from "@/components/common/TrekkingLoader";
 import { Colors, Radius, Shadows } from "@/constants/theme";
 import { useAuth } from "@/features/auth/AuthContext";
@@ -8,6 +9,7 @@ import {
   DeliveryTaskDetail,
   DeliveryTaskSummary,
   RentalOrderDetail,
+  RentalReturnReceipt,
   RentalReturnScanResult,
 } from "@/features/rentals/types";
 import { Ionicons } from "@expo/vector-icons";
@@ -70,6 +72,7 @@ export default function StaffReturnScreen() {
     scan: operationKey("scan-return"),
     operation: operationKey("return-operation"),
     observe: operationKey("observe-return"),
+    receipt: operationKey("receipt-return"),
     transfer: operationKey("transfer-return"),
   });
 
@@ -79,6 +82,9 @@ export default function StaffReturnScreen() {
   const [reviews, setReviews] = useState<Record<string, ItemReview>>({});
   const [evidenceDrafts, setEvidenceDrafts] = useState<Record<string, EvidenceDraft>>({});
   const [scanResult, setScanResult] = useState<RentalReturnScanResult>();
+  const [returnReceipt, setReturnReceipt] = useState<RentalReturnReceipt>();
+  const [scannerVisible, setScannerVisible] = useState(false);
+  const [scannedAssetCodes, setScannedAssetCodes] = useState<string[]>([]);
   const [custodyPresentIds, setCustodyPresentIds] = useState<string[]>([]);
   const [custodyIncidentNote, setCustodyIncidentNote] = useState("");
   const [stage, setStage] = useState<0 | 1 | 2>(0);
@@ -164,6 +170,15 @@ export default function StaffReturnScreen() {
     () => scanResult?.receivedUnits.map((unit) => unit.unitId).filter((unitId) => !custodyPresentIds.includes(unitId)) ?? [],
     [custodyPresentIds, scanResult?.receivedUnits],
   );
+  const requiredScanCodes = useMemo(
+    () => receivedUnits.map((unit) => unit.assetCode),
+    [receivedUnits],
+  );
+  const validScannedCodes = useMemo(
+    () => scannedAssetCodes.filter((code) => requiredScanCodes.includes(code)),
+    [requiredScanCodes, scannedAssetCodes],
+  );
+  const allReceivedScanned = requiredScanCodes.length > 0 && requiredScanCodes.every((code) => validScannedCodes.includes(code));
 
   const setReview = (unitId: string, update: Partial<ItemReview>) => {
     setReviews((current) => ({
@@ -213,6 +228,10 @@ export default function StaffReturnScreen() {
       setFeedback({ title: "Không có thiết bị để quét", message: "Cần có ít nhất một thiết bị thực nhận. Trường hợp mất toàn bộ phải chuyển sang quy trình ngoại lệ." });
       return;
     }
+    if (!allReceivedScanned) {
+      setScannerVisible(true);
+      return;
+    }
     const missingEvidence = receivedUnits.find((unit) => {
       const draft = evidenceDrafts[unit.unitId];
       return !draft?.imageIds.length || !draft.videoIds.length;
@@ -252,7 +271,7 @@ export default function StaffReturnScreen() {
     setBusy(true);
     setError(undefined);
     try {
-      await rentalApi.submitRentalReturnObservations(
+      const observationResult = await rentalApi.submitRentalReturnObservations(
         summary.orderSummary.orderId,
         {
           items: receivedUnits.map((unit) => {
@@ -270,11 +289,29 @@ export default function StaffReturnScreen() {
         mutationKeys.current.observe,
         accessToken,
       );
+      const refreshedOrder = await rentalApi.getOrder(summary.orderSummary.orderId, accessToken);
+      const evidenceIds = receivedUnits.flatMap((unit) => [
+        ...(evidenceDrafts[unit.unitId]?.imageIds ?? []),
+        ...(evidenceDrafts[unit.unitId]?.videoIds ?? []),
+      ]);
+      const receipt = await rentalApi.finalizeRentalReturnReceipt(
+        summary.orderSummary.orderId,
+        {
+          returnSessionId: observationResult.returnSessionId ?? scanResult.returnSessionId,
+          expectedVersion: refreshedOrder.order.version,
+          remarks: `${receivedUnits.length} thiết bị thực nhận; ${scanResult.missingUnits.length} thiết bị chưa thu hồi.`,
+          evidenceIds,
+        },
+        mutationKeys.current.receipt,
+        accessToken,
+      );
+      setReturnReceipt(receipt);
+      setOrder(refreshedOrder);
       const refreshed = await rentalApi.getDeliveryTask(scanResult.returnId, accessToken);
       setTask(refreshed);
       setStage(2);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Không ghi nhận được hiện trạng.");
+      setError(requestError instanceof Error ? requestError.message : "Không ghi nhận hoặc phát hành được biên nhận trả đồ.");
     } finally {
       setBusy(false);
     }
@@ -326,16 +363,23 @@ export default function StaffReturnScreen() {
       <View style={styles.taskHeader}><Text style={styles.taskId}>THU HỒI THIẾT BỊ</Text><Text style={styles.title}>{order.order.trip?.title || "Chuyến trekking"}</Text><Text style={styles.meta}>{recipientName(summary)} · {summary.point.name}</Text><Text style={styles.tripTime}>{tripWindow(order)}</Text></View>
       <View style={styles.steps}>{["Thu hồi", "Ghi nhận", "Về kho"].map((label, index) => <View key={label} style={styles.step}><View style={[styles.stepCircle, index < stage && styles.stepDone]}>{index < stage ? <Ionicons name="checkmark" size={14} color="#fff" /> : <Text style={styles.stepNumber}>{index + 1}</Text>}</View><Text style={styles.stepLabel}>{label}</Text></View>)}</View>
 
-      {stage === 0 && <View style={styles.card}><Text style={styles.section}>THU HỒI & GHI NHẬN SƠ BỘ</Text>{units.map((unit) => { const review = reviews[unit.unitId] ?? { status: "PENDING" as ItemStatus, note: "" }; const evidence = evidenceDrafts[unit.unitId] ?? { imageIds: [], videoIds: [] }; return <View key={unit.unitId} style={styles.item}><Text style={styles.checkLabel}>{unit.product?.name || "Thiết bị thuê"}</Text><Text style={styles.assetCode}>Mã {shortAssetCode(unit.assetCode)}</Text><View style={styles.statusRow}>{(["OK", "MISSING", "DAMAGED"] as ItemStatus[]).map((status) => <TouchableOpacity key={status} style={[styles.statusButton, review.status === status && styles.statusSelected]} onPress={() => setReview(unit.unitId, { status })}><Text style={[styles.statusText, review.status === status && styles.statusTextSelected]}>{labels[status]}</Text></TouchableOpacity>)}</View>{(review.status === "MISSING" || review.status === "DAMAGED") && <TextInput value={review.note} onChangeText={(note) => setReview(unit.unitId, { note })} placeholder="Ghi chú bắt buộc" placeholderTextColor={Colors.onSurfaceMuted} style={styles.noteInput} />}{review.status !== "MISSING" && <><View style={styles.evidenceSummary}><Ionicons name="camera-outline" size={16} color={Colors.primaryDark} /><Text style={styles.evidenceText}>{evidence.imageIds.length} ảnh · {evidence.videoIds.length} video</Text></View><View style={styles.evidenceActions}><TouchableOpacity disabled={busy} style={styles.evidenceButton} onPress={() => void captureEvidence(unit.unitId, "image")}><Ionicons name="camera" size={16} color={Colors.primaryDark} /><Text style={styles.evidenceButtonText}>Chụp ảnh</Text></TouchableOpacity><TouchableOpacity disabled={busy} style={styles.evidenceButton} onPress={() => void captureEvidence(unit.unitId, "video")}><Ionicons name="videocam" size={16} color={Colors.primaryDark} /><Text style={styles.evidenceButtonText}>Quay video</Text></TouchableOpacity></View></>}</View>; })}<View style={styles.summary}><Text style={styles.noticeText}>{receivedUnits.length} món thực nhận · {issueCount} món có vấn đề.</Text></View></View>}
+      {stage === 0 && <View style={styles.card}><Text style={styles.section}>THU HỒI & GHI NHẬN SƠ BỘ</Text>{units.map((unit) => { const review = reviews[unit.unitId] ?? { status: "PENDING" as ItemStatus, note: "" }; const evidence = evidenceDrafts[unit.unitId] ?? { imageIds: [], videoIds: [] }; const wasScanned = validScannedCodes.includes(unit.assetCode); return <View key={unit.unitId} style={styles.item}><Text style={styles.checkLabel}>{unit.product?.name || "Thiết bị thuê"}</Text><Text style={styles.assetCode}>Mã {shortAssetCode(unit.assetCode)} · {wasScanned ? "Đã quét QR" : "Chưa quét QR"}</Text><View style={styles.statusRow}>{(["OK", "MISSING", "DAMAGED"] as ItemStatus[]).map((status) => <TouchableOpacity key={status} style={[styles.statusButton, review.status === status && styles.statusSelected]} onPress={() => setReview(unit.unitId, { status })}><Text style={[styles.statusText, review.status === status && styles.statusTextSelected]}>{labels[status]}</Text></TouchableOpacity>)}</View>{(review.status === "MISSING" || review.status === "DAMAGED") && <TextInput value={review.note} onChangeText={(note) => setReview(unit.unitId, { note })} placeholder="Ghi chú bắt buộc" placeholderTextColor={Colors.onSurfaceMuted} style={styles.noteInput} />}{review.status !== "MISSING" && <><View style={styles.evidenceSummary}><Ionicons name="camera-outline" size={16} color={Colors.primaryDark} /><Text style={styles.evidenceText}>{evidence.imageIds.length} ảnh · {evidence.videoIds.length} video</Text></View><View style={styles.evidenceActions}><TouchableOpacity disabled={busy} style={styles.evidenceButton} onPress={() => void captureEvidence(unit.unitId, "image")}><Ionicons name="camera" size={16} color={Colors.primaryDark} /><Text style={styles.evidenceButtonText}>Chụp ảnh</Text></TouchableOpacity><TouchableOpacity disabled={busy} style={styles.evidenceButton} onPress={() => void captureEvidence(unit.unitId, "video")}><Ionicons name="videocam" size={16} color={Colors.primaryDark} /><Text style={styles.evidenceButtonText}>Quay video</Text></TouchableOpacity></View></>}</View>; })}<View style={styles.summary}><Text style={styles.noticeText}>{receivedUnits.length} món thực nhận · {issueCount} món có vấn đề · {validScannedCodes.length}/{requiredScanCodes.length} QR hợp lệ.</Text></View></View>}
 
       {stage === 1 && <View style={styles.card}><Text style={styles.section}>QUAN SÁT SƠ BỘ</Text><Ionicons name="clipboard-outline" size={44} color={Colors.primaryDark} /><Text style={styles.cardTitle}>Đã quét {scanResult?.receivedUnits.length ?? 0} thiết bị</Text><Text style={styles.muted}>{scanResult?.missingUnits.length ?? 0} thiết bị chưa được thu hồi và sẽ chuyển sang bước kiểm tra ngoại lệ.</Text><Text style={styles.policy}>Nhân viên giao nhận chỉ ghi nhận ngoại quan. Kho sẽ thực hiện kiểm định cuối cùng và xử lý hoàn cọc.</Text></View>}
 
-      {stage === 2 && <View style={styles.card}><Text style={styles.section}>BÀN GIAO VỀ KHO</Text><Ionicons name="business-outline" size={44} color={Colors.primaryDark} /><Text style={styles.cardTitle}>Xác nhận custody trước khi về kho</Text><Text style={styles.muted}>Bỏ chọn nếu món đã nhận từ khách nhưng bị thất lạc trong quá trình vận chuyển.</Text>{scanResult?.receivedUnits.map((unit) => { const present = custodyPresentIds.includes(unit.unitId); const taskUnit = units.find((item) => item.unitId === unit.unitId); return <TouchableOpacity key={unit.unitId} style={[styles.custodyRow, !present && styles.custodyMissing]} onPress={() => setCustodyPresentIds((current) => current.includes(unit.unitId) ? current.filter((id) => id !== unit.unitId) : [...current, unit.unitId])}><Ionicons name={present ? "checkbox" : "alert-circle"} size={22} color={present ? Colors.primaryDark : Colors.error} /><View style={{ flex: 1 }}><Text style={styles.checkLabel}>{taskUnit?.product?.name || "Thiết bị"}</Text><Text style={styles.assetCode}>{unit.assetCode} · {present ? "Còn trong custody" : "Báo thất lạc nội bộ"}</Text></View></TouchableOpacity>; })}{missingInCustodyUnitIds.length > 0 ? <TextInput value={custodyIncidentNote} onChangeText={setCustodyIncidentNote} multiline placeholder="Mô tả thời điểm, địa điểm và tình trạng niêm phong..." placeholderTextColor={Colors.onSurfaceMuted} style={styles.custodyNote} /> : null}<Text style={styles.policy}>Sai lệch này mở hồ sơ nội bộ và giữ cọc món liên quan; không tự quy lỗi cho khách.</Text></View>}
+      {stage === 2 && <View style={styles.card}><Text style={styles.section}>BÀN GIAO VỀ KHO</Text><Ionicons name="business-outline" size={44} color={Colors.primaryDark} /><Text style={styles.cardTitle}>Xác nhận custody trước khi về kho</Text>{returnReceipt ? <Text style={styles.receiptText}>Biên nhận {returnReceipt.documentNumber} đã được phát hành.</Text> : null}<Text style={styles.muted}>Bỏ chọn nếu món đã nhận từ khách nhưng bị thất lạc trong quá trình vận chuyển.</Text>{scanResult?.receivedUnits.map((unit) => { const present = custodyPresentIds.includes(unit.unitId); const taskUnit = units.find((item) => item.unitId === unit.unitId); return <TouchableOpacity key={unit.unitId} style={[styles.custodyRow, !present && styles.custodyMissing]} onPress={() => setCustodyPresentIds((current) => current.includes(unit.unitId) ? current.filter((id) => id !== unit.unitId) : [...current, unit.unitId])}><Ionicons name={present ? "checkbox" : "alert-circle"} size={22} color={present ? Colors.primaryDark : Colors.error} /><View style={{ flex: 1 }}><Text style={styles.checkLabel}>{taskUnit?.product?.name || "Thiết bị"}</Text><Text style={styles.assetCode}>{unit.assetCode} · {present ? "Còn trong custody" : "Báo thất lạc nội bộ"}</Text></View></TouchableOpacity>; })}{missingInCustodyUnitIds.length > 0 ? <TextInput value={custodyIncidentNote} onChangeText={setCustodyIncidentNote} multiline placeholder="Mô tả thời điểm, địa điểm và tình trạng niêm phong..." placeholderTextColor={Colors.onSurfaceMuted} style={styles.custodyNote} /> : null}<Text style={styles.policy}>Sai lệch này mở hồ sơ nội bộ và giữ cọc món liên quan; không tự quy lỗi cho khách.</Text></View>}
 
       {error ? <View style={styles.errorBox}><Text style={styles.errorText}>{error}</Text></View> : null}
       {busy ? <TrekkingLoader label="Đang chuyển bằng chứng qua chặng kiểm định..." compact /> : null}
-      <TouchableOpacity disabled={busy || (stage === 0 && !allReviewed) || (stage === 2 && missingInCustodyUnitIds.length > 0 && custodyIncidentNote.trim().length < 3)} style={[styles.primary, (busy || (stage === 0 && !allReviewed) || (stage === 2 && missingInCustodyUnitIds.length > 0 && custodyIncidentNote.trim().length < 3)) && styles.disabled]} onPress={() => void (stage === 0 ? scanReturn() : stage === 1 ? recordObservations() : transferToInventory())}><Text style={styles.primaryText}>{busy ? "ĐANG XỬ LÝ..." : stage === 0 ? "QUÉT NHẬN THIẾT BỊ" : stage === 1 ? "GHI NHẬN HIỆN TRẠNG" : missingInCustodyUnitIds.length ? "BÁO SAI LỆCH & CHUYỂN VỀ KHO" : "CHUYỂN VỀ KHO"}</Text><Ionicons name="arrow-forward" size={18} color="#fff" /></TouchableOpacity>
+      <TouchableOpacity disabled={busy || (stage === 0 && !allReviewed) || (stage === 2 && missingInCustodyUnitIds.length > 0 && custodyIncidentNote.trim().length < 3)} style={[styles.primary, (busy || (stage === 0 && !allReviewed) || (stage === 2 && missingInCustodyUnitIds.length > 0 && custodyIncidentNote.trim().length < 3)) && styles.disabled]} onPress={() => void (stage === 0 ? (allReceivedScanned ? scanReturn() : setScannerVisible(true)) : stage === 1 ? recordObservations() : transferToInventory())}><Text style={styles.primaryText}>{busy ? "ĐANG XỬ LÝ..." : stage === 0 ? (allReceivedScanned ? "XÁC NHẬN THU HỒI" : `MỞ MÁY QUÉT QR (${validScannedCodes.length}/${requiredScanCodes.length})`) : stage === 1 ? "GHI NHẬN & LẬP BIÊN NHẬN" : missingInCustodyUnitIds.length ? "BÁO SAI LỆCH & CHUYỂN VỀ KHO" : "CHUYỂN VỀ KHO"}</Text><Ionicons name="arrow-forward" size={18} color="#fff" /></TouchableOpacity>
     </ScrollView>
+    <AssetQrScannerModal
+      visible={scannerVisible}
+      expectedAssets={receivedUnits.map((unit) => ({ assetCode: unit.assetCode, label: unit.product?.name || "Thiết bị thuê" }))}
+      scannedAssetCodes={validScannedCodes}
+      onScanned={(assetCode) => setScannedAssetCodes((current) => current.includes(assetCode) ? current : [...current, assetCode])}
+      onClose={() => setScannerVisible(false)}
+    />
     <FieldModal visible={complete} title="Đã chuyển về kho" message="Kho sẽ xác nhận nhận hàng, kiểm định và xử lý hoàn cọc." icon="checkmark-circle" actionLabel="Về danh sách" onAction={() => { setComplete(false); router.replace("/field-operations" as never); }} onClose={() => setComplete(false)} />
     <FieldModal visible={feedback !== null} title={feedback?.title ?? ""} message={feedback?.message ?? ""} icon="information-circle" tone="warning" actionLabel="Đã hiểu" onAction={() => setFeedback(null)} onClose={() => setFeedback(null)} />
   </SafeAreaView>;
@@ -365,6 +409,7 @@ const styles = StyleSheet.create({
   custodyRow: { flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderColor: Colors.primaryNeutral, borderRadius: Radius.sm, padding: 11, marginTop: 9 },
   custodyMissing: { borderColor: Colors.error, backgroundColor: "#fff1ef" },
   custodyNote: { minHeight: 82, borderWidth: 1, borderColor: Colors.error, borderRadius: Radius.sm, padding: 11, marginTop: 12, color: Colors.ink, textAlignVertical: "top" },
+  receiptText: { color: Colors.primaryDark, fontWeight: "700", marginTop: 8, marginBottom: 6 },
   checkLabel: { color: Colors.ink, fontSize: 14, fontWeight: "600" },
   assetCode: { color: Colors.onSurfaceMuted, fontSize: 11, marginTop: 3 },
   statusRow: { flexDirection: "row", gap: 6, marginTop: 8 },
