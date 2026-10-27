@@ -408,7 +408,7 @@ export function LeaderCreateTripScreen({ onNavigateTab }: LeaderCreateTripScreen
         const updated = await updateTrip(activeDraftId, {
           expectedVersion: activeVersion,
           title: form.name.trim(),
-          description: form.description.trim(),
+          ...(form.description.trim() ? { description: form.description.trim() } : {}),
           startAt: startIso,
           endAt: endIso,
           pickupPointId: form.pickupPointId || (pickupPoints[0]?.id ?? ""),
@@ -578,6 +578,21 @@ export function LeaderCreateTripScreen({ onNavigateTab }: LeaderCreateTripScreen
 
     try {
       // Re-check readiness right before publishing
+      // Lưu mô tả nhập ở Bước 3 trước khi xuất bản
+      if (form.description.trim()) {
+        try {
+          const pre = await checkReadiness(draftTripId);
+          const ver = typeof pre.version === "number" ? pre.version : draftTripVersion;
+          const saved = await updateTrip(draftTripId, {
+            expectedVersion: ver,
+            description: form.description.trim(),
+          });
+          setDraftTripVersion(saved.version);
+        } catch (descErr) {
+          console.warn("Không lưu được mô tả trước khi xuất bản:", descErr);
+        }
+      }
+
       const readiness = await checkReadiness(draftTripId);
       const currentVer = typeof readiness.version === "number" ? readiness.version : draftTripVersion;
       setCanPublish(readiness.canPublish);

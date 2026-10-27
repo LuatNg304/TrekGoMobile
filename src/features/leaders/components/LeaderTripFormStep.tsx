@@ -297,20 +297,6 @@ export function LeaderTripFormStep({
             </View>
           </View>
         </View>
-
-        {/* Trip Description */}
-        <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Mô tả chi tiết chuyến đi & Lịch trình tóm tắt *</Text>
-          <TextInput
-            value={form.description}
-            onChangeText={(val) => onUpdateField("description", val)}
-            placeholder="Nhập mô tả chi tiết chuyến đi, lịch trình tóm tắt, yêu cầu thể lực và các lưu ý chuẩn bị cho đoàn..."
-            placeholderTextColor="#707972"
-            multiline
-            numberOfLines={3}
-            style={[styles.inputBox, styles.inputMultiline]}
-          />
-        </View>
       </View>
 
       {/* 2. CARD: THỜI GIAN & ĐIỂM TẬP KẾT ĐOÀN */}
