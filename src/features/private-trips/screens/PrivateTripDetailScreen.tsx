@@ -61,16 +61,30 @@ export function PrivateTripDetailScreen({
     if (!trip) return;
     setShowInviteModal(true);
 
-    if (!inviteData) {
-      try {
-        const res = await generateInvite(trip.id, trip.version);
-        setTrip((prev) => (prev ? { ...prev, version: res.tripVersion } : prev));
-      } catch (err: any) {
-        Alert.alert(
-          "Lỗi tạo mã mời",
-          err?.message || "Không thể tạo mã mời lúc này.",
-        );
+    // If trip already has an active invite code, reuse it without regenerating
+    if (trip.inviteCode || inviteData?.inviteCode) {
+      return;
+    }
+
+    try {
+      const res = await generateInvite(trip.id, trip.version);
+      setTrip((prev) =>
+        prev
+          ? { ...prev, inviteCode: res.inviteCode, version: res.tripVersion }
+          : prev,
+      );
+    } catch (err: any) {
+      const isConflict =
+        err?.code === "PRIVATE_TRIP_VERSION_CONFLICT" ||
+        err?.message?.includes("reload") ||
+        err?.message?.includes("version");
+      if (isConflict) {
+        void refetch();
       }
+      Alert.alert(
+        "Lỗi tạo mã mời",
+        err?.message || "Không thể tạo mã mời lúc này.",
+      );
     }
   }
 
@@ -78,8 +92,19 @@ export function PrivateTripDetailScreen({
     if (!trip) return;
     try {
       const res = await generateInvite(trip.id, trip.version);
-      setTrip((prev) => (prev ? { ...prev, version: res.tripVersion } : prev));
+      setTrip((prev) =>
+        prev
+          ? { ...prev, inviteCode: res.inviteCode, version: res.tripVersion }
+          : prev,
+      );
     } catch (err: any) {
+      const isConflict =
+        err?.code === "PRIVATE_TRIP_VERSION_CONFLICT" ||
+        err?.message?.includes("reload") ||
+        err?.message?.includes("version");
+      if (isConflict) {
+        void refetch();
+      }
       Alert.alert(
         "Lỗi tạo lại mã",
         err?.message || "Không thể tạo mã mới lúc này.",
@@ -103,7 +128,9 @@ export function PrivateTripDetailScreen({
             try {
               const res = await revokeInvite(trip.id, trip.version);
               setTrip((prev) =>
-                prev ? { ...prev, version: res.tripVersion } : prev,
+                prev
+                  ? { ...prev, inviteCode: undefined, version: res.tripVersion }
+                  : prev,
               );
               setShowInviteModal(false);
               Alert.alert(
@@ -111,6 +138,13 @@ export function PrivateTripDetailScreen({
                 "Mã mời hiện tại đã được thu hồi thành công.",
               );
             } catch (err: any) {
+              const isConflict =
+                err?.code === "PRIVATE_TRIP_VERSION_CONFLICT" ||
+                err?.message?.includes("reload") ||
+                err?.message?.includes("version");
+              if (isConflict) {
+                void refetch();
+              }
               Alert.alert(
                 "Lỗi thu hồi",
                 err?.message || "Không thể thu hồi mã mời lúc này.",
@@ -331,7 +365,7 @@ export function PrivateTripDetailScreen({
 
       <InviteShareModal
         visible={showInviteModal}
-        inviteCode={inviteData?.inviteCode}
+        inviteCode={inviteData?.inviteCode || trip.inviteCode}
         inviteUrl={inviteData?.inviteUrl}
         tripTitle={trip.title}
         tripId={trip.id}

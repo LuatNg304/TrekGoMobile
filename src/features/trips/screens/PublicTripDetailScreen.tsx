@@ -16,6 +16,10 @@ import { BookingParticipantsModal } from "@/features/bookings/components";
 import { bookingApiService } from "@/features/bookings/services/booking.api";
 import type { BookingDetail, BookingSummary } from "@/features/bookings/types";
 import {
+  invitationsApiService,
+  type PersonalTicket,
+} from "@/features/invitations";
+import {
   TripConfirmedBookingCard,
   TripCostBreakdown,
   TripDescriptionSection,
@@ -59,32 +63,37 @@ export function PublicTripDetailScreen({
 
   const [bookingVisible, setBookingVisible] = useState(false);
   const [existingBooking, setExistingBooking] = useState<BookingSummary | BookingDetail | null>(null);
+  const [existingTicket, setExistingTicket] = useState<PersonalTicket | null>(null);
 
-  // Khi màn hình được focus, đồng bộ lại đặt chỗ của người dùng đối với chuyến này
-  // (màn /bookings/[id] tự polling thanh toán, nên ở đây chỉ cần làm mới trạng thái)
+  // Khi màn hình được focus, đồng bộ lại đặt chỗ hoặc vé cá nhân của người dùng đối với chuyến này
   useFocusEffect(
     useCallback(() => {
       if (!accessToken || !tripId) return;
       let active = true;
 
-      bookingApiService
-        .listMyBookings({ pageSize: 50 })
-        .then((res) => {
-          if (!active) return;
-          const matched = res.items.find(
-            (b) =>
-              (b.trip?.id || (b as any).tripId) === tripId &&
-              b.status !== "CANCELLED" &&
-              b.status !== "EXPIRED"
-          );
-          setExistingBooking(matched ?? null);
-        })
-        .catch(() => {});
+      Promise.all([
+        bookingApiService.listMyBookings({ pageSize: 50 }).catch(() => ({ items: [] })),
+        invitationsApiService.fetchMyTickets({ pageSize: 50 }).catch(() => ({ items: [] })),
+      ]).then(([bookingRes, ticketRes]) => {
+        if (!active) return;
+        const matchedBooking = bookingRes.items?.find(
+          (b) =>
+            (b.trip?.id || (b as any).tripId) === tripId &&
+            b.status !== "CANCELLED" &&
+            b.status !== "EXPIRED",
+        );
+        setExistingBooking(matchedBooking ?? null);
+
+        const matchedTicket = ticketRes.items?.find(
+          (t) => t.trip?.id === tripId && t.bookingStatus !== "CANCELLED",
+        );
+        setExistingTicket(matchedTicket ?? null);
+      });
 
       return () => {
         active = false;
       };
-    }, [accessToken, tripId])
+    }, [accessToken, tripId]),
   );
 
   const handleBookingSuccess = useCallback(
@@ -146,8 +155,9 @@ export function PublicTripDetailScreen({
   const isConfirmedBooking =
     existingBooking &&
     ["CONFIRMED", "PARTIAL_CHECKIN", "CHECKED_IN", "COMPLETED"].includes(
-      existingBooking.status
+      existingBooking.status,
     );
+  const hasConfirmedAccess = Boolean(isConfirmedBooking || existingTicket);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -161,16 +171,39 @@ export function PublicTripDetailScreen({
         {/* 1. Hero Section */}
         <TripHeroSection trip={trip} />
 
-        {/* 2. Thẻ Bạn đã tham gia chuyến đi này! (Hiển thị khi đã đặt vé thành công như trên web) */}
-        {isConfirmedBooking && (
+        {/* 2. Thẻ Bạn đã tham gia chuyến đi này! (Hiển thị khi đã đặt vé hoặc được mời vé thành công) */}
+        {hasConfirmedAccess && (
           <TripConfirmedBookingCard
-            booking={existingBooking}
-            onViewTicket={() =>
-              router.push({
-                pathname: "/bookings/[id]",
-                params: { id: existingBooking.id },
-              } as any)
+            booking={
+              existingBooking ?? {
+                id: existingTicket!.id,
+                status: "CONFIRMED",
+                participantCount: 1,
+                totalAmount: "0",
+                currency: "VND",
+                expiresAt: trip.endAt || new Date().toISOString(),
+                trip: {
+                  id: tripId,
+                  title: trip.title,
+                  startAt: trip.startAt,
+                  endAt: trip.endAt,
+                  status: trip.status,
+                },
+              }
             }
+            onViewTicket={() => {
+              if (existingBooking) {
+                router.push({
+                  pathname: "/bookings/[id]",
+                  params: { id: existingBooking.id },
+                } as any);
+              } else if (existingTicket) {
+                router.push({
+                  pathname: "/trips/[id]/ticket",
+                  params: { id: existingTicket.id },
+                } as any);
+              }
+            }}
             onViewAllTrips={() => router.push("/(tabs)/trips" as any)}
           />
         )}
@@ -229,6 +262,20 @@ export function PublicTripDetailScreen({
           >
             <Ionicons name="ticket-outline" size={18} color="#ffffff" />
             <Text style={styles.bookingBtnText}>Xem chi tiết vé</Text>
+          </TouchableOpacity>
+        ) : existingTicket ? (
+          <TouchableOpacity
+            style={[styles.bookingBtn, styles.bookingBtnConfirmed]}
+            onPress={() =>
+              router.push({
+                pathname: "/trips/[id]/ticket",
+                params: { id: existingTicket.id },
+              } as any)
+            }
+            activeOpacity={0.85}
+          >
+            <Ionicons name="ticket-outline" size={18} color="#ffffff" />
+            <Text style={styles.bookingBtnText}>Xem vé tham gia & QR</Text>
           </TouchableOpacity>
         ) : existingBooking?.status === "PENDING_PAYMENT" ? (
           <TouchableOpacity
