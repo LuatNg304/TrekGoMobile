@@ -1,3 +1,4 @@
+import { queuePersonalTrailWrite, personalTrailWriteAllowed } from "./personalTrailWrites";
 import {
   LocalCheckpoint,
   LocalRecording,
@@ -490,9 +491,11 @@ export const recordingDatabase = {
    * Chèn mẫu GPS gốc (Raw GPS Sample) vào SQLite TRƯỚC khi cập nhật UI
    */
   async insertRawSample(sample: RawGpsSample): Promise<void> {
+    return queuePersonalTrailWrite(async () => {
+    if (!personalTrailWriteAllowed(sample.clientRecordingId)) return;
     const db = await getDatabase();
     await db.runAsync(
-      `INSERT OR REPLACE INTO raw_gps_samples (
+      `INSERT OR IGNORE INTO raw_gps_samples (
         client_sample_id, client_recording_id, latitude, longitude,
         recorded_at, accuracy_m, altitude_m, altitude_accuracy_m,
         speed_mps, heading_deg, segment_id, accepted, reject_reason, synced
@@ -514,6 +517,7 @@ export const recordingDatabase = {
         0,
       ],
     );
+    }, true);
   },
 
   /**
@@ -673,11 +677,18 @@ export const recordingDatabase = {
     // 1. Tác vụ PENDING mới hoặc đã đến giờ chạy (next_retry_at IS NULL hoặc <= now)
     // 2. Tác vụ FAILED tạm thời còn hạn thử lại (attempt_count < 10, next_retry_at IS NOT NULL và <= now)
     const rows = await db.getAllAsync<any>(
-      `SELECT * FROM sync_outbox 
+      `SELECT * FROM sync_outbox AS current
        WHERE client_recording_id IN (SELECT client_recording_id FROM local_recordings WHERE owner_id = ?)
        AND ((state = 'PENDING' AND (next_retry_at IS NULL OR next_retry_at <= ?))
           OR (state = 'FAILED' AND attempt_count < 10 AND next_retry_at IS NOT NULL AND next_retry_at <= ?))
-       ORDER BY created_at ASC LIMIT 10`,
+       AND NOT EXISTS (
+         SELECT 1 FROM sync_outbox AS earlier
+         WHERE earlier.client_recording_id = current.client_recording_id
+           AND earlier.state != 'SYNCED'
+           AND (earlier.created_at < current.created_at
+             OR (earlier.created_at = current.created_at AND earlier.rowid < current.rowid))
+       )
+       ORDER BY created_at ASC, rowid ASC LIMIT 10`,
       [ownerId, now, now],
     );
 
@@ -701,7 +712,7 @@ export const recordingDatabase = {
     const db = await getDatabase();
     await db.runAsync(
       `UPDATE sync_outbox 
-       SET state = 'PENDING', next_retry_at = NULL 
+       SET state = 'PENDING', next_retry_at = NULL, attempt_count = 0 
        WHERE state = 'FAILED'`,
     );
   },
@@ -867,11 +878,39 @@ export const recordingDatabase = {
   /**
    * Lưu hoặc cập nhật một PersonalTrail vào bảng SQLite personal_trails
    */
+  async attachServerRecordingId(id: string, serverId: string): Promise<void> {
+    const db = await getDatabase();
+    await db.runAsync('UPDATE local_recordings SET server_recording_id = ? WHERE client_recording_id = ?', [serverId, id]);
+  },
+
+  async finishPersonalTrail(trail: PersonalTrail, endedAt: string, elapsedSeconds: number): Promise<void> {
+    await queuePersonalTrailWrite(async () => {
+      const db = await getDatabase();
+      await db.withExclusiveTransactionAsync(async tx => {
+        const id = trail.clientRecordingId!;
+        const existing = await tx.getFirstAsync<{ id: string }>(
+          "SELECT id FROM sync_outbox WHERE client_recording_id = ? AND operation = 'FINISH_RECORDING'", [id]);
+        if (existing) return;
+        await this.savePersonalTrail(trail, id, tx as SQLite.SQLiteDatabase);
+        await tx.runAsync("UPDATE local_recordings SET status='STOPPED_LOCAL', local_trail_id=?, ended_at=?, duration=?, elapsed_seconds=? WHERE client_recording_id=?",
+          [trail.id, endedAt, trail.duration, elapsedSeconds, id]);
+        const payload = { endedAt, title: trail.name, description: trail.description, region: trail.region,
+          difficulty: trail.difficulty, terrainType: trail.terrainType, visibility: trail.visibility,
+          distanceKm: trail.distanceKm, elevationGainM: trail.elevationGainM, duration: trail.duration, elapsedSeconds, checkpoints: [] };
+        for (const operation of ['BATCH_POINTS', 'FINISH_RECORDING']) {
+          await tx.runAsync("INSERT INTO sync_outbox(id,client_recording_id,operation,payload_json,state,attempt_count,created_at) VALUES(?,?,?,?,'PENDING',0,?)",
+            [generateUUID(), id, operation, JSON.stringify(operation === 'BATCH_POINTS' ? {} : payload), endedAt]);
+        }
+      });
+    });
+  },
+
   async savePersonalTrail(
     trail: PersonalTrail,
     clientRecordingId?: string,
+    transaction?: SQLite.SQLiteDatabase,
   ): Promise<void> {
-    const db = await getDatabase();
+    const db = transaction ?? await getDatabase();
     const effectiveRecordingId =
       clientRecordingId || trail.clientRecordingId || null;
 

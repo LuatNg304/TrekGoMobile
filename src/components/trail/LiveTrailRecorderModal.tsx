@@ -1,3 +1,4 @@
+import { blockPersonalTrailWrites, allowPersonalTrailWrites, drainPersonalTrailWrites } from "@/services/storage/personalTrailWrites";
 import { PERSONAL_TRAIL_SIMULATION } from "@/constants/personalTrailSimulation";
 import {
   preparePersonalTrailSimulation,
@@ -74,10 +75,15 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
   const [isSwitchingGps, setIsSwitchingGps] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
   const startPendingRef = useRef(false);
+  const operationLock = useRef(false);
+  const saveLock = useRef(false);
+  const recoveryPending = useRef(false);
+  const storageWarningShown = useRef(false);
+  const endedAtRef = useRef<string | null>(null);
   const simulatedRef = useRef(false);
   const locationGenerationRef = useRef(0);
   const screenVisibleRef = useRef(visible);
-  screenVisibleRef.current = visible;
+  useEffect(() => { screenVisibleRef.current = visible; }, [visible]);
 
 
   // Trạng thái ghi nhận
@@ -249,6 +255,7 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
   }, []);
 
   const resetSession = () => {
+    endedAtRef.current = null;
     const wasSimulated = simulatedRef.current;
     locationGenerationRef.current += 1;
     if (simulatedRef.current) {
@@ -336,6 +343,10 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
             "[LiveTrailRecorder] Error inserting raw sample:",
             err,
           );
+          if (!storageWarningShown.current) {
+            storageWarningShown.current = true;
+            Alert.alert("GPS chưa được lưu đầy đủ", "Bộ nhớ đang bận. Hãy giữ ứng dụng mở và thử Hoàn tất lại; chưa nên tắt ứng dụng.");
+          }
         });
     }
 
@@ -367,6 +378,7 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
 
   // Yêu cầu quyền vị trí và lắng nghe GPS
   const startLocationTracking = useCallback(async () => {
+    const generation = locationGenerationRef.current;
     try {
       locationSubscription.current?.remove();
       locationSubscription.current = null;
@@ -375,6 +387,7 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
         return true;
       }
       const { status } = await Location.requestForegroundPermissionsAsync();
+      if (!screenVisibleRef.current || generation !== locationGenerationRef.current) return false;
       if (status !== "granted") {
         setGpsStatus("DENIED");
         Alert.alert(
@@ -399,14 +412,20 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
             ? Location.Accuracy.BestForNavigation
             : Location.Accuracy.High;
 
-        locationSubscription.current = await Location.watchPositionAsync(
+        const subscription = await Location.watchPositionAsync(
           {
             accuracy: targetAccuracy,
             distanceInterval: 1, // Nhận sự kiện di chuyển từ 1 mét
             timeInterval: 3000, // Cập nhật nhịp tim 3 giây / lần
           },
-          processLocationSample,
+          location => {
+            if (screenVisibleRef.current && generation === locationGenerationRef.current) processLocationSample(location);
+          },
         );
+        if (!screenVisibleRef.current || generation !== locationGenerationRef.current) {
+          subscription.remove(); return false;
+        }
+        locationSubscription.current = subscription;
         return true;
       } catch (watchErr) {
         console.warn(
@@ -423,6 +442,7 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
 
   // Tự động định vị ngay khi mở modal và kiểm tra khôi phục phiên ghi dở dang từ SQLite (Crash Recovery)
   useEffect(() => {
+    const recoveryGeneration = locationGenerationRef.current;
     let timer: ReturnType<typeof setTimeout> | null = null;
     if (visible) {
       timer = setTimeout(() => {
@@ -431,10 +451,13 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
 
       // Kiểm tra phiên ghi dở dang nếu modal vừa mở và chưa đang ghi
       if (!isRecordingRef.current) {
+        recoveryPending.current = true;
         recordingDatabase
           .getActiveRecording()
           .then(async (active) => {
+            if (!screenVisibleRef.current || recoveryGeneration !== locationGenerationRef.current) return;
             if (active) {
+              setIsStarting(true);
               Alert.alert(
                 "Khôi phục phiên ghi?",
                 `Tìm thấy phiên ghi dở dang lúc ${new Date(active.startedAt).toLocaleTimeString("vi-VN")}. Bạn có muốn tiếp tục hành trình không?`,
@@ -442,15 +465,18 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
                   {
                     text: "Hủy phiên cũ",
                     style: "destructive",
-                    onPress: () => {
-                      recordingDatabase
-                        .deleteRecording(active.clientRecordingId)
-                        .catch(console.warn);
+                    onPress: async () => {
+                      try { await recordingDatabase.deleteRecording(active.clientRecordingId); }
+                      catch (error) { Alert.alert("Chưa thể hủy phiên", String(error)); }
+                      finally { setIsStarting(false); }
                     },
                   },
                   {
                     text: "Tiếp tục ghi",
                     onPress: async () => {
+                      if (!screenVisibleRef.current || recoveryGeneration !== locationGenerationRef.current || operationLock.current) return;
+                      operationLock.current = true;
+                      try {
                       currentRecordingIdRef.current = active.clientRecordingId;
                       const acceptedSamples =
                         await recordingDatabase.getAcceptedPoints(
@@ -558,19 +584,25 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
                       const paused = active.status === "PAUSED";
                       setIsPaused(paused);
                       isPausedRef.current = paused;
-                      await startLocationTracking();
+                      if (!screenVisibleRef.current || recoveryGeneration !== locationGenerationRef.current) return;
+                      allowPersonalTrailWrites(active.clientRecordingId);
+                      if (!await startLocationTracking()) throw new Error("GPS recovery failed");
                       const backgroundPermission =
                         await Location.getBackgroundPermissionsAsync();
                       if (backgroundPermission.status === "granted") {
                         await startBackgroundLocationUpdates();
                       }
+                      } catch (error) { isPausedRef.current = true; setIsPaused(true); Alert.alert("GPS", String(error)); }
+                      finally { operationLock.current = false; setIsStarting(false); }
                     },
                   },
                 ],
+                { cancelable: false },
               );
             }
           })
-          .catch(console.warn);
+          .catch(console.warn)
+          .finally(() => { recoveryPending.current = false; });
       }
     }
     return () => {
@@ -639,7 +671,7 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
   };
 
   const handleStart = async () => {
-    if (isSwitchingGps || isRecordingRef.current || startPendingRef.current) return;
+    if (isStarting || isSwitchingGps || recoveryPending.current || isRecordingRef.current || startPendingRef.current) return;
     startPendingRef.current = true;
     setIsStarting(true);
     let trackingStarted = false;
@@ -668,6 +700,7 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
       setIsFollowingUser(true);
 
       const started = await startLocationTracking();
+      if (!screenVisibleRef.current) { locationSubscription.current?.remove(); return; }
       if (!started) {
         if (simulatedRef.current) pausePersonalTrailSimulation();
         isRecordingRef.current = false;
@@ -754,52 +787,49 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
     }
   }, [currentPosition, detectCurrentLocation]);
 
-  const handlePauseResume = () => {
+  const handlePauseResume = async () => {
+    if (operationLock.current || saveLock.current) return;
+    operationLock.current = true;
+    const id = currentRecordingIdRef.current;
     const nextPaused = !isPausedRef.current;
-    if (simulatedRef.current) {
-      if (nextPaused) pausePersonalTrailSimulation();
-      else resumePersonalTrailSimulation();
-    }
-    isPausedRef.current = nextPaused;
-    setIsPaused(nextPaused);
-
-    const recId = currentRecordingIdRef.current;
-    if (recId) {
-      recordingDatabase
-        .updateRecordingStatus(recId, nextPaused ? "PAUSED" : "RECORDING")
-        .catch(console.warn);
-
+    isPausedRef.current = true; setIsPaused(true);
+    try {
+      if (!id) return;
       if (nextPaused) {
-        recordingDatabase
-          .enqueueOutbox(recId, "UPDATE_STATUS", {
-            status: "PAUSED",
-            timestamp: new Date().toISOString(),
-          })
-          .then(() => recordingDatabase.enqueueOutbox(recId, "BATCH_POINTS", {}))
-          .then(() => syncService.processSyncOutbox())
-          .catch(console.warn);
+        if (simulatedRef.current) pausePersonalTrailSimulation();
+        locationSubscription.current?.remove(); locationSubscription.current = null;
+        if (!simulatedRef.current) await stopBackgroundLocationUpdates();
+        await drainPersonalTrailWrites();
+        blockPersonalTrailWrites(id);
       } else {
-        recordingDatabase
-          .incrementSegmentId(recId)
-          .then((newSegId) => {
-            gpsProcessorRef.current.breakSegment();
-            return recordingDatabase.enqueueOutbox(recId, "UPDATE_STATUS", {
-              status: "RECORDING",
-              timestamp: new Date().toISOString(),
-              currentSegmentId: newSegId,
-            });
-          })
-          .then(() => syncService.processSyncOutbox())
-          .catch(console.warn);
+        await recordingDatabase.incrementSegmentId(id);
+        gpsProcessorRef.current.breakSegment();
+        allowPersonalTrailWrites(id);
       }
-    } else if (!nextPaused) {
-      gpsProcessorRef.current.breakSegment();
+      await recordingDatabase.updateRecordingStatus(id, nextPaused ? "PAUSED" : "RECORDING");
+      await recordingDatabase.enqueueOutbox(id, "UPDATE_STATUS", {
+        status: nextPaused ? "PAUSED" : "RECORDING", timestamp: new Date().toISOString(),
+      });
+      if (!nextPaused) {
+        if (!await startLocationTracking()) throw new Error("GPS tracking unavailable");
+        if (!simulatedRef.current) await startBackgroundLocationUpdates();
+        isPausedRef.current = false; setIsPaused(false);
+        if (simulatedRef.current) resumePersonalTrailSimulation();
+      }
+      void syncService.processSyncOutbox().catch(console.warn);
+    } catch (error) {
+      if (id) {
+        blockPersonalTrailWrites(id);
+        await recordingDatabase.updateRecordingStatus(id, "PAUSED").catch(console.warn);
+      }
+      isPausedRef.current = true; setIsPaused(true);
+      Alert.alert("Chưa thể tiếp tục ghi", String(error));
     }
+    finally { operationLock.current = false; }
   };
 
-
   const pauseResumeHandlerRef = useRef(handlePauseResume);
-  pauseResumeHandlerRef.current = handlePauseResume;
+  useEffect(() => { pauseResumeHandlerRef.current = handlePauseResume; });
   useEffect(() => {
     const subscription = AppState.addEventListener("change", state => {
       if (state !== "active" && simulatedRef.current && isRecordingRef.current && !isPausedRef.current) {
@@ -810,11 +840,19 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
   }, []);
 
   const handleStopAndSave = async () => {
+    if (operationLock.current || saveLock.current) return;
+    operationLock.current = true;
+    try {
+    isPausedRef.current = true; setIsPaused(true);
+    locationSubscription.current?.remove();
+    if (simulatedRef.current) pausePersonalTrailSimulation();
     const recId = currentRecordingIdRef.current;
     let coordinatesForSave = recordedCoordinatesRef.current;
 
     if (recId) {
       if (!simulatedRef.current) await stopBackgroundLocationUpdates().catch(console.warn);
+      await drainPersonalTrailWrites();
+      blockPersonalTrailWrites(recId);
       const persisted = await recordingDatabase.getAcceptedPoints(recId);
       coordinatesForSave = persisted.map((sample) => ({
         latitude: sample.latitude,
@@ -860,9 +898,6 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
     );
 
     if (coordinatesForSave.length < 2 || !hasValidSegment) {
-      if (recId && !simulatedRef.current) {
-        void startBackgroundLocationUpdates().catch(console.warn);
-      }
       Alert.alert(
         "Đoạn đường quá ngắn",
         "Cung đường chưa đủ dữ liệu GPS (cần có ít nhất một đoạn từ 2 điểm GPS trở lên). Bạn cần di chuyển thêm để tạo cung đường.",
@@ -886,11 +921,14 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
 
     setTrailName(`${simulatedRef.current ? "[GIẢ LẬP] " : ""}Cung đường ngày ${new Date().toLocaleDateString("vi-VN")}`);
     if (simulatedRef.current) pausePersonalTrailSimulation();
+    endedAtRef.current = new Date().toISOString();
     setShowSaveForm(true);
+    } catch (error) { Alert.alert("GPS", String(error)); }
+    finally { operationLock.current = false; }
   };
 
   const handleConfirmSave = async () => {
-    if (isSaving) return;
+    if (isSaving || saveLock.current) return;
 
     if (!trailName.trim()) {
       Alert.alert("Vui lòng nhập tên", "Hãy đặt tên cho cung đường của bạn.");
@@ -926,6 +964,7 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
       return;
     }
 
+    saveLock.current = true;
     setIsSaving(true);
 
     try {
@@ -945,20 +984,11 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
       const gpsRouteCoords: [number, number, number?][] = flatPoints;
 
       const recId = currentRecordingIdRef.current;
-
-      // 1. Cập nhật SQLite trước và đưa vào Outbox đồng bộ
-      if (recId) {
-        await recordingDatabase.updateRecordingStatus(recId, "STOPPED_LOCAL", {
-          endedAt: new Date().toISOString(),
-          duration: durationStr,
-          elapsedSeconds,
-        });
-
-
-      }
-
+      const endedAt = endedAtRef.current || new Date().toISOString();
       // 2. Chuyển đổi sang format PersonalTrail của TrekGo
       const newTrail = await createPersonalTrail({
+        endedAt,
+        elapsedSeconds,
         name: simulatedRef.current && !trailName.trim().startsWith("[GIẢ LẬP]") ? `[GIẢ LẬP] ${trailName.trim()}` : trailName.trim(),
         region: trailRegion,
         difficulty: trailDifficulty,
@@ -976,31 +1006,7 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
         checkpoints: [],
       });
 
-      // 3. Liên kết PersonalTrail.id vào SQLite recording để đồng bộ và tra cứu an toàn
-      if (recId) {
-        await recordingDatabase.updateRecordingStatus(recId, "STOPPED_LOCAL", {
-          localTrailId: newTrail.id,
-        });
-
-        // Đưa lô điểm cuối cùng và lệnh hoàn tất phiên ghi vào Outbox
-        await recordingDatabase.enqueueOutbox(recId, "BATCH_POINTS", {});
-        await recordingDatabase.enqueueOutbox(recId, "FINISH_RECORDING", {
-          endedAt: new Date().toISOString(),
-          title: trailName.trim(),
-          description: trailDescription.trim(),
-          region: trailRegion,
-          difficulty: trailDifficulty,
-          terrainType: "Rừng & Đồi dốc",
-          visibility: "PRIVATE",
-          distanceKm: effectiveDistanceKm,
-          elevationGainM: Math.round(elevationGainM),
-          duration: durationStr,
-          elapsedSeconds,
-        });
-
-        // Kích hoạt đồng bộ ngầm ngay lập tức
-        syncService.processSyncOutbox().catch(console.warn);
-      }
+      void syncService.processSyncOutbox().catch(console.warn);
 
       // 4. Dọn dẹp session
       resetSession();
@@ -1011,8 +1017,8 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
 
       setTimeout(() => {
         Alert.alert(
-          "Ghi nhận thành công!",
-          `Cung đường "${newTrail.name}" (${effectiveDistanceKm} km) đã được lưu vào SQLite trên thiết bị của bạn.`,
+          "Đã lưu cung đường trên thiết bị",
+          `Cung đường "${newTrail.name}" (${effectiveDistanceKm} km) đã được lưu vào thiết bị của bạn.`,
         );
       }, 400);
     } catch (saveErr) {
@@ -1022,10 +1028,11 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
         "Có lỗi khi lưu dữ liệu vào bộ nhớ máy. Vui lòng bấm lưu lại.",
       );
       setIsSaving(false);
-    }
+    } finally { saveLock.current = false; }
   };
 
   const handleCancel = () => {
+    if (operationLock.current || saveLock.current || startPendingRef.current) return;
     if (isRecording) {
       Alert.alert(
         "Hủy phiên ghi?",
@@ -1381,7 +1388,7 @@ export const LiveTrailRecorderModal: React.FC<LiveTrailRecorderModalProps> = ({
                   style={styles.saveCancelBtn}
                   onPress={() => {
                     setShowSaveForm(false);
-                    startLocationTracking();
+                    // Stay paused until Continue restores tracking.
                   }}
                   disabled={isSaving}
                 >

@@ -18,6 +18,7 @@ function load(file, mocks) {
   const execute = vm.runInThisContext(`(function(require,module,exports){${code}\n})`, { filename });
   execute((name) => {
     if (Object.hasOwn(mocks, name)) return mocks[name];
+    if (name === './personalTrailWrites') return load('./personalTrailWrites.ts', {});
     throw new Error(`Unexpected native dependency: ${name}`);
   }, module, module.exports);
   return module.exports;
@@ -42,6 +43,7 @@ async function databaseFixture() {
       try { await callback(); sqlite.exec('COMMIT'); } catch (error) { sqlite.exec('ROLLBACK'); throw error; }
     },
   };
+  bridge.withExclusiveTransactionAsync = callback => bridge.withTransactionAsync(() => callback(bridge));
   let auth = { user: { id: 'alice' }, accessToken: 'alice-token' };
   const storage = { getItem: async () => null, setItem: async () => {}, removeItem: async () => {} };
   const mocks = {
@@ -162,4 +164,130 @@ test('fetches all server pages before returning a replacement for the offline ca
     return { success: true, data: [], pagination: { totalPages: 3 } };
   };
   await assert.rejects(personalTrailApi.getAllMyTrails(), /offline/);
+});
+
+
+test('a delayed or blocked operation prevents later operations of the same recording from overtaking', async () => {
+  const { database, sqlite } = await databaseFixture();
+  try {
+    await database.createRecording('ordered');
+    const first = await database.enqueueOutbox('ordered', 'CREATE_RECORDING', {});
+    await database.enqueueOutbox('ordered', 'FINISH_RECORDING', {});
+    await database.updateOutboxItem(first.id, 'FAILED', { nextRetryAt: null });
+    assert.deepEqual(await database.getPendingOutbox('alice'), []);
+    await database.updateOutboxItem(first.id, 'SYNCED');
+    assert.equal((await database.getPendingOutbox('alice'))[0].operation, 'FINISH_RECORDING');
+  } finally { sqlite.close(); }
+});
+
+function syncFixture(apiOverrides = {}) {
+  const updates = [];
+  const recording = { ownerId: 'alice', serverRecordingId: 'server', status: 'STOPPED_LOCAL' };
+  const database = {
+    getRecording: async () => recording,
+    updateOutboxItem: async (...args) => updates.push(args),
+    updateRecordingStatus: async (...args) => updates.push(args),
+    getUnsyncedSamples: async () => [],
+  };
+  const api = { getRecordingStatus: async () => ({ success: true, data: { status: 'RECORDING' } }), ...apiOverrides };
+  const { syncService } = load('./syncService.ts', {
+    '@/features/auth/storage': { readStoredAuth: async () => ({ user: { id: 'alice' }, accessToken: 'token' }) },
+    'expo-network': {}, 'react-native': {},
+    '../api/personalTrailApi': { personalTrailApi: api, mapDifficultyToBackend: () => 'MODERATE' },
+    './recordingDatabase': { recordingDatabase: database },
+  });
+  return { syncService, updates };
+}
+const finishItem = { id: 'finish', clientRecordingId: 'local', operation: 'FINISH_RECORDING', payloadJson: '{"endedAt":"2026-10-27T03:30:00Z"}', attemptCount: 0 };
+
+test('lost finish response reconciles READY without uploading or finishing again', async () => {
+  const { syncService, updates } = syncFixture({
+    getRecordingStatus: async () => ({ success: true, data: { status: 'READY', serverPersonalTrailId: 'trail' } }),
+    finishRecording: async () => { throw new Error('must not replay'); },
+  });
+  assert.equal(await syncService.syncItem(finishItem, 'token'), true);
+  assert.ok(updates.some(args => args[0] === 'local' && args[1] === 'READY'));
+  assert.ok(updates.some(args => args[0] === 'finish' && args[1] === 'SYNCED'));
+});
+
+test('transaction unavailable is reconciled and retained without automatic replay', async () => {
+  let calls = 0;
+  const { syncService, updates } = syncFixture({
+    getRecordingStatus: async () => { calls++; return { data: { status: 'RECORDING' } }; },
+    finishRecording: async () => { throw { status: 503, code: 'PERSONAL_TRAIL_TRANSACTION_UNAVAILABLE', retryable: false }; },
+  });
+  assert.equal(await syncService.syncItem(finishItem, 'token'), false);
+  assert.equal(calls, 2);
+  assert.ok(updates.some(args => args[1] === 'FAILED' && args[2].nextRetryAt === null));
+});
+
+
+test('GPS batches respect 500 limit and incomplete acknowledgements keep samples pending', async () => {
+  // Load a separate service with raw data and an inconsistent server acknowledgement.
+  let marked = false;
+  let requestedLimit;
+  const { syncService: service } = load('./syncService.ts', {
+    '@/features/auth/storage': { readStoredAuth: async () => ({ user: { id: 'alice' }, accessToken: 'token' }) },
+    'expo-network': {}, 'react-native': {},
+    '../api/personalTrailApi': { personalTrailApi: {
+      uploadRawSamples: async () => ({ success: true, data: { receivedCount: 1, insertedCount: 0, duplicatedCount: 0 } }),
+    } },
+    './recordingDatabase': { recordingDatabase: {
+      getRecording: async () => ({ ownerId: 'alice', serverRecordingId: 'server' }),
+      getUnsyncedSamples: async (_, limit) => { requestedLimit = limit; return [{ clientSampleId: 'stable-id' }]; },
+      markSamplesSynced: async () => { marked = true; },
+      updateOutboxItem: async () => {},
+    } },
+  });
+  assert.equal(await service.syncItem({ ...finishItem, operation: 'BATCH_POINTS' }, 'token'), false);
+  assert.equal(requestedLimit, 500);
+  assert.equal(marked, false);
+});
+
+
+test('duplicate raw sample cannot overwrite payload or reset a synced acknowledgement', async () => {
+  const { database, sqlite } = await databaseFixture();
+  try {
+    await database.createRecording('immutable');
+    const sample = { clientSampleId: 'point', clientRecordingId: 'immutable', latitude: 10, longitude: 106,
+      recordedAt: '2026-10-27T00:00:00Z', segmentId: 0, accepted: true,
+      accuracyM: null, altitudeM: null, altitudeAccuracyM: null, speedMps: null, headingDeg: null };
+    await database.insertRawSample(sample);
+    await database.markSamplesSynced('immutable', ['point']);
+    await database.insertRawSample({ ...sample, latitude: 11, accepted: false });
+    assert.equal((await database.getRawSamples('immutable'))[0].latitude, 10);
+    assert.equal((await database.getRawSamples('immutable'))[0].accepted, true);
+    assert.equal((await database.getUnsyncedSamples('immutable', 500)).length, 0);
+  } finally { sqlite.close(); }
+});
+
+test('finish transaction rolls back partial writes and a repeated save keeps one finish', async () => {
+  const { database, sqlite } = await databaseFixture();
+  try {
+    await database.createRecording('atomic');
+    const value = trail('local-atomic', 'atomic');
+    sqlite.exec("CREATE TRIGGER fail_finish BEFORE INSERT ON sync_outbox WHEN NEW.operation='FINISH_RECORDING' BEGIN SELECT RAISE(ABORT, 'injected failure'); END;");
+    await assert.rejects(database.finishPersonalTrail(value, '2026-10-27T01:00:00Z', 60), /injected failure/);
+    assert.equal((await database.getAllPersonalTrails()).length, 0);
+    assert.equal((await database.getRecording('atomic')).status, 'RECORDING');
+    assert.equal((await database.getAllOutboxItems()).length, 0);
+    sqlite.exec('DROP TRIGGER fail_finish');
+    await database.finishPersonalTrail(value, '2026-10-27T01:00:00Z', 60);
+    await database.finishPersonalTrail(value, '2026-10-27T01:00:00Z', 60);
+    assert.equal((await database.getAllPersonalTrails()).length, 1);
+    assert.equal((await database.getAllOutboxItems()).length, 2);
+    assert.equal((await database.getRecording('atomic')).status, 'STOPPED_LOCAL');
+    await database.attachServerRecordingId('atomic', 'server-id');
+    assert.equal((await database.getRecording('atomic')).status, 'STOPPED_LOCAL');
+    assert.equal((await database.getRecording('atomic')).serverRecordingId, 'server-id');
+  } finally { sqlite.close(); }
+});
+
+
+test('temporary sync failures stop automatically after the third failure', async () => {
+  const { syncService, updates } = syncFixture({ finishRecording: async () => { throw { status: 0 }; } });
+  await syncService.syncItem({ ...finishItem, attemptCount: 2 }, 'token');
+  const failed = updates.find(args => args[1] === 'FAILED');
+  assert.equal(failed[2].attemptCount, 3);
+  assert.equal(failed[2].nextRetryAt, null);
 });
