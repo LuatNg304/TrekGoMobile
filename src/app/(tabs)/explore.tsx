@@ -371,6 +371,13 @@ export default function ExploreScreen() {
         </View>
 
         {/* 4. MAIN CONTENT THEO TAB */}
+        {activeTab === 'SYSTEM' && <TouchableOpacity
+          style={{ marginHorizontal: 20, marginBottom: 16, padding: 15, backgroundColor: Colors.surfaceContainer, borderRadius: 16, flexDirection: 'row', gap: 10, alignItems: 'center' }}
+          onPress={() => router.push('/trip-gps-downloads' as Href)}>
+          <Ionicons name="download-outline" size={22} color={Colors.primaryDark} />
+          <Text style={{ color: Colors.primaryDark, fontWeight: '700', flex: 1 }}>Tuyến chuyến đi đã tải & lịch sử GPS trên máy</Text>
+          <Ionicons name="chevron-forward" size={18} color={Colors.primaryDark} />
+        </TouchableOpacity>}
         {activeTab === "SYSTEM" ? (
           /* TAB CUNG ĐƯỜNG HỆ THỐNG */
           <View style={styles.mainTrailCard}>

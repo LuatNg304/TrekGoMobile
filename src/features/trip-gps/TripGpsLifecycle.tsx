@@ -7,7 +7,8 @@ import { tripGpsRuntime } from './services/trip-gps.runtime';
 export function TripGpsLifecycle() {
   const { user, accessToken, isLoading } = useAuth();
   useEffect(() => {
-    if (!isLoading) void tripGpsRuntime.authenticate(user?.id ?? null, accessToken).catch(error => console.warn('[TripGps lifecycle]', error));
+    tripGpsRuntime.setForeground(AppState.currentState === 'active');
+    if (!isLoading || user?.id) void tripGpsRuntime.authenticate(user?.id ?? null, accessToken).catch(error => console.warn('[TripGps lifecycle]', error));
   }, [user?.id, accessToken, isLoading]);
   useEffect(() => {
     let online: boolean | undefined;
@@ -18,7 +19,7 @@ export function TripGpsLifecycle() {
       online = next;
     });
     const app = AppState.addEventListener('change', state => {
-      if (state === 'active') void tripGpsRuntime.reconnect().catch(error => console.warn('[TripGps foreground]', error));
+      tripGpsRuntime.setForeground(state === 'active');
     });
     return () => { network.remove(); app.remove(); void tripGpsRuntime.authenticate(null, null).catch(error => console.warn('[TripGps stop]', error)); };
   }, []);

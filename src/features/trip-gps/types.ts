@@ -88,7 +88,7 @@ export interface TripCheckpointDto {
 
 export interface GpsContextResponse {
   capabilities?: GpsSyncLimits & { supportedSyncProtocols: number[]; socketPublishSupported: boolean };
-  contractVersion: 'trip-gps/1.0.0';
+  contractVersion: 'trip-gps/1.0.0' | 'trip-gps/3.0.0';
   tripId: UUID;
   tripType: TripType;
   tripStatus: TripStatus;
@@ -153,6 +153,7 @@ export interface SessionDto {
 }
 
 export interface MemberStateDto {
+  source?: 'REAL_GPS' | 'SIMULATOR' | null;
   connectionStatus?: 'ONLINE' | 'OFFLINE' | 'UNKNOWN';
   locationFreshness?: 'NO_DATA' | 'STALE' | 'FRESH';
   locationVersion?: number;
@@ -314,7 +315,7 @@ export interface SubscriptionDto {
 
 export interface EventEnvelope<T> {
   eventId: UUID;
-  contractVersion: 'trip-gps/1.0.0';
+  contractVersion: 'trip-gps/1.0.0' | 'trip-gps/3.0.0';
   tripId: UUID;
   occurredAt: ISODateTime;
   data: T;
@@ -416,5 +417,5 @@ export interface SyncStatus {
   attempts: number;
   serverTime: string;
 }
-export interface LocationUpdated { userId: string; sessionId: string; sequence: number; locationVersion: number; location: LastLocationDto }
+export interface LocationUpdated { userId: string; sessionId: string; sequence: number; locationVersion: number; location: LastLocationDto; source?: 'REAL_GPS' | 'SIMULATOR'; receivedAt?: string; expiresAt?: string }
 export interface PresenceUpdated { userId: string; connectionStatus: 'ONLINE' | 'OFFLINE' | 'UNKNOWN'; presenceVersion: number }

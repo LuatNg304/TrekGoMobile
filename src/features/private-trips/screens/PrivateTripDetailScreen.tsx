@@ -1,4 +1,5 @@
 import { Colors, Radius } from "@/constants/theme";
+import { TripGpsButton } from '@/components/trip/TripGpsButton';
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useState } from "react";
@@ -294,6 +295,9 @@ export function PrivateTripDetailScreen({
         />
 
         {/* Primary Action Buttons */}
+        <View style={{ marginVertical: 16 }}>
+          {tripId && <TripGpsButton tripId={tripId} tripType="PRIVATE" tripTitle={trip.title} tripStatus={trip.status} />}
+        </View>
         {!isCancelled ? (
           <View style={styles.actionGroup}>
             <TouchableOpacity

@@ -1,6 +1,7 @@
 import { API_BASE_URL, refreshSessionOnce } from '@/lib/api-client';
 import { generateUUID } from '@/services/storage/recordingDatabase';
 import { io, Socket } from 'socket.io-client';
+import type { Publish } from '../contract';
 import type {
   AccessRevokedEventData,
   EventEnvelope,
@@ -12,7 +13,6 @@ import type {
   TripChangedEventData,
   LocationUpdated,
   PresenceUpdated,
-  GpsSample,
 } from '../types';
 
 export interface TripGpsSocketCallbacks {
@@ -37,17 +37,17 @@ export class TripGpsSocketService {
   private callbacks: TripGpsSocketCallbacks = {};
   private isRefreshing: boolean = false;
   private viewing = true;
-  private protocolVersion: 1 | 2 = 1;
+  private protocolVersion = 3;
   private subscribeAttempts = 0;
   private retryTimer: ReturnType<typeof setTimeout> | undefined;
 
-  public connect(token: string, tripId: string, callbacks: TripGpsSocketCallbacks, options?: { viewing: boolean; protocolVersion: 2 }) {
+  public connect(token: string, tripId: string, callbacks: TripGpsSocketCallbacks, options?: { viewing: boolean; protocolVersion: 3 }) {
     if (this.socket) this.disconnect();
     this.token = token;
     this.currentTripId = tripId;
     this.callbacks = callbacks;
     this.viewing = options?.viewing ?? true;
-    this.protocolVersion = options?.protocolVersion ?? 1;
+    this.protocolVersion = 3;
 
     const apiOrigin = API_BASE_URL.replace(/\/api\/v1\/?$/, '').replace(/\/api\/?$/, '');
 
@@ -172,7 +172,7 @@ export class TripGpsSocketService {
       const requestId = generateUUID();
       this.socket.timeout(10000).emit(
         'gps:subscribe',
-        { requestId, tripId, ...(this.protocolVersion === 2 ? { protocolVersion: 2 } : {}) },
+        { requestId, tripId, protocolVersion: 3 },
         (timeoutError: Error | null, ack: SocketAck<SubscriptionDto>) => {
           if (!timeoutError && ack && ack.ok) {
             this.subscribeAttempts = 0;
@@ -208,7 +208,7 @@ export class TripGpsSocketService {
       const requestId = generateUUID();
       this.socket.timeout(10000).emit(
         'gps:unsubscribe',
-        { requestId, tripId },
+        { requestId, tripId, protocolVersion: 3 },
         (timeoutError: Error | null, ack: SocketAck<{ tripId: string }>) => {
           resolve(!timeoutError && Boolean(ack?.ok));
         }
@@ -243,10 +243,10 @@ export class TripGpsSocketService {
     else void this.unsubscribe(this.currentTripId);
   }
 
-  public publish(payload: { requestId: string; tripId: string; sessionId: string; deviceId: string; sequence: number; location: GpsSample }): Promise<{ applied: boolean }> {
+  public publish(payload: Publish): Promise<{ acknowledged: boolean; reason?: string }> {
     return new Promise((resolve, reject) => {
       if (!this.socket?.connected) { reject(new Error('Socket chưa kết nối.')); return; }
-      this.socket.timeout(10000).emit('gps:location.publish', payload, (error: Error | null, ack: SocketAck<{ applied: boolean }>) => {
+      this.socket.timeout(10000).emit('gps:location.publish', payload, (error: Error | null, ack: SocketAck<{ acknowledged: boolean; reason?: string }>) => {
         if (error) reject(error);
         else if (!ack?.ok) reject(Object.assign(new Error(ack?.error?.message ?? 'Không phát được vị trí.'), { code: ack?.error?.code }));
         else resolve(ack.data);

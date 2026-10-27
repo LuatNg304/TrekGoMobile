@@ -1,19 +1,21 @@
 import React, { useMemo, useState } from 'react';
 import { StyleSheet, Text, View, LayoutChangeEvent } from 'react-native';
-import Svg, { Path, Circle, Defs, LinearGradient, Stop, Rect } from 'react-native-svg';
+import Svg, { Path, Circle, Defs, LinearGradient, Stop } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Radius } from '@/constants/theme';
 
 interface TripGpsRouteArtProps {
   /** Array of [longitude, latitude] coordinates */
   coordinates?: [number, number][];
+  segments?: [number, number][][];
   distanceKm?: string;
   height?: number;
   theme?: 'dark' | 'light';
 }
 
 export function TripGpsRouteArt({
-  coordinates = [],
+  coordinates: inputCoordinates = [],
+  segments,
   distanceKm,
   height = 170,
   theme = 'dark',
@@ -31,6 +33,7 @@ export function TripGpsRouteArt({
 
   // Tính toán bounds và toạ độ SVG chiếu theo Mercator
   const routeData = useMemo(() => {
+    const coordinates = segments?.flat() ?? inputCoordinates;
     if (!coordinates || coordinates.length < 2) {
       return null;
     }
@@ -77,17 +80,17 @@ export function TripGpsRouteArt({
 
     // Downsampling nếu toạ độ quá nhiều (> 250 điểm) để SVG vẽ mượt mà 60fps
     const step = Math.max(1, Math.floor(coordinates.length / 250));
-    const sampled = coordinates.filter((_, idx) => idx % step === 0 || idx === coordinates.length - 1);
+    const sampled = (segments ?? [coordinates]).flatMap(part => part.filter((_, idx) => idx % step === 0 || idx === part.length - 1).map((point, index) => ({ point, move: index === 0 })));
 
-    const mapped = sampled.map(([lng, lat]) => {
+    const mapped = sampled.map(({ point: [lng, lat], move }) => {
       const x = offsetX + (lng - minLng) * latScaleFactor * scale;
       // Vĩ độ càng lớn (về hướng Bắc) thì trục Y trên màn hình càng nhỏ (lên trên)
       const y = offsetY + (maxLat - lat) * scale;
-      return { x, y };
+      return { x, y, move };
     });
 
     const pathD = mapped.reduce((acc, pt, idx) => {
-      const cmd = idx === 0 ? 'M' : 'L';
+      const cmd = idx === 0 || pt.move ? 'M' : 'L';
       return `${acc} ${cmd} ${pt.x.toFixed(1)},${pt.y.toFixed(1)}`;
     }, '').trim();
 
@@ -97,7 +100,7 @@ export function TripGpsRouteArt({
       endPoint: mapped[mapped.length - 1],
       totalPoints: coordinates.length,
     };
-  }, [coordinates, layoutWidth, height]);
+  }, [inputCoordinates, segments, layoutWidth, height]);
 
   return (
     <View

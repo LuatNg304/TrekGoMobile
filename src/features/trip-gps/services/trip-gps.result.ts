@@ -1,6 +1,19 @@
 import type { ActualRouteResponse, LocalSyncStatus, GpsSample, SessionDto } from '../types';
 import { distanceMeters } from '@/utils/gpsProcessor';
 
+export function splitLocalTripRoute(samples: GpsSample[], intervals: SessionDto['recordingIntervals'], signalGapSeconds = 15): [number, number][][] {
+  const segments: [number, number][][] = [];
+  for (let i = 0; i < samples.length; i++) {
+    const point = samples[i], previous = samples[i - 1];
+    const start = previous ? Date.parse(previous.recordedAt) : NaN, end = Date.parse(point.recordedAt);
+    const connected = previous && end > start && end - start <= signalGapSeconds * 1000 &&
+      (!intervals?.length || intervals.some(part => start >= Date.parse(part.start) && (!part.end || end <= Date.parse(part.end))));
+    if (!connected) segments.push([]);
+    segments[segments.length - 1].push([point.longitude, point.latitude]);
+  }
+  return segments;
+}
+
 export function getLocalTripDistance(samples: GpsSample[], intervals: SessionDto['recordingIntervals'], signalGapSeconds = 15): number {
   let total = 0;
   for (let index = 1; index < samples.length; index++) {

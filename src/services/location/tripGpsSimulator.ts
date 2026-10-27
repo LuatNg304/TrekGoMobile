@@ -3,13 +3,14 @@ import { distanceMeters } from '@/utils/gpsProcessor';
 
 export interface TripGpsSimulatorConfig {
   routeCoords: [number, number][]; // [longitude, latitude][]
+  routeSegments?: [number, number][][];
   speedMps?: number; // Tốc độ di chuyển giả lập (m/s), mặc định 3.0 m/s (~10.8 km/h)
   intervalMs?: number; // Chu kỳ phát mẫu (ms), mặc định 3000 ms
   accuracyM?: number; // Độ chính xác giả lập (m), mặc định 5 m
   altitudeM?: number; // Độ cao giả lập (m), mặc định 1200 m
 }
 
-type LocationListener = (sample: Location.LocationObject) => void;
+type LocationListener = (sample: Location.LocationObject, segmentIndex: number) => void;
 
 /**
  * Trình giả lập GPS cho chuyến đi (Trip GPS Simulator):
@@ -23,6 +24,7 @@ export class TripGpsSimulator {
   private playing = false;
   private lengths: number[] = [];
   private totalM = 0;
+  private segmentForPoint: number[] = [];
   private routeCoords: [number, number][] = [];
   private speedMps = 3.0;
   private intervalMs = 3000;
@@ -30,7 +32,7 @@ export class TripGpsSimulator {
   private altitudeM = 1200;
 
   constructor(config: TripGpsSimulatorConfig) {
-    this.updateRoute(config.routeCoords);
+    this.updateSegments(config.routeSegments ?? [config.routeCoords]);
     if (config.speedMps && config.speedMps > 0) this.speedMps = config.speedMps;
     if (config.intervalMs && config.intervalMs >= 500) this.intervalMs = config.intervalMs;
     if (config.accuracyM != null) this.accuracyM = config.accuracyM;
@@ -38,13 +40,22 @@ export class TripGpsSimulator {
   }
 
   updateRoute(routeCoords: [number, number][]) {
-    this.routeCoords = Array.isArray(routeCoords) ? routeCoords.filter(p => Array.isArray(p) && p.length >= 2) : [];
+    this.updateSegments([routeCoords]);
+  }
+
+  updateSegments(segments: [number, number][][]) {
+    this.routeCoords = []; this.segmentForPoint = [];
+    segments.forEach((segment, part) => {
+      for (const p of segment) if (Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1])) {
+        this.routeCoords.push(p); this.segmentForPoint.push(part);
+      }
+    });
     this.lengths = [];
     this.totalM = 0;
     for (let i = 0; i < this.routeCoords.length - 1; i++) {
       const a = { longitude: this.routeCoords[i][0], latitude: this.routeCoords[i][1] };
       const b = { longitude: this.routeCoords[i + 1][0], latitude: this.routeCoords[i + 1][1] };
-      const d = distanceMeters(a, b);
+      const d = this.segmentForPoint[i] === this.segmentForPoint[i + 1] ? distanceMeters(a, b) : 0;
       this.lengths.push(d);
       this.totalM += d;
     }
@@ -52,6 +63,22 @@ export class TripGpsSimulator {
 
   setSpeed(speedMps: number) {
     if (speedMps > 0) this.speedMps = speedMps;
+  }
+
+  setProgress(distanceM: number) {
+    this.alongM = Math.min(this.totalM, Math.max(0, distanceM));
+  }
+  get progressM() { return this.alongM; }
+
+  private coordinateIndex() {
+    let remaining = this.alongM, index = 0;
+    while (index < this.lengths.length - 1 && remaining >= this.lengths[index]) remaining -= this.lengths[index++];
+    return { index, remaining };
+  }
+
+  private get segmentIndex() {
+    const { index } = this.coordinateIndex();
+    return this.segmentForPoint[this.lengths[index] === 0 ? index + 1 : index] ?? 0;
   }
 
   getCurrentLocation(now = Date.now()): Location.LocationObject | null {
@@ -72,11 +99,7 @@ export class TripGpsSimulator {
       };
     }
 
-    let remaining = this.alongM;
-    let index = 0;
-    while (index < this.lengths.length - 1 && remaining >= this.lengths[index]) {
-      remaining -= this.lengths[index++];
-    }
+    const { remaining, index } = this.coordinateIndex();
 
     const aLng = this.routeCoords[index][0];
     const aLat = this.routeCoords[index][1];
@@ -121,7 +144,7 @@ export class TripGpsSimulator {
     // Phát tọa độ ban đầu ngay lập tức
     const initial = this.getCurrentLocation(this.lastTick);
     if (initial) {
-      this.listener(initial);
+      this.listener(initial, this.segmentIndex);
     }
 
     this.timer = setInterval(() => this.tick(), this.intervalMs);
@@ -140,7 +163,7 @@ export class TripGpsSimulator {
     this.alongM = Math.min(this.totalM, this.alongM + (this.speedMps * dt) / 1000);
     const loc = this.getCurrentLocation(now);
     if (loc) {
-      this.listener?.(loc);
+      this.listener?.(loc, this.segmentIndex);
     }
 
     if (this.alongM >= this.totalM) {

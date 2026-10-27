@@ -1,226 +1,183 @@
+import { TripGpsSimulator } from '@/services/location/tripGpsSimulator';
 import { generateUUID } from '@/services/storage/recordingDatabase';
-import { GpsProcessor, distanceMeters } from '@/utils/gpsProcessor';
+import { readStoredAuth } from '@/features/auth/storage';
 import { TripGpsSocketService } from './trip-gps.socket';
-import { TripGpsCoordinator } from './trip-gps.coordinator';
-import { stopTripCollector, setCollectorListeners, setCollectorSimulation } from './trip-gps.collector';
-import { changeLocalTrip, listLocalTrips, localSamples, type LocalTrip } from './trip-gps.v2-storage';
-import type { GpsSample, EventEnvelope, MemberUpdatedEventData, LocationUpdated, PresenceUpdated } from '../types';
+import { TripGpsUploader } from './trip-gps.upload';
+import { listLocalTrips, readLocalTrip, localSamples, packageRoutes, commitControl, changeLocalTrip } from './trip-gps.local';
+import { ingestLocations, setCollectorListeners, stopTripCollector } from './trip-gps.collector';
+import { getLocalTripDistance } from './trip-gps.result';
+import type { GpsSample, EventEnvelope, LocationUpdated, PresenceUpdated } from '../types';
+import type { LocalTrip, OfflinePackage } from '../contract';
 
-export type RuntimeEvent = { tripId?: string; kind: 'refresh' | 'sample' | 'state' | 'member' | 'location' | 'presence' | 'socket' | 'error';
-  sample?: GpsSample; message?: string; connected?: boolean;
-  member?: EventEnvelope<MemberUpdatedEventData>; location?: EventEnvelope<LocationUpdated>; presence?: EventEnvelope<PresenceUpdated> };
-type Publisher = { pending?: GpsSample; last?: GpsSample; at: number; busy: boolean; force: boolean; processor: GpsProcessor };
-class TripGpsRuntime {
+export interface RuntimeEvent {
+  kind: 'refresh' | 'sample' | 'socket' | 'location' | 'presence' | 'state' | 'error'; tripId?: string;
+  sample?: GpsSample; connected?: boolean; message?: string;
+  location?: EventEnvelope<LocationUpdated>; presence?: EventEnvelope<PresenceUpdated>;
+}
+type Viewer = { count: number; data: OfflinePackage };
+type Publisher = { streamId: string; sequence: number; at: number; busy: boolean; pending?: GpsSample };
+export class TripGpsRuntime {
   private account: string | null = null;
   private token: string | null = null;
   private epoch = 0;
-  private authGeneration = 0;
-  private coordinator?: TripGpsCoordinator;
+  private foreground = true;
+  private uploader?: TripGpsUploader;
+  private simulator?: TripGpsSimulator;
+  private collectorId?: string;
+  private collectorRevision = 0;
+  private queue: Promise<unknown> = Promise.resolve();
+  private simulationWrites: Promise<unknown> = Promise.resolve();
+  private simulationFailure: unknown;
   private sockets = new Map<string, TripGpsSocketService>();
-  private viewers = new Map<string, number>();
+  private blockedGroups = new Set<string>();
+  private viewers = new Map<string, Viewer>();
   private publishers = new Map<string, Publisher>();
   private listeners = new Set<(event: RuntimeEvent) => void>();
-  private collectorId: string | undefined;
-  private collectorQueue: Promise<unknown> = Promise.resolve();
-  private simulated = true;
-  private collectorRevision = 0;
   on(listener: (event: RuntimeEvent) => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
-  private emit(event: RuntimeEvent) { this.listeners.forEach(listener => listener(event)); }
+  private emit(event: RuntimeEvent) { for (const listener of this.listeners) listener(event); }
+  private error(e: unknown, tripId?: string) { this.emit({ kind: 'error', tripId, message: e instanceof Error ? e.message : String(e) }); }
   async authenticate(account: string | null, token: string | null) {
     if (account === this.account && token === this.token) return;
-    const authTicket = ++this.authGeneration;
-    const changedAccount = account !== this.account;
-    this.token = token;
-    this.sockets.forEach(s => s.disconnect()); this.sockets.clear();
-    if (changedAccount) {
-      this.account = account; this.epoch++;
-      this.coordinator?.stop(); this.coordinator = undefined;
-      this.publishers.clear(); this.collectorId = undefined; this.simulated = true;
-      setCollectorSimulation(true);
-      await stopTripCollector();
-    }
+    const changed = account !== this.account;
+    this.epoch++; this.account = account; this.token = token;
+    this.sockets.forEach(s => s.disconnect()); this.sockets.clear(); this.blockedGroups.clear();
+    this.uploader?.stop(); this.uploader = undefined;
+    await this.suspendCollector();
+    if (changed) { this.publishers.clear(); this.viewers.clear(); }
+    if (!account) return;
     const epoch = this.epoch;
-    if (!account || !token || epoch !== this.epoch || authTicket !== this.authGeneration || account !== this.account) return;
-    this.coordinator ??= new TripGpsCoordinator(account, () => this.account === account && this.epoch === epoch && !!this.token, processed => {
-      this.emit({ kind: 'refresh' }); void this.reconcileCollector().catch(e => this.error(e));
-      if (processed) this.emit({ kind: 'state' });
-    });
-    setCollectorListeners((trip, sample) => {
+    this.uploader = new TripGpsUploader(account, () => this.account === account && this.epoch === epoch, tripId => this.emit({ kind: 'refresh', tripId }));
+    setCollectorListeners((trip, point) => {
       if (trip.accountId !== this.account) return;
-      this.emit({ kind: 'sample', tripId: trip.session.tripId, sample });
-      void this.offer(trip, sample).catch(e => this.error(e, trip.session.tripId));
+      this.emit({ kind: 'sample', tripId: trip.session.tripId, sample: point });
+      void this.offer(trip, point).catch(() => {});
     }, message => this.emit({ kind: 'error', message }));
-    const trips = await listLocalTrips(account);
-    if (epoch !== this.epoch || authTicket !== this.authGeneration) return;
-    trips.forEach(t => {
-      if (!t.finalProcessed && !t.accessBlocked) {
-        if (t.session.status === 'ACTIVE') this.ensureSocket(t.session.tripId);
-        if (t.session.status === 'STOPPED' || t.controlSyncMode === 'IMMEDIATE_LEGACY') this.coordinator?.trigger(t.session.id);
-      }
-    });
-    this.viewers.forEach((count, tripId) => { if (count) this.ensureSocket(tripId); });
     await this.reconcileCollector();
+    for (const view of this.viewers.values()) this.ensureSocket(view.data);
+    void this.sync().catch(e => this.error(e));
   }
-  private error(error: unknown, tripId?: string) { this.emit({ kind: 'error', tripId, message: error instanceof Error ? error.message : String(error) }); }
-  watch(tripId: string) {
-    this.viewers.set(tripId, (this.viewers.get(tripId) ?? 0) + 1);
-    this.ensureSocket(tripId)?.setViewing(true);
-    return () => {
-      const count = Math.max(0, (this.viewers.get(tripId) ?? 1) - 1); this.viewers.set(tripId, count);
-      if (!count) {
-        this.sockets.get(tripId)?.setViewing(false);
-        void this.releaseIdleSocket(tripId);
-      }
-    };
-  }
-  private async releaseIdleSocket(tripId: string) {
-    if (!this.account) return;
-    const account = this.account;
-    const trips = await listLocalTrips(account, tripId);
-    if (account !== this.account || this.viewers.get(tripId)) return;
-    if (!trips.some(t => t.session.status === 'ACTIVE' && !t.accessBlocked)) { this.sockets.get(tripId)?.disconnect(); this.sockets.delete(tripId); }
-  }
-  private ensureSocket(tripId: string) {
-    if (!this.account || !this.token) return;
-    let socket = this.sockets.get(tripId);
-    if (socket) return socket;
-    socket = new TripGpsSocketService(); this.sockets.set(tripId, socket);
-    const epoch = this.epoch, account = this.account;
-    const valid = () => epoch === this.epoch && account === this.account;
-    socket.connect(this.token, tripId, {
-      onConnect: () => {
-        if (!valid()) return;
-        this.emit({ kind: 'socket', tripId, connected: true });
-        void this.reconnectLatest(tripId).catch(e => this.error(e, tripId));
-      },
-      onSubscribed: () => { if (valid()) this.emit({ kind: 'state', tripId }); },
-      onDisconnect: () => { if (valid()) this.emit({ kind: 'socket', tripId, connected: false }); },
-      onMemberUpdated: member => { if (valid()) this.emit({ kind: 'member', tripId, member }); },
-      onLocationUpdated: location => { if (valid()) this.emit({ kind: 'location', tripId, location }); },
-      onPresenceUpdated: presence => { if (valid()) this.emit({ kind: 'presence', tripId, presence }); },
-      onTripChanged: () => { if (valid()) this.emit({ kind: 'state', tripId }); },
-      onRouteReady: () => { if (valid()) { this.emit({ kind: 'state', tripId }); void this.sync(tripId); } },
-      onRouteFailed: () => { if (valid()) this.emit({ kind: 'refresh', tripId }); },
-      onAccessRevoked: () => {
-        if (!valid()) return;
-        void this.denyAccess(tripId).catch(e => this.error(e, tripId));
-      },
-    }, { viewing: !!this.viewers.get(tripId), protocolVersion: 2 });
-    return socket;
-  }
-  isConnected(tripId: string) { return this.sockets.get(tripId)?.isConnected() ?? false; }
-  async denyAccess(tripId: string) {
-    if (!this.account) return;
-    const account = this.account, epoch = this.epoch;
-    const trips = await listLocalTrips(account, tripId);
-    if (epoch !== this.epoch) return;
-    for (const trip of trips) await changeLocalTrip(account, trip.session.id, local => {
-      local.accessBlocked = true; local.syncStatus = 'NEEDS_ATTENTION';
-      local.lastError = 'Quyền GPS đã bị thu hồi. Dữ liệu chưa đồng bộ vẫn được giữ trên máy.';
-    });
-    if (epoch !== this.epoch) return;
-    await this.reconcileCollector();
-    if (epoch !== this.epoch) return;
-    this.sockets.get(tripId)?.disconnect(); this.sockets.delete(tripId);
-    this.emit({ kind: 'refresh', tripId });
-    this.emit({ kind: 'error', tripId, message: 'Quyền GPS đã bị thu hồi. Dữ liệu local được giữ trên máy.' });
-  }
-  async sync(tripId?: string, manual = false) {
-    if (!this.account) return;
-    const account = this.account, epoch = this.epoch;
-    const trips = await listLocalTrips(account, tripId);
-    if (epoch !== this.epoch) return;
-    trips.forEach(t => { if (t.session.status === 'STOPPED' && !t.finalProcessed && !t.accessBlocked) this.coordinator?.trigger(t.session.id, manual); });
-  }
-  async syncMetadata(tripId?: string) {
-    if (!this.account) return;
-    const epoch = this.epoch;
-    const trips = await listLocalTrips(this.account, tripId);
-    if (epoch !== this.epoch) return;
-    trips.forEach(t => { if (t.controlSyncMode === 'IMMEDIATE_LEGACY' && t.session.status !== 'STOPPED' && !t.accessBlocked) this.coordinator?.trigger(t.session.id, true); });
+  setForeground(value: boolean) {
+    if (value === this.foreground) return;
+    this.foreground = value;
+    if (!value) { this.simulator?.pause(); this.sockets.forEach(s => s.disconnect()); this.sockets.clear(); }
+    else { void this.reconcileCollector().catch(e => this.error(e)); void this.reconnect().catch(e => this.error(e)); }
   }
   async reconnect() {
-    await this.sync(undefined, true);
-    await this.syncMetadata();
-    for (const tripId of this.sockets.keys()) await this.reconnectLatest(tripId);
+    this.blockedGroups.clear();
+    if (!this.foreground) return;
+    void this.sync(true).catch(e => this.error(e));
+    for (const view of this.viewers.values()) this.ensureSocket(view.data);
+    if (this.account) for (const trip of await listLocalTrips(this.account)) if (trip.session.status === 'ACTIVE') this.ensureSocket(trip.package);
   }
-  async reconcileCollector(requestPermissions = false) {
-    const result = this.collectorQueue.then(async () => {
+  watch(data: OfflinePackage) {
+    const id = data.snapshot.tripId;
+    this.viewers.set(id, { data, count: (this.viewers.get(id)?.count ?? 0) + 1 });
+    this.ensureSocket(data)?.setViewing(true);
+    return () => {
+      const view = this.viewers.get(id); if (!view) return;
+      view.count--; if (view.count <= 0) { this.viewers.delete(id); this.sockets.get(id)?.setViewing(false); void this.release(id); }
+    };
+  }
+  private async release(tripId: string) {
+    const account = this.account;
+    if (!account || this.viewers.has(tripId)) return;
+    if ((await listLocalTrips(account, tripId)).some(t => t.session.status === 'ACTIVE')) return;
+    if (this.account !== account || this.viewers.has(tripId)) return;
+    this.sockets.get(tripId)?.disconnect(); this.sockets.delete(tripId);
+  }
+  isConnected(tripId: string) { return this.sockets.get(tripId)?.isConnected() ?? false; }
+  private sharingAllowed(data: OfflinePackage) {
+    const now = Date.now(); return now >= Date.parse(data.groupSharingFrom) && now <= Date.parse(data.groupSharingUntil);
+  }
+  private ensureSocket(data: OfflinePackage) {
+    const tripId = data.snapshot.tripId;
+    if (!this.account || !this.token || !this.foreground || !this.sharingAllowed(data) || this.blockedGroups.has(tripId)) return;
+    const existing = this.sockets.get(tripId); if (existing) return existing;
+    const socket = new TripGpsSocketService(), epoch = this.epoch;
+    const valid = () => this.epoch === epoch;
+    this.sockets.set(tripId, socket);
+    socket.connect(this.token, tripId, {
+      onConnect: () => { if (valid()) this.emit({ kind: 'socket', tripId, connected: true }); },
+      onDisconnect: () => { if (valid()) this.emit({ kind: 'socket', tripId, connected: false }); },
+      onSubscribed: () => { if (valid()) this.emit({ kind: 'state', tripId }); },
+      onLocationUpdated: location => { if (valid() && location.contractVersion === 'trip-gps/3.0.0') this.emit({ kind: 'location', tripId, location }); },
+      onPresenceUpdated: presence => { if (valid() && presence.contractVersion === 'trip-gps/3.0.0') this.emit({ kind: 'presence', tripId, presence }); },
+      onError: error => {
+        const code = error?.data?.error?.code ?? error?.code;
+        if (valid() && ['FORBIDDEN', 'GPS_INVALID_SESSION_STATE'].includes(code)) { this.blockedGroups.add(tripId); socket.disconnect(); this.sockets.delete(tripId); }
+      },
+    }, { viewing: this.viewers.has(tripId), protocolVersion: 3 });
+    return socket;
+  }
+  private async haltCollector() {
+    this.simulator?.stop(); this.simulator = undefined; this.collectorId = undefined;
+    await this.simulationWrites;
+    await stopTripCollector();
+    if (this.simulationFailure) { const error = this.simulationFailure; this.simulationFailure = undefined; throw error; }
+  }
+  async suspendCollector() { this.collectorRevision++; await this.haltCollector(); }
+  reconcileCollector(_permissions = false): Promise<void> {
+    const ticket = ++this.collectorRevision;
+    const run = this.queue.then(async () => {
       const account = this.account, epoch = this.epoch;
-      const revision = this.collectorRevision;
-      if (!account || !this.token) return;
-      const trip = (await listLocalTrips(account)).find(t => t.session.status === 'ACTIVE' && !t.accessBlocked);
-      if (epoch !== this.epoch || revision !== this.collectorRevision) return;
-      const nextId = undefined; // Trip recording is currently fake-only.
-      if (this.collectorId === nextId && !requestPermissions) return;
-      this.collectorId = nextId;
-      await stopTripCollector();
-      if (trip) this.ensureSocket(trip.session.tripId);
+      if (!account || ticket !== this.collectorRevision) return;
+      const trip = (await listLocalTrips(account)).find(t => t.session.status === 'ACTIVE');
+      if (epoch !== this.epoch || ticket !== this.collectorRevision) return;
+      if (!trip) { await this.haltCollector(); for (const id of this.sockets.keys()) void this.release(id); return; }
+      this.ensureSocket(trip.package);
+      if (this.collectorId === trip.session.id && this.simulator) { if (this.foreground) this.simulator.resume(); return; }
+      await this.haltCollector();
+      const plans = await packageRoutes(trip.package), plan = plans.find(p => p.trailPlanId === trip.package.snapshot.activeTrailPlanId) ?? plans[0];
+      const routeSegments = plan?.geometry?.type === 'MultiLineString' ? plan.geometry.coordinates : [plan?.geometry?.coordinates ?? []];
+      if (!routeSegments.some(segment => segment.length >= 2)) throw new Error('Tuyến chưa đủ điểm để chạy fake GPS. Hãy tải lại tuyến.');
+      if (epoch !== this.epoch || ticket !== this.collectorRevision) return;
+      const samples = await localSamples(account, trip.session.id);
+      if (epoch !== this.epoch || ticket !== this.collectorRevision) return;
+      this.collectorId = trip.session.id;
+      this.simulator = new TripGpsSimulator({ routeCoords: [], routeSegments, intervalMs: Math.max(1000, trip.policy.sampleIntervalSeconds * 1000) });
+      this.simulator.setProgress(trip.simulatorDistanceM ?? getLocalTripDistance(samples, trip.session.recordingIntervals, trip.policy.signalGapSeconds));
+      this.simulator.start((location, segmentIndex = 0) => {
+        if (epoch !== this.epoch || this.collectorId !== trip.session.id || !this.foreground) return;
+        const progressM = this.simulator?.progressM;
+        const write = this.simulationWrites.then(async () => {
+          if (epoch !== this.epoch) return;
+          let current = await readLocalTrip(account, trip.session.id);
+          if (current.session.status !== 'ACTIVE') return;
+          if ((current.simulatorSegment ?? 0) !== segmentIndex) {
+            // Mark the simulated discontinuity as separate active intervals, not travelled distance.
+            await commitControl(account, trip.session.id, 'PAUSE');
+            await commitControl(account, trip.session.id, 'RESUME');
+            current = await changeLocalTrip(account, trip.session.id, t => { t.simulatorSegment = segmentIndex; });
+            this.emit({ kind: 'refresh', tripId: trip.session.tripId });
+          }
+          const boundary = Date.parse(current.session.recordingIntervals!.at(-1)!.start);
+          await ingestLocations(account, trip.session.id, [{ ...location, timestamp: Math.max(location.timestamp, boundary) }], 'SIMULATOR');
+          if (progressM !== undefined) await changeLocalTrip(account, trip.session.id, t => { t.simulatorDistanceM = progressM; });
+        });
+        this.simulationWrites = write.catch(e => { this.simulationFailure = e; this.simulator?.pause(); this.error(e, trip.session.tripId); });
+      }, !this.foreground);
     });
-    this.collectorQueue = result.catch(() => {});
-    return result;
+    this.queue = run.catch(() => {}); return run;
   }
-  async suspendCollector() { this.collectorRevision++; this.collectorId = undefined; await stopTripCollector(); }
-  async setSimulated(value: boolean) {
-    value = true; // Keep old callers from re-enabling a real trip collector.
-    setCollectorSimulation(true);
-    if (this.simulated === value) return;
-    this.simulated = value; this.collectorRevision++; this.collectorId = undefined;
-    await stopTripCollector(); await this.reconcileCollector();
-  }
-  private async reconnectLatest(tripId: string) {
-    if (!this.account) return;
-    const epoch = this.epoch, account = this.account;
-    for (const trip of await listLocalTrips(account, tripId)) {
-      if (trip.session.status !== 'ACTIVE' || trip.accessBlocked) continue;
-      const latest = (await localSamples(account, trip.session.id)).at(-1);
-      if (epoch !== this.epoch) return;
-      if (latest) await this.offer(trip, latest, true);
-    }
-  }
-  private async offer(trip: LocalTrip, sample: GpsSample, force = false) {
-    if (trip.accountId !== this.account || trip.accessBlocked) return;
-    let publisher = this.publishers.get(trip.session.id);
-    if (!publisher) { publisher = { at: 0, busy: false, force: true, processor: new GpsProcessor() }; this.publishers.set(trip.session.id, publisher); }
-    if (publisher.pending && Date.parse(publisher.pending.recordedAt) > Date.parse(sample.recordedAt)) return;
-    if (!force) {
-      const accepted = publisher.processor.process({ timestamp: Date.parse(sample.recordedAt), coords: { latitude: sample.latitude, longitude: sample.longitude, accuracy: sample.accuracyM, altitude: sample.altitudeM ?? null, altitudeAccuracy: null, speed: sample.speedMps ?? null, heading: sample.headingDeg ?? null } });
-      // Sensor speed provides movement evidence for the slower, sub-5 m publishing path.
-      if (!accepted.accepted && !(accepted.reason === 'GPS_JITTER' && (sample.speedMps ?? 0) > 0)) return;
-    }
-    publisher.pending = sample; publisher.force ||= force;
-    await this.pump(trip, publisher);
-  }
-  private async pump(trip: LocalTrip, publisher: Publisher) {
-    const socket = this.sockets.get(trip.session.tripId), point = publisher.pending;
-    if (publisher.busy || !point || !socket?.isConnected() || trip.accountId !== this.account) return;
+  async sync(manual = false) { await this.uploader?.sync(manual); }
+  private async offer(trip: LocalTrip, point: GpsSample) {
+    if (this.account !== trip.accountId || !this.foreground || !this.sharingAllowed(trip.package)) return;
+    if (point.accuracyM > trip.policy.maxAcceptedAccuracyM) return;
+    const publisher = this.publishers.get(trip.session.id) ?? { streamId: generateUUID(), sequence: 0, at: 0, busy: false };
+    this.publishers.set(trip.session.id, publisher); publisher.pending = point;
+    const socket = this.ensureSocket(trip.package);
+    if (!socket?.isConnected() || publisher.busy || Date.now() - publisher.at < Math.max(5, trip.limits.publishMinIntervalSeconds) * 1000) return;
     const age = Date.now() - Date.parse(point.recordedAt);
-    if (age > trip.policy.liveLocationMaxAgeSeconds * 1000 || age < -trip.policy.maxFutureSkewSeconds * 1000) { publisher.pending = undefined; return; }
-    const distance = publisher.last ? distanceMeters(publisher.last, point) : Infinity;
-    const elapsed = Date.now() - publisher.at;
-    if (!publisher.force && publisher.last && !((elapsed >= trip.limits!.publishMinIntervalSeconds * 1000 && distance >= trip.limits!.publishMinDistanceM) || (elapsed >= trip.limits!.publishMovingMaxIntervalSeconds * 1000 && distance > 0))) return;
-    publisher.busy = true;
-    const epoch = this.epoch;
-    const sentAt = Date.now();
+    if (age > trip.policy.liveLocationMaxAgeSeconds * 1000 || age < -trip.policy.maxFutureSkewSeconds * 1000) return;
+    publisher.busy = true; publisher.at = Date.now(); const epoch = this.epoch;
     try {
-      const current = await changeLocalTrip(trip.accountId, trip.session.id, t => { t.publishSequence++; });
-      if (epoch !== this.epoch || current.session.status !== 'ACTIVE' || current.accessBlocked) return;
-      if (current.controlSyncMode === 'IMMEDIATE_LEGACY' && current.metadataRevision !== current.localRevision) return;
-      const ack = await socket.publish({ requestId: generateUUID(), tripId: trip.session.tripId, sessionId: trip.session.id,
-        deviceId: trip.session.deviceId, sequence: current.publishSequence, location: point });
-      if (ack.applied) { publisher.last = point; publisher.at = sentAt; publisher.force = false; }
+      const current = await readLocalTrip(trip.accountId, trip.session.id);
+      if (epoch !== this.epoch || current.session.status !== 'ACTIVE' || (await readStoredAuth())?.user.id !== trip.accountId) return;
+      await socket.publish({ protocolVersion: 3, eventId: generateUUID(), tripId: trip.session.tripId, deviceId: trip.session.deviceId, streamId: publisher.streamId, sequence: ++publisher.sequence, source: trip.source, location: point });
       if (publisher.pending === point) publisher.pending = undefined;
-    } catch (error) {
-      if (epoch === this.epoch && (error as { code?: string })?.code === 'FORBIDDEN') {
-        publisher.pending = undefined;
-        await this.denyAccess(trip.session.tripId);
-      }
-      // Other socket errors keep only the latest local point for a new sample/reconnect.
-    }
-    finally {
-      publisher.busy = false;
-      if (publisher.pending && publisher.pending !== point && epoch === this.epoch) void this.pump(trip, publisher).catch(e => this.error(e, trip.session.tripId));
-    }
+    } catch (e) {
+      if (['FORBIDDEN', 'GPS_INVALID_SESSION_STATE'].includes((e as { code?: string }).code ?? '')) { this.blockedGroups.add(trip.session.tripId); socket.disconnect(); this.sockets.delete(trip.session.tripId); }
+    } finally { publisher.busy = false; }
   }
 }
 export const tripGpsRuntime = new TripGpsRuntime();

@@ -3,10 +3,11 @@ import * as TaskManager from 'expo-task-manager';
 import { Platform } from 'react-native';
 import { readStoredAuth } from '@/features/auth/storage';
 import { createDeterministicUuid } from '@/services/storage/recordingDatabase';
-import { appendSample, changeLocalTrip, listLocalTrips, readLocalTrip, type LocalTrip } from './trip-gps.v2-storage';
+import { appendSample, changeLocalTrip, listLocalTrips, readLocalTrip } from './trip-gps.local';
+import type { LocalTrip } from '../contract';
 import type { GpsSample } from '../types';
 
-export const TRIP_GPS_BACKGROUND_TASK = 'trekgo-trip-gps-v2-location';
+export const TRIP_GPS_BACKGROUND_TASK = 'trekgo-trip-gps-location';
 type SampleListener = (trip: LocalTrip, sample: GpsSample) => void;
 let listener: SampleListener | undefined;
 let errorListener: ((message: string) => void) | undefined;
@@ -27,7 +28,7 @@ export function ingestLocations(account: string, id: string, locations: Location
       if (simulationSelected !== (source === 'SIMULATOR')) continue;
       const c = location.coords;
       if (!Number.isFinite(location.timestamp) || !Number.isFinite(c.latitude) || !Number.isFinite(c.longitude) ||
-        Math.abs(c.latitude) > 90 || Math.abs(c.longitude) > 180 || c.accuracy == null || !Number.isFinite(c.accuracy) || c.accuracy < 0 || c.accuracy > trip.policy.maxAcceptedAccuracyM) continue;
+        Math.abs(c.latitude) > 90 || Math.abs(c.longitude) > 180 || c.accuracy == null || !Number.isFinite(c.accuracy) || c.accuracy < 0 || c.accuracy > 99999) continue;
       if (location.timestamp > Date.now() + trip.policy.maxFutureSkewSeconds * 1000) continue;
       const sample: GpsSample = {
         clientSampleId: createDeterministicUuid(`${id}:${location.timestamp}:${c.latitude}:${c.longitude}`),
@@ -53,7 +54,7 @@ if (Platform.OS !== 'web') TaskManager.defineTask<{ locations: Location.Location
   try {
     const auth = await readStoredAuth();
     if (!auth) return;
-    const active = (await listLocalTrips(auth.user.id)).filter(t => t.session.status === 'ACTIVE' && !t.accessBlocked);
+    const active = (await listLocalTrips(auth.user.id)).filter(t => t.session.status === 'ACTIVE');
     for (const trip of active) {
       try {
         if (error) throw error;
@@ -65,7 +66,11 @@ if (Platform.OS !== 'web') TaskManager.defineTask<{ locations: Location.Location
 
 async function stopNative() {
   subscription?.remove(); subscription = undefined;
-  if (Platform.OS !== 'web' && await Location.hasStartedLocationUpdatesAsync(TRIP_GPS_BACKGROUND_TASK)) await Location.stopLocationUpdatesAsync(TRIP_GPS_BACKGROUND_TASK);
+  if (Platform.OS !== 'web') {
+    for (const task of [TRIP_GPS_BACKGROUND_TASK, 'trekgo-trip-gps-v2-location']) {
+      if (await Location.hasStartedLocationUpdatesAsync(task)) await Location.stopLocationUpdatesAsync(task);
+    }
+  }
 }
 export function stopTripCollector(): Promise<void> {
   // Preserve failures of writes that Finish is waiting for; the serial queue's

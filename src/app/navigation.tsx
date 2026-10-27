@@ -30,6 +30,7 @@ export default function NavigationScreen() {
     tripId?: string;
     tripType?: 'PUBLIC' | 'PRIVATE';
     tripTitle?: string;
+    localSessionId?: string;
   }>();
   const insets = useSafeAreaInsets();
   const effectiveTripId = params.tripId || '';
@@ -42,9 +43,10 @@ export default function NavigationScreen() {
     gpsState,
     session,
     myMemberState,
-    otherMembers,
     plannedRouteCoords,
-    liveRouteCoords,
+    plannedRouteSegments,
+    liveRouteSegments,
+    summaryRouteSegments,
     summaryRouteCoords,
     currentLocation,
     checkpoints,
@@ -57,7 +59,7 @@ export default function NavigationScreen() {
     syncing,
     syncStatus,
     syncNow,
-    isV2,
+    isV3,
     rejectedSampleCount,
     error,
     socketConnected,
@@ -68,8 +70,14 @@ export default function NavigationScreen() {
     pauseRecording,
     resumeRecording,
     finishRecording,
-    refreshState,
-  } = useTripGps(effectiveTripId);
+    prepareOffline,
+    downloading,
+    packageReady,
+    packageExpiry,
+    otherSession,
+    legacyCount,
+    groupError,
+  } = useTripGps(effectiveTripId, params.localSessionId);
 
   // Modals state
   const [rosterDrawerVisible, setRosterDrawerVisible] = useState(false);
@@ -284,8 +292,8 @@ export default function NavigationScreen() {
   // Session Control Actions with Alerts
   const handleStart = useCallback(async () => {
     if (loading || finishActionLockedRef.current) return;
-    await startRecording();
-  }, [startRecording, loading]);
+    if (await startRecording()) router.setParams({ localSessionId: undefined });
+  }, [startRecording, loading, router]);
 
   const handlePause = useCallback(async () => {
     if (loading || finishActionLockedRef.current) return;
@@ -344,7 +352,14 @@ export default function NavigationScreen() {
         <View style={styles.topHudLeft}>
           <TouchableOpacity
             style={styles.backBtn}
-            onPress={() => router.back()}
+            onPress={() => {
+              if (session && session.status !== 'STOPPED') Alert.alert('Rời màn ghi GPS?', 'Phiên vẫn được giữ trên máy. Fake GPS chỉ chạy khi ứng dụng đang mở.', [
+                { text: 'Ở lại', style: 'cancel' },
+                { text: 'Tiếp tục ghi', onPress: () => router.back() },
+                { text: 'Kết thúc và rời đi', onPress: async () => { if (await finishRecording()) router.back(); } },
+              ]);
+              else router.back();
+            }}
             activeOpacity={0.7}
           >
             <Ionicons name="arrow-back" size={20} color={Colors.ink} />
@@ -370,7 +385,7 @@ export default function NavigationScreen() {
               ]}
             />
             <Text style={styles.statusPillText}>
-              {socketConnected ? 'LIVE' : 'POLLING'}
+              {socketConnected ? 'NHÓM' : 'LOCAL'}
             </Text>
           </View>
 
@@ -411,8 +426,8 @@ export default function NavigationScreen() {
           followUser={isFollowingUser && isSessionActive && !isSessionPaused}
           onUserInteraction={handleUserMapInteraction}
           onBearingChange={setCurrentBearing}
-          plannedRoute={plannedRouteCoords}
-          traveledRoute={liveRouteCoords}
+          plannedRoute={plannedRouteSegments}
+          traveledRoute={liveRouteSegments}
           currentPosition={mapCurrentPosition}
           checkpoints={mapCheckpoints}
           groupMembers={mapGroupMembers}
@@ -585,7 +600,7 @@ export default function NavigationScreen() {
         )}
 
         {/* Syncing spinner badge */}
-        {syncing && !isV2 && (
+        {syncing && !isV3 && (
           <View style={styles.syncingBadge}>
             <ActivityIndicator size="small" color={Colors.ink} />
             <Text style={styles.syncingText}>Đang đồng bộ SQLite...</Text>
@@ -595,7 +610,17 @@ export default function NavigationScreen() {
 
       {/* 3. COMPACT DASHBOARD & CONTROLS PANEL (~1/3 màn hình, thiết kế Scandinavian Wise) */}
       <View style={[styles.bottomPanel, { paddingBottom: Math.max(insets.bottom, 16) }]}>
-        {isV2 && session?.status === 'STOPPED' && (
+        {otherSession && <TouchableOpacity style={styles.syncAction} onPress={() => router.push({ pathname: '/navigation', params: { tripId: otherSession.session.tripId, tripTitle: otherSession.package.snapshot.title } })}>
+          <Text style={{ flex: 1, color: Colors.ink }}>Bạn còn phiên GPS ở “{otherSession.package.snapshot.title}”. Bấm để mở và kết thúc.</Text>
+          <Ionicons name="arrow-forward" size={20} color={Colors.ink} />
+        </TouchableOpacity>}
+        {legacyCount > 0 && <Text style={{ color: Colors.warning, padding: 8 }}>Còn {legacyCount} phiên GPS cũ trên máy cần đối soát. Dữ liệu được giữ nguyên, không chặn ghi mới.</Text>}
+        {isSessionStopped && <TouchableOpacity style={styles.syncAction} disabled={downloading} onPress={() => { void prepareOffline(); }}>
+          {downloading ? <ActivityIndicator /> : <Ionicons name="download-outline" size={22} color={Colors.ink} />}
+          <Text style={{ flex: 1, color: Colors.ink }}>{downloading ? 'Đang tải dữ liệu chuyến…' : packageReady ? `Đã tải tuyến · Cập nhật${packageExpiry ? ` · Hạn ${new Date(packageExpiry).toLocaleDateString('vi-VN')}` : ''}` : 'Tải tuyến để ghi GPS offline'}</Text>
+        </TouchableOpacity>}
+        {groupError && <Text style={{ color: Colors.body, fontSize: 12, paddingHorizontal: 8 }}>{groupError}</Text>}
+        {isV3 && session?.status === 'STOPPED' && (
           <TouchableOpacity
             accessibilityRole="button"
             accessibilityLabel={syncStatus === 'SYNCED' ? 'Đã đồng bộ lịch sử GPS' : 'Đồng bộ lịch sử GPS'}
@@ -808,11 +833,12 @@ export default function NavigationScreen() {
 
       {/* Trip Result Summary Modal */}
       <TripGpsResultModal
+        routeSegments={summaryRouteSegments}
         visible={resultModalVisible}
         actualRoute={actualRoute}
         liveRouteCoords={summaryRouteCoords}
         stats={stats}
-        syncStatus={isV2 ? syncStatus : undefined}
+        syncStatus={isV3 ? syncStatus : undefined}
         rejectedSampleCount={rejectedSampleCount}
         onClose={() => setResultModalVisible(false)}
       />

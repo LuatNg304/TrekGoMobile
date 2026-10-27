@@ -74,7 +74,7 @@ export function TripGpsRosterDrawer({
                   : 'Chưa có vị trí';
               const statusText = m.connectionStatus
                 ? `${m.connectionStatus === 'ONLINE' ? 'Online' : m.connectionStatus === 'OFFLINE' ? 'Offline' : 'Chưa rõ kết nối'} · ${m.session?.status === 'PAUSED' ? 'Tạm dừng' : m.session?.status === 'STOPPED' ? 'Đã dừng' : m.locationFreshness === 'STALE' ? 'Vị trí cũ' : m.locationFreshness === 'NO_DATA' ? 'Chưa có vị trí' : 'Đang ghi'}`
-                : legacyStatusText;
+                : `${legacyStatusText}${m.source === 'SIMULATOR' ? ' · GPS mô phỏng' : ''}`;
 
               const roleLabel = isHost ? 'Chủ phòng' : isLeader ? 'Leader' : 'Thành viên';
               const roleBg = isLeader ? '#fef3c7' : isHost ? Colors.primaryPale : Colors.surfaceContainer;

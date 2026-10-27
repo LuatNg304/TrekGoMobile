@@ -20,6 +20,7 @@ interface TripGpsResultModalProps {
   visible: boolean;
   actualRoute: ActualRouteResponse | null;
   liveRouteCoords?: [number, number][];
+  routeSegments?: [number, number][][];
   stats?: {
     recordingTime?: string;
     distanceKm?: string;
@@ -33,6 +34,7 @@ export function TripGpsResultModal({
   visible,
   actualRoute,
   liveRouteCoords,
+  routeSegments,
   stats,
   onClose,
   syncStatus,
@@ -67,6 +69,7 @@ export function TripGpsResultModal({
             <View style={styles.routeArtWrapper}>
               <TripGpsRouteArt
                 coordinates={routeCoords}
+                segments={routeSegments}
                 distanceKm={distanceKm}
                 height={165}
                 theme="dark"

@@ -1,96 +1,53 @@
-import { Colors, Radius } from "@/constants/theme";
-import { Ionicons } from "@expo/vector-icons";
-import { useFocusEffect, useRouter } from "expo-router";
-import React, { useCallback, useState } from "react";
-import { Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { endGpsTrip, getGpsContext } from "@/features/trip-gps/services/trip-gps.api";
+import { useCallback, useState } from 'react';
+import { Alert, Text, TouchableOpacity, View } from 'react-native';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { useAuth } from '@/features/auth/AuthContext';
+import { listLocalTrips, getPackage, downloadPackage } from '@/features/trip-gps/services/trip-gps.local';
+import { gpsRequest, gpsBase, fetchGroup } from '@/features/trip-gps/services/trip-gps.client';
+import { Colors, Radius } from '@/constants/theme';
 
-interface TripGpsButtonProps {
-  tripId: string;
-  tripType: "PUBLIC" | "PRIVATE";
-  tripTitle: string;
-  tripStatus: string;
-}
-
-const isEnded = (status: string) => ['COMPLETED', 'INTERRUPTED', 'CANCELLED'].includes(status);
-
-export function TripGpsButton({ tripId, tripType, tripTitle, tripStatus }: TripGpsButtonProps) {
-  const router = useRouter();
-  const [canEnd, setCanEnd] = useState(false);
-  const [ending, setEnding] = useState(false);
-  const [serverTrip, setServerTrip] = useState<{ id: string; status: string } | null>(null);
+interface Props { tripId: string; tripType: 'PUBLIC' | 'PRIVATE'; tripTitle: string; tripStatus: string }
+export function TripGpsButton({ tripId, tripType, tripTitle, tripStatus }: Props) {
+  const router = useRouter(), { user } = useAuth();
+  const account = user?.id;
+  const [opened, setOpened] = useState(false), [ready, setReady] = useState(false), [busy, setBusy] = useState(false), [canEnd, setCanEnd] = useState(false);
+  const [ended, setEnded] = useState(false);
+  const reload = useCallback(async () => {
+    if (!account) return;
+    const [trips, pkg] = await Promise.all([listLocalTrips(account, tripId), getPackage(account, tripId)]);
+    setOpened(trips.some(t => t.session.status !== 'STOPPED')); setReady(!!pkg);
+  }, [account, tripId]);
   useFocusEffect(useCallback(() => {
-    let active = true;
-    setCanEnd(false);
-    const refresh = () => getGpsContext(tripId).then(ctx => {
-      if (active) {
-        setServerTrip(previous => previous?.id === tripId && isEnded(previous.status)
-          ? previous : { id: tripId, status: ctx.tripStatus });
-        setCanEnd(ctx.permissions.canManageTrip && ctx.tripStatus === 'IN_PROGRESS');
-      }
-    }).catch(() => {
-      if (active) {
-        setCanEnd(false);
-      }
-    });
-    refresh();
-    const timer = setInterval(refresh, 20000);
-    return () => { active = false; clearInterval(timer); };
-  }, [tripId]));
-  const confirmEnd = () => Alert.alert('Kết thúc chuyến đi?',
-    'Chuyến sẽ chuyển sang hoàn thành. Thành viên có phiên GPS đang mở được phép ghi tiếp sẽ tự kết thúc phiên cá nhân.', [
-      { text: 'Hủy', style: 'cancel' },
-      { text: 'Kết thúc chuyến', style: 'destructive', onPress: async () => {
-        if (ending) return;
-        setEnding(true);
-        try {
-          await endGpsTrip(tripId);
-          setCanEnd(false);
-          setServerTrip({ id: tripId, status: 'COMPLETED' });
-          Alert.alert('Đã kết thúc chuyến', 'Chuyến đã hoàn thành. Hãy kết thúc phiên GPS cá nhân khi bạn đã dừng ghi.');
-        } catch (err) {
-          Alert.alert('Không thể kết thúc chuyến', err instanceof Error ? err.message : 'Vui lòng thử lại.');
-        } finally { setEnding(false); }
-      } },
-    ]);
-  // Render immediately from the detail screen, then reconcile with the API in the background.
-  const status = serverTrip?.id === tripId ? serverTrip.status : tripStatus;
-  if (['INTERRUPTED', 'CANCELLED'].includes(status)) return null;
-
-  return (
-    <View style={{ flexDirection: 'row', gap: 8 }}>
-    <TouchableOpacity
-      accessibilityRole="button"
-      style={[styles.button, { flex: 1 }]}
-      activeOpacity={0.85}
-      onPress={() => router.push({
-        pathname: "/navigation",
-        params: { tripId, tripType, tripTitle },
-      })}
-    >
-      <Ionicons name="navigate-circle-outline" size={23} color="#FFFFFF" />
-      <Text style={styles.label}>Vào chế độ GPS</Text>
-      <Ionicons name="chevron-forward" size={18} color="#FFFFFF" />
+    let alive = true; setEnded(false); setCanEnd(false);
+    void reload().catch(() => {});
+    if (account && tripStatus === 'IN_PROGRESS') void fetchGroup(account, tripId).then(state => {
+      if (alive) setCanEnd(['HOST', 'LEADER'].includes(state.members.find(m => m.userId === account)?.tripRole ?? ''));
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [reload, account, tripId, tripStatus]));
+  const style = { padding: 15, borderRadius: Radius.lg, backgroundColor: Colors.primaryDark, flexDirection: 'row' as const, alignItems: 'center' as const, gap: 8 };
+  const open = () => router.push({ pathname: '/navigation', params: { tripId, tripType, tripTitle } });
+  return <View style={{ gap: 8 }}>
+    <TouchableOpacity style={style} onPress={open} accessibilityRole="button">
+      <Ionicons name="navigate-circle-outline" size={23} color="#fff" />
+      <Text style={{ color: '#fff', flex: 1, fontWeight: '700' }}>{opened ? 'Phiên GPS cá nhân còn mở · Mở / kết thúc ghi' : 'Vào chế độ GPS'}</Text>
     </TouchableOpacity>
-    {canEnd && <TouchableOpacity accessibilityRole="button" disabled={ending} onPress={confirmEnd}
-      style={[styles.button, { backgroundColor: '#a83232', flex: 1, opacity: ending ? 0.6 : 1 }]}>
-      <Ionicons name="flag-outline" size={20} color="#FFFFFF" />
-      <Text style={styles.label}>{ending ? 'Đang kết thúc...' : 'Kết thúc chuyến'}</Text>
-    </TouchableOpacity>}
-    </View>
-  );
+    <TouchableOpacity style={{ ...style, backgroundColor: Colors.surfaceContainer }} disabled={busy} onPress={async () => {
+      if (!account || busy) return; setBusy(true);
+      try { await downloadPackage(account, tripId); await reload(); Alert.alert('Đã tải dữ liệu chuyến', 'Tuyến và checkpoint đã lưu trên máy. Bản đồ nền vẫn cần kết nối.'); }
+      catch (e) { Alert.alert('Chưa tải được tuyến', e instanceof Error ? e.message : String(e)); }
+      finally { setBusy(false); }
+    }}>
+      <Ionicons name="download-outline" size={20} color={Colors.ink} /><Text style={{ flex: 1, color: Colors.ink }}>{busy ? 'Đang tải…' : ready ? 'Đã có tuyến offline · Cập nhật' : 'Tải trước tuyến chuyến đi'}</Text>
+    </TouchableOpacity>
+    {canEnd && !ended && <TouchableOpacity style={{ ...style, backgroundColor: '#a83232' }} disabled={busy} onPress={() => Alert.alert('Kết thúc chuyến đi?', 'Thao tác hoàn thành chuyến không dừng GPS cá nhân. Bạn vẫn có thể mở phiên và kết thúc ghi sau đó.', [
+      { text: 'Hủy', style: 'cancel' }, { text: 'Kết thúc chuyến', onPress: async () => {
+        if (!account) return; setBusy(true);
+        try { await gpsRequest(account, `${gpsBase(tripId)}/end-trip`, undefined, 'POST'); setEnded(true); setCanEnd(false); Alert.alert('Chuyến đã hoàn thành', 'Nếu còn ghi GPS, bấm “Phiên GPS cá nhân còn mở” để kết thúc ghi.'); }
+        catch (e) { Alert.alert('Chưa kết thúc được chuyến', e instanceof Error ? e.message : String(e)); }
+        finally { setBusy(false); }
+      } },
+    ])}><Ionicons name="flag-outline" size={20} color="#fff" /><Text style={{ color: '#fff' }}>Kết thúc chuyến</Text></TouchableOpacity>}
+  </View>;
 }
-
-const styles = StyleSheet.create({
-  button: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 10,
-    paddingHorizontal: 18,
-    paddingVertical: 16,
-    borderRadius: Radius.lg,
-    backgroundColor: Colors.primaryDark,
-  },
-  label: { flex: 1, color: "#FFFFFF", fontSize: 15, fontWeight: "700" },
-});
