@@ -24,6 +24,7 @@ import {
   getOrCreateDeviceId,
   getPendingCommands,
   getPendingSamples,
+  getLatestSessionSampleTime,
   getTripSessionsWithPendingSamples,
   getSessionCoordinates,
   insertGpsSample,
@@ -97,6 +98,10 @@ export function useTripGps(tripId?: string) {
   const syncTimerRef = useRef<any>(null);
   const pollTimerRef = useRef<any>(null);
   const isSyncingRef = useRef(false);
+  const isFinishingRef = useRef(false);
+  const sampleWritesRef = useRef(new Set<Promise<void>>());
+  const syncIdleWaitersRef = useRef<Array<() => void>>([]);
+  const [trackingRevision, setTrackingRevision] = useState(0);
   const syncPendingRef = useRef(false);
   const gpsProcessorRef = useRef<GpsProcessor>(new GpsProcessor());
   const simulatorRef = useRef<TripGpsSimulator | null>(null);
@@ -114,9 +119,16 @@ export function useTripGps(tripId?: string) {
   // Local Stopwatch & Accumulated Duration (bù trừ lệch giờ giữa thiết bị và server)
   const accumulatedDurationMsRef = useRef<number>(0);
   const localSegmentStartMsRef = useRef<number | null>(null);
+  const finishedClockRef = useRef<{ sessionId: string; stoppedAt: number; durationMs: number } | null>(null);
   const [clockNow, setClockNow] = useState(Date.now());
 
   const syncLocalDurationFromSession = useCallback((sess: SessionDto | null) => {
+    const frozen = finishedClockRef.current;
+    if (sess && frozen?.sessionId === sess.id && (isFinishingRef.current || sess.status === 'STOPPED')) {
+      accumulatedDurationMsRef.current = frozen.durationMs;
+      localSegmentStartMsRef.current = null;
+      return;
+    }
     if (!sess) {
       accumulatedDurationMsRef.current = 0;
       localSegmentStartMsRef.current = null;
@@ -382,7 +394,7 @@ export function useTripGps(tripId?: string) {
     let isCancelled = false;
 
     async function startLocationTracking() {
-      if (session?.status !== 'ACTIVE' || !context?.permissions.canRecord) {
+      if (isFinishingRef.current || session?.status !== 'ACTIVE' || !context?.permissions.canRecord) {
         if (locationSubscriptionRef.current) {
           locationSubscriptionRef.current.remove();
           locationSubscriptionRef.current = null;
@@ -395,7 +407,7 @@ export function useTripGps(tripId?: string) {
 
       // Handler xử lý mẫu tọa độ (áp dụng Map Matching và GpsProcessor)
       const handleLocationSample = async (loc: Location.LocationObject) => {
-        if (isCancelled || !session) return;
+        if (isCancelled || isFinishingRef.current || !session) return;
 
         const accuracy = loc.coords.accuracy ?? 10;
         const maxAcc = policy?.maxAcceptedAccuracyM || 50;
@@ -451,7 +463,13 @@ export function useTripGps(tripId?: string) {
         };
 
         // Lưu tức thì vào SQLite
-        await insertGpsSample(session.id, sample);
+        const write = insertGpsSample(session.id, sample);
+        sampleWritesRef.current.add(write);
+        try {
+          await write;
+        } finally {
+          sampleWritesRef.current.delete(write);
+        }
 
         setCurrentLocation({
           latitude: lat,
@@ -488,6 +506,7 @@ export function useTripGps(tripId?: string) {
           );
         } else {
           const { status } = await Location.requestForegroundPermissionsAsync();
+          if (isCancelled || isFinishingRef.current) return;
           if (status !== 'granted') {
             setError('Cần cấp quyền truy cập vị trí để ghi lộ trình trekking.');
             return;
@@ -495,7 +514,7 @@ export function useTripGps(tripId?: string) {
 
           const intervalSec = policy?.sampleIntervalSeconds || 5;
 
-          locationSubscriptionRef.current = await Location.watchPositionAsync(
+          const subscription = await Location.watchPositionAsync(
             {
               accuracy: Location.Accuracy.High,
               timeInterval: intervalSec * 1000,
@@ -503,6 +522,8 @@ export function useTripGps(tripId?: string) {
             },
             handleLocationSample
           );
+          if (isCancelled || isFinishingRef.current) subscription.remove();
+          else locationSubscriptionRef.current = subscription;
         }
       } catch (err: any) {
         console.warn('[useTripGps] Location tracking error:', err?.message || err);
@@ -521,10 +542,11 @@ export function useTripGps(tripId?: string) {
         simulatorRef.current.stop();
       }
     };
-  }, [context?.permissions.canRecord, session?.status, session?.id, policy, isSimulated, isMapMatchingEnabled, plannedRouteCoords]);
+  }, [context?.permissions.canRecord, session?.status, session?.id, policy, isSimulated, isMapMatchingEnabled, plannedRouteCoords, trackingRevision]);
 
   // 5. Chu kỳ Đồng bộ SQLite -> Backend (Mỗi syncIntervalSeconds)
   const processOutboxSync = useCallback(async () => {
+    if (isFinishingRef.current) return;
     const curSession = sessionRef.current;
     if (!tripId || !curSession) return;
     if (isSyncingRef.current) {
@@ -616,6 +638,7 @@ export function useTripGps(tripId?: string) {
       console.warn('[useTripGps] Outbox sync error:', err?.message || err);
     } finally {
       isSyncingRef.current = false;
+      syncIdleWaitersRef.current.splice(0).forEach((resolve) => resolve());
       setSyncing(false);
       if (syncPendingRef.current) {
         syncPendingRef.current = false;
@@ -636,6 +659,7 @@ export function useTripGps(tripId?: string) {
 
   // 6. Thao tác điều khiển phiên (Start, Pause, Resume, Finish)
   const startRecording = useCallback(async () => {
+    if (isFinishingRef.current) return;
     if (!tripId || !canViewGps || !context?.permissions.canRecord) {
       setError(context?.permissions.cannotRecordReason || 'Chưa đủ điều kiện ghi GPS cho chuyến đi này.');
       return;
@@ -652,6 +676,7 @@ export function useTripGps(tripId?: string) {
       const res = await startGpsSession(tripId, { clientSessionId, deviceId }, deviceId);
       accumulatedDurationMsRef.current = 0;
       localSegmentStartMsRef.current = Date.now();
+      finishedClockRef.current = null;
       setClockNow(Date.now());
       setSession(res.session);
       setPolicy(res.policy);
@@ -674,7 +699,7 @@ export function useTripGps(tripId?: string) {
   }, [tripId, canViewGps, context]);
 
   const pauseRecording = useCallback(async () => {
-    if (!tripId || !session) return;
+    if (!tripId || !session || isFinishingRef.current) return;
     try {
       setLoading(true);
       const commandId = generateUUID();
@@ -709,7 +734,7 @@ export function useTripGps(tripId?: string) {
   }, [tripId, session]);
 
   const resumeRecording = useCallback(async () => {
-    if (!tripId || !session) return;
+    if (!tripId || !session || isFinishingRef.current) return;
     try {
       setLoading(true);
       const commandId = generateUUID();
@@ -740,12 +765,76 @@ export function useTripGps(tripId?: string) {
   }, [tripId, session]);
 
   const finishRecording = useCallback(async () => {
-    if (!tripId || !session) return;
+    const currentSession = sessionRef.current;
+    if (!tripId || !currentSession || isFinishingRef.current) return false;
+    syncLocalDurationFromSession(currentSession);
+    const stoppedAt = Date.now();
+    const durationMs = accumulatedDurationMsRef.current + (
+      currentSession.status === 'ACTIVE' && localSegmentStartMsRef.current != null
+        ? Math.max(0, stoppedAt - localSegmentStartMsRef.current)
+        : 0
+    );
+    finishedClockRef.current = { sessionId: currentSession.id, stoppedAt, durationMs };
+    accumulatedDurationMsRef.current = durationMs;
+    localSegmentStartMsRef.current = null;
+    setClockNow(stoppedAt);
+    isFinishingRef.current = true;
     try {
       setLoading(true);
-      const commandId = generateUUID();
+      setError(null);
+      // Freeze producers first, then drain their writes and the existing uploader.
+      locationSubscriptionRef.current?.remove();
+      locationSubscriptionRef.current = null;
+      simulatorRef.current?.pause();
+      await Promise.all([...sampleWritesRef.current]);
+      if (isSyncingRef.current) {
+        await new Promise<void>((resolve) => syncIdleWaitersRef.current.push(resolve));
+      }
       const deviceId = await getOrCreateDeviceId();
-      const occurredAt = new Date().toISOString();
+      const batchSize = policyRef.current?.maxBatchSamples || 100;
+      while (true) {
+        const samples = await getPendingSamples(currentSession.id, batchSize);
+        if (samples.length === 0) break;
+        const uploaded = await uploadGpsSamples(tripId, currentSession.id, { samples }, deviceId);
+        const accepted = [...uploaded.acceptedSampleIds, ...uploaded.duplicateSampleIds];
+        await markSamplesAccepted(currentSession.id, accepted);
+        await markSamplesRejected(currentSession.id, uploaded.rejectedSamples || []);
+        const handled = new Set([...accepted, ...(uploaded.rejectedSamples || []).map((sample) => sample.clientSampleId)]);
+        if (samples.some((sample) => !handled.has(sample.clientSampleId))) {
+          throw new Error('Chưa đồng bộ hết điểm GPS. Vui lòng thử kết thúc lại.');
+        }
+      }
+      // Polling/socket updates do not carry the session's command version.
+      const fresh = await getGpsSession(tripId, currentSession.id, deviceId);
+      sessionRef.current = fresh.session;
+      setSession(fresh.session);
+      setPolicy(fresh.policy);
+      await saveLocalTripSession(fresh.session, fresh.policy);
+      const latestSampleAt = await getLatestSessionSampleTime(currentSession.id);
+      const occurredAt = new Date(Math.max(
+        stoppedAt,
+        Date.parse(fresh.session.startedAt),
+        ...(fresh.session.recordingIntervals || []).flatMap((interval) =>
+          [Date.parse(interval.start), ...(interval.end ? [Date.parse(interval.end)] : [])]),
+        ...(latestSampleAt ? [Date.parse(latestSampleAt)] : [])
+      )).toISOString();
+
+      // The trip may have stopped this session before the user pressed Finish.
+      const res = fresh.session.status === 'STOPPED'
+        ? { session: fresh.session }
+        : await finishGpsSession(
+            tripId,
+            fresh.session.id,
+            {
+              commandId: generateUUID(),
+              expectedVersion: fresh.session.version,
+              occurredAt,
+              reason: 'USER_FINISHED',
+            },
+            deviceId
+          );
+      sessionRef.current = res.session;
+      setSession(res.session);
 
       if (simulatorRef.current) {
         simulatorRef.current.reset();
@@ -758,28 +847,36 @@ export function useTripGps(tripId?: string) {
       }
       setClockNow(Date.now());
 
-      const res = await finishGpsSession(
-        tripId,
-        session.id,
-        { commandId, expectedVersion: session.version, occurredAt, reason: 'USER_FINISHED' },
-        deviceId
-      );
-      setSession(res.session);
-      await updateLocalSessionStatus(session.id, 'STOPPED', res.session.version, res.session.endedAt, res.session.recordingIntervals);
-      await pruneCompletedSessionSamples(session.id);
+      await updateLocalSessionStatus(currentSession.id, 'STOPPED', res.session.version, res.session.endedAt, res.session.recordingIntervals);
+      await pruneCompletedSessionSamples(currentSession.id);
 
       // Tải lại đường đi thực tế cuối cùng
       getMyActualRoute(tripId).then(setActualRoute).catch(() => {});
       getGpsContext(tripId).then(setContext).catch(() => {});
       return true;
     } catch (err: any) {
-      console.warn('[useTripGps] Finish session error:', err?.message || err);
+      console.warn('[useTripGps] Finish session error:', {
+        sessionId: currentSession.id,
+        sessionStatus: sessionRef.current?.status,
+        sessionVersion: sessionRef.current?.version,
+        status: err instanceof ApiError ? err.status : undefined,
+        code: err instanceof ApiError ? err.code : undefined,
+        details: err instanceof ApiError ? err.details : undefined,
+        message: err?.message,
+      });
       setError(err?.message || 'Lỗi khi kết thúc phiên.');
       return false;
     } finally {
+      isFinishingRef.current = false;
+      if (sessionRef.current?.status !== 'STOPPED') {
+        finishedClockRef.current = null;
+        syncLocalDurationFromSession(sessionRef.current);
+        setClockNow(Date.now());
+      }
+      setTrackingRevision((revision) => revision + 1);
       setLoading(false);
     }
-  }, [tripId, session]);
+  }, [tripId, syncLocalDurationFromSession]);
 
   const toggleSimulation = useCallback((val?: boolean) => {
     setIsSimulated((prev) => (typeof val === 'boolean' ? val : !prev));

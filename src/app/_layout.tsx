@@ -11,6 +11,7 @@ import { useDrizzleStudio } from "expo-drizzle-studio-plugin";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { getDatabase } from "@/services/storage/recordingDatabase";
 import "@/services/location/backgroundLocationTask";
+import { TripGpsLifecycle } from '@/features/trip-gps/TripGpsLifecycle';
 
 // Global font setup: Áp dụng font Roboto cho toàn bộ Text và TextInput của dự án
 const defaultFont = Platform.select({
@@ -57,6 +58,7 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <AuthProvider>
+        <TripGpsLifecycle />
         <AppProvider>
           <RentalSelectionProvider>
             <RootNavigator />

@@ -50,6 +50,7 @@
     "typescript": "~6.0.3"
   },
   "scripts": {
+    "test:trip-gps": "node --test src/features/trip-gps/services/trip-gps.v2.test.cjs src/features/trip-gps/hooks/useTripGpsV2.regression.test.cjs src/utils/gpsProcessor.regression.test.cjs",
     "start": "expo start",
     "reset-project": "node ./scripts/reset-project.js",
     "android": "expo start --android",

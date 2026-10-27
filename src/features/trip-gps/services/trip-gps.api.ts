@@ -24,12 +24,12 @@ export async function endGpsTrip(tripId: string): Promise<{ tripId: string; trip
 }
 
 export async function getGpsContext(tripId: string): Promise<GpsContextResponse> {
-  return apiRequest<GpsContextResponse>(`/api/v1/geo/trips/${encodeURIComponent(tripId)}/gps/context`);
+  return apiRequest<GpsContextResponse>(`/api/v1/geo/trips/${encodeURIComponent(tripId)}/gps/context`, { headers: { 'X-GPS-Protocol': 'trip-gps-sync/2' } });
 }
 
 /** GET /geo/trips/:tripId/gps/state */
 export async function getGpsState(tripId: string): Promise<GpsStateResponse> {
-  return apiRequest<GpsStateResponse>(`/api/v1/geo/trips/${encodeURIComponent(tripId)}/gps/state`);
+  return apiRequest<GpsStateResponse>(`/api/v1/geo/trips/${encodeURIComponent(tripId)}/gps/state`, { headers: { 'X-GPS-Protocol': 'trip-gps-sync/2' } });
 }
 
 /** POST /geo/trips/:tripId/gps/sessions */

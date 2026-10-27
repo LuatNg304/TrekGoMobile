@@ -48,6 +48,10 @@ export type MapRouteCoordinates =
   | [number, number, number?][][];
 
 export interface MapGroupMember {
+  sessionId?: string;
+  locationVersion?: number;
+  recordedAt?: string;
+  connectionStatus?: 'ONLINE' | 'OFFLINE' | 'UNKNOWN';
   userId: string;
   fullName: string;
   avatarUrl?: string | null;
@@ -78,6 +82,7 @@ export interface MapLibre3DViewProps {
   dragRotate?: boolean;
   followUser?: boolean; // Tự động trượt camera bám theo GPS (giữ nguyên mức zoom)
   autoCenterOnUser?: boolean;
+  fitOnPlannedRouteUpdate?: boolean; // Tự căn camera khi tuyến kế hoạch được cập nhật
   onMapReady?: () => void;
   onCheckpointPress?: (checkpointId: string) => void;
   onMemberPress?: (userId: string, fullName: string) => void;
@@ -121,6 +126,7 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
       dragRotate = true, // Cho phép xoay tròn 360 độ ở cả 2D và 3D để quan sát địa hình mọi hướng
       followUser = false,
       autoCenterOnUser = false,
+      fitOnPlannedRouteUpdate = true,
       onMapReady,
       onCheckpointPress,
       onMemberPress,
@@ -227,9 +233,9 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
     useEffect(() => {
       if (!isLoaded) return;
       runInMap(`
-        updatePlannedRoute(${JSON.stringify(plannedRoute)});
+        updatePlannedRoute(${JSON.stringify(plannedRoute)}, ${Boolean(fitOnPlannedRouteUpdate)});
       `);
-    }, [plannedRoute, isLoaded]);
+    }, [plannedRoute, isLoaded, fitOnPlannedRouteUpdate]);
 
     // Khi showEndpoints thay đổi
     useEffect(() => {
@@ -674,7 +680,7 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
       return null;
     }
 
-    window.updatePlannedRoute = function(coords) {
+    window.updatePlannedRoute = function(coords, fitCamera) {
       currentPlannedCoords = coords;
       if (map && map.getSource('planned-route-src')) {
         var geom = getGeoJsonGeometry(coords);
@@ -682,7 +688,7 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
           type: 'Feature',
           geometry: geom
         });
-        if (geom && geom.coordinates && geom.coordinates.length > 0) {
+        if (fitCamera !== false && geom && geom.coordinates && geom.coordinates.length > 0) {
           var bounds = getBoundsFromCoords(coords);
           if (bounds) {
             map.fitBounds(bounds, { padding: 45, duration: 800 });
@@ -820,21 +826,23 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
       var activeIds = new Set((members || []).map(function(m) { return m.userId; }));
       Object.keys(groupMemberMarkers).forEach(function(id) {
         if (!activeIds.has(id)) {
+          cancelAnimationFrame(groupMemberMarkers[id]._gpsFrame);
           groupMemberMarkers[id].remove();
           delete groupMemberMarkers[id];
         }
       });
 
       (members || []).forEach(function(m) {
-        if (!m.latitude || !m.longitude || m.isSelf) {
+        if (!Number.isFinite(m.latitude) || !Number.isFinite(m.longitude) || m.isSelf) {
           if (groupMemberMarkers[m.userId]) {
+            cancelAnimationFrame(groupMemberMarkers[m.userId]._gpsFrame);
             groupMemberMarkers[m.userId].remove();
             delete groupMemberMarkers[m.userId];
           }
           return;
         }
 
-        var statusColor = m.locationStatus === 'LIVE' ? '#2ead4b' : (m.locationStatus === 'PAUSED' || m.locationStatus === 'STALE') ? '#ffd11a' : '#868685';
+        var statusColor = m.connectionStatus === 'OFFLINE' ? '#868685' : m.connectionStatus === 'ONLINE' || m.locationStatus === 'LIVE' ? '#2ead4b' : (m.locationStatus === 'PAUSED' || m.locationStatus === 'STALE') ? '#ffd11a' : '#868685';
         var roleBorder = m.tripRole === 'LEADER' ? '2.5px solid #ffd11a' : (m.tripRole === 'HOST' ? '2.5px solid #9fe870' : '2px solid #ffffff');
         var initial = (m.fullName || 'U').charAt(0).toUpperCase();
 
@@ -885,8 +893,34 @@ const MapLibre3DViewBase = forwardRef<MapLibre3DViewRef, MapLibre3DViewProps>(
             .addTo(map);
 
           groupMemberMarkers[m.userId] = marker;
+          marker._gpsVersion = m.locationVersion;
+          marker._gpsSession = m.sessionId;
+          marker._gpsTarget = [m.longitude, m.latitude];
         } else {
-          groupMemberMarkers[m.userId].setLngLat([m.longitude, m.latitude]);
+          var existing = groupMemberMarkers[m.userId];
+          var dot = existing.getElement().firstChild;
+          if (dot) dot.style.background = statusColor;
+          if (m.locationVersion != null && existing._gpsVersion != null && m.locationVersion <= existing._gpsVersion) return;
+          if (existing._gpsTarget && existing._gpsTarget[0] === m.longitude && existing._gpsTarget[1] === m.latitude) return;
+          cancelAnimationFrame(existing._gpsFrame);
+          var start = existing.getLngLat();
+          var target = [m.longitude, m.latitude];
+          var changedSession = existing._gpsSession !== m.sessionId;
+          var jumpM = Math.hypot((target[0] - start.lng) * Math.cos(start.lat * Math.PI / 180), target[1] - start.lat) * 111320;
+          var stale = m.recordedAt && Date.now() - Date.parse(m.recordedAt) > 30000;
+          existing._gpsVersion = m.locationVersion;
+          existing._gpsSession = m.sessionId;
+          existing._gpsTarget = target;
+          if (changedSession || jumpM > 200 || stale) existing.setLngLat(target);
+          else {
+            var began = performance.now();
+            var animate = function(now) {
+              var t = Math.min(1, (now - began) / 1500);
+              existing.setLngLat([start.lng + (target[0] - start.lng) * t, start.lat + (target[1] - start.lat) * t]);
+              if (t < 1) existing._gpsFrame = requestAnimationFrame(animate);
+            };
+            existing._gpsFrame = requestAnimationFrame(animate);
+          }
         }
       });
     };

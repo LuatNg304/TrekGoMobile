@@ -9,6 +9,13 @@ import {
 } from "../api/personalTrailApi";
 import { recordingDatabase } from "./recordingDatabase";
 
+class PersonalTrailYield extends Error {}
+
+function logSync(event: string, details: Record<string, unknown> = {}) {
+  console.log(`[syncService] ${event}`, { at: new Date().toISOString(), ...details });
+}
+let syncRunSequence = 0;
+
 let isSyncing = false;
 let syncWaiters: (() => void)[] = [];
 let syncTimer: ReturnType<typeof setInterval> | null = null;
@@ -29,20 +36,29 @@ function notifySyncCompleted() {
   });
 }
 
-const SAMPLE_BATCH_SIZE = 100;
+const SAMPLE_BATCH_SIZE = 500;
 
 async function uploadAllPendingSamples(
   clientRecordingId: string,
   serverRecordingId: string,
   accessToken: string,
 ): Promise<void> {
+  let batches = 0;
   while (true) {
     const pending = await recordingDatabase.getUnsyncedSamples(
       clientRecordingId,
       SAMPLE_BATCH_SIZE,
     );
 
-    if (pending.length === 0) return;
+    if (pending.length === 0) {
+      logSync("UPLOAD_DRAINED", { clientRecordingId, batches });
+      return;
+    }
+    if (batches++ >= 2) {
+      logSync("UPLOAD_YIELD", { clientRecordingId, sentBatches: 2, remainingAtLeast: pending.length,
+        reason: "Đạt giới hạn 2 batch mỗi lượt; chờ lượt sau, không tăng số lần thất bại" });
+      throw new PersonalTrailYield();
+    }
 
     const samples: RawGpsSampleDto[] = pending.map((sample) => ({
       clientSampleId: sample.clientSampleId,
@@ -59,13 +75,16 @@ async function uploadAllPendingSamples(
       rejectReason: sample.rejectReason || null,
     }));
 
+    const batchStartedAt = Date.now();
+    logSync("UPLOAD_REQUEST", { clientRecordingId, serverRecordingId, batch: batches, sampleCount: samples.length });
     const ack = await personalTrailApi.uploadRawSamples(
       serverRecordingId,
       { clientRecordingId, samples },
       accessToken,
     );
 
-    if (!ack?.success) {
+    if (!ack?.success || ack.data?.receivedCount !== samples.length ||
+        ack.data.insertedCount + ack.data.duplicatedCount !== samples.length) {
       throw new Error("Backend không xác nhận lô dữ liệu GPS.");
     }
 
@@ -73,6 +92,8 @@ async function uploadAllPendingSamples(
       clientRecordingId,
       pending.map((sample) => sample.clientSampleId),
     );
+    logSync("UPLOAD_ACK_SAVED", { clientRecordingId, batch: batches, ...ack.data,
+      elapsedMs: Date.now() - batchStartedAt });
   }
 }
 
@@ -100,11 +121,7 @@ async function ensureServerRecordingId(
     );
     if (startRes?.data?.serverRecordingId) {
       const serverId = startRes.data.serverRecordingId;
-      await recordingDatabase.updateRecordingStatus(
-        clientRecordingId,
-        recording?.status || "RECORDING",
-        { serverRecordingId: serverId },
-      );
+      await recordingDatabase.attachServerRecordingId(clientRecordingId, serverId);
       return serverId;
     }
   } catch (err) {
@@ -208,14 +225,17 @@ export const syncService = {
    */
   async processSyncOutbox(): Promise<void> {
     if (isSyncing) {
+      logSync("RUN_WAIT", { waitingCalls: syncWaiters.length + 1, reason: "Một lượt sync đang chạy" });
       await new Promise<void>((resolve) => syncWaiters.push(resolve));
       return;
     }
     isSyncing = true;
+    const runId = ++syncRunSequence;
 
     try {
       const auth = await readStoredAuth();
       if (!auth?.accessToken) {
+        logSync("RUN_SKIP", { runId, reason: "Chưa đăng nhập" });
         // Chưa đăng nhập -> Tạm dừng sync outbox
         return;
       }
@@ -227,11 +247,15 @@ export const syncService = {
       console.log(
         `[syncService] Bắt đầu đồng bộ outbox: tìm thấy ${pendingItems.length} tác vụ đang chờ xử lý...`,
       );
+      logSync("RUN_ITEMS", { runId, items: pendingItems.map(item => ({ id: item.id,
+        operation: item.operation, clientRecordingId: item.clientRecordingId, attemptCount: item.attemptCount })) });
 
+      const blockedRecordings = new Set<string>();
       for (const item of pendingItems) {
+        if (blockedRecordings.has(item.clientRecordingId)) continue;
         const completed = await this.syncItem(item, accessToken);
         // Outbox có thứ tự phụ thuộc. Không gửi BATCH/FINISH khi CREATE trước đó lỗi.
-        if (!completed) break;
+        if (!completed) blockedRecordings.add(item.clientRecordingId);
       }
     } catch (err) {
       console.warn("[syncService] Lỗi khi xử lý sync outbox:", err);
@@ -250,10 +274,17 @@ export const syncService = {
     item: SyncOutboxItem,
     accessToken: string,
   ): Promise<boolean> {
+    const itemStartedAt = Date.now();
+    const itemLog = { itemId: item.id, operation: item.operation, clientRecordingId: item.clientRecordingId };
     try {
       const auth = await readStoredAuth();
       const recording = await recordingDatabase.getRecording(item.clientRecordingId);
-      if (!auth || auth.accessToken !== accessToken || recording?.ownerId !== auth.user.id) return false;
+      if (!auth || auth.accessToken !== accessToken || recording?.ownerId !== auth.user.id) {
+        logSync("ITEM_SKIP", { ...itemLog, reason: !auth ? "Chưa đăng nhập" :
+          auth.accessToken !== accessToken ? "Token đã thay đổi" : "Không có recording hoặc khác chủ sở hữu" });
+        return false;
+      }
+      logSync("ITEM_START", { ...itemLog, attemptCount: item.attemptCount, localStatus: recording.status });
       await recordingDatabase.updateOutboxItem(item.id, "SYNCING");
       const payload = JSON.parse(item.payloadJson);
       let completedServerTrailId: string | null = null;
@@ -269,11 +300,7 @@ export const syncService = {
           );
 
           if (res?.data?.serverRecordingId) {
-            await recordingDatabase.updateRecordingStatus(
-              item.clientRecordingId,
-              recording.status,
-              { serverRecordingId: res.data.serverRecordingId },
-            );
+            await recordingDatabase.attachServerRecordingId(item.clientRecordingId, res.data.serverRecordingId);
           } else {
             throw new Error("Máy chủ không trả về serverRecordingId.");
           }
@@ -320,6 +347,17 @@ export const syncService = {
             accessToken,
           );
 
+          // A previous finish may have committed even if its response was lost.
+          const status = await personalTrailApi.getRecordingStatus(serverId, accessToken);
+          if (status.data?.status === "READY" && status.data.serverPersonalTrailId) {
+            completedServerTrailId = status.data.serverPersonalTrailId;
+            await recordingDatabase.updateRecordingStatus(item.clientRecordingId, "READY", {
+              serverPersonalTrailId: completedServerTrailId,
+              lastSyncedAt: new Date().toISOString(),
+            });
+            break;
+          }
+
           // Không cho phép hoàn tất trên backend khi thiết bị vẫn còn mẫu GPS chưa gửi.
           await uploadAllPendingSamples(
             item.clientRecordingId,
@@ -331,7 +369,8 @@ export const syncService = {
             serverId,
             {
               clientRecordingId: item.clientRecordingId,
-              endedAt: payload.endedAt || new Date().toISOString(),
+              endedAt: payload.endedAt || recording.endedAt || item.createdAt,
+              checkpoints: payload.checkpoints || [],
               trailMetadata: {
                 title:
                   payload.title ||
@@ -367,7 +406,10 @@ export const syncService = {
             accessToken,
           );
 
-          if (res?.data?.serverPersonalTrailId) {
+          if (!res?.success || res.data?.status !== "READY" || !res.data.serverPersonalTrailId) {
+            throw new Error("Máy chủ chưa xác nhận READY. Giữ dữ liệu để đối soát.");
+          }
+          if (res.data.serverPersonalTrailId) {
             const serverPersonalTrailId = res.data.serverPersonalTrailId;
             completedServerTrailId = serverPersonalTrailId;
             await recordingDatabase.updateRecordingStatus(
@@ -401,6 +443,11 @@ export const syncService = {
       );
       return true;
     } catch (error: any) {
+      if (error instanceof PersonalTrailYield) {
+        logSync("ITEM_PENDING", { ...itemLog, reason: "UPLOAD_YIELD", attemptCount: item.attemptCount });
+        await recordingDatabase.updateOutboxItem(item.id, "PENDING", { nextRetryAt: null });
+        return false;
+      }
       console.warn(
         `[syncService] Lỗi ${item.operation} của outbox item ${item.id}:`,
         {
@@ -420,29 +467,37 @@ export const syncService = {
         return false;
       }
 
-      // Lỗi nghiệp vụ không thể retry (ví dụ: đoạn đường quá ngắn, không đủ 2 điểm GPS trên Backend)
-      const errorMessage = error?.message || "";
-      const isPermanentValidationError =
-        error?.status === 400 &&
-        (errorMessage.includes("ít nhất một đoạn") ||
-          errorMessage.includes("2 điểm GPS") ||
-          error?.code === "INSUFFICIENT_GPS_POINTS");
-
-      if (isPermanentValidationError) {
-        console.warn(
-          `[syncService] Tác vụ ${item.id} không hợp lệ về mặt dữ liệu GPS (${errorMessage}). Đã xóa khỏi hàng đợi Outbox.`,
-        );
-        await recordingDatabase.deleteOutboxItem(item.id);
-        await recordingDatabase.updateRecordingStatus(
-          item.clientRecordingId,
-          "PROCESSING_FAILED",
-        );
+      // Non-retryable errors require reconciliation or a deliberate manual retry.
+      if (error?.retryable === false || [400, 403, 404].includes(error?.status) ||
+          (error?.status === 409 && error?.retryable !== true)) {
+        if (error?.code === "PERSONAL_TRAIL_TRANSACTION_UNAVAILABLE" ||
+            error?.code === "RECORDING_ALREADY_FINISHED") {
+          const recording = await recordingDatabase.getRecording(item.clientRecordingId);
+          if (recording?.serverRecordingId) {
+            try {
+              const status = await personalTrailApi.getRecordingStatus(recording.serverRecordingId, accessToken);
+              if (status.data?.status === "READY" && status.data.serverPersonalTrailId) {
+                await recordingDatabase.updateRecordingStatus(item.clientRecordingId, "READY", {
+                  serverPersonalTrailId: status.data.serverPersonalTrailId,
+                  lastSyncedAt: new Date().toISOString(),
+                });
+                await recordingDatabase.updateOutboxItem(item.id, "SYNCED");
+                notifySyncCompleted();
+                return true;
+              }
+            } catch { /* Preserve the operation when reconciliation is unavailable. */ }
+          }
+        }
+        await recordingDatabase.updateOutboxItem(item.id, "FAILED", { nextRetryAt: null });
+        logSync("ITEM_BLOCKED", { ...itemLog, code: error?.code, reason: "Lỗi không tự retry; cần kiểm tra hoặc thử lại thủ công" });
         return false;
       }
 
+
+
       // Tính thời gian Exponential Backoff có Jitter
       const nextAttempt = (item.attemptCount || 0) + 1;
-      const baseDelay = Math.min(300_000, 2 ** nextAttempt * 1000);
+      const baseDelay = Math.min(300_000, 2 ** (nextAttempt - 1) * 1000);
       const jitter = Math.random() * 1000;
       const nextRetryAt = new Date(
         Date.now() + baseDelay + jitter,
@@ -450,9 +505,14 @@ export const syncService = {
 
       await recordingDatabase.updateOutboxItem(item.id, "FAILED", {
         attemptCount: nextAttempt,
-        nextRetryAt,
+        nextRetryAt: nextAttempt < 3 ? nextRetryAt : null,
       });
+      logSync("ITEM_RETRY_STATE", { ...itemLog, attemptCount: nextAttempt,
+        nextRetryAt: nextAttempt < 3 ? nextRetryAt : null,
+        automaticRetryStopped: nextAttempt >= 3, code: error?.code, status: error?.status });
       return false;
+    } finally {
+      logSync("ITEM_END", { ...itemLog, elapsedMs: Date.now() - itemStartedAt });
     }
   },
 
@@ -465,4 +525,4 @@ export const syncService = {
   },
 
   notifySyncCompleted,
-};
+};

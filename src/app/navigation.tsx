@@ -45,6 +45,7 @@ export default function NavigationScreen() {
     otherMembers,
     plannedRouteCoords,
     liveRouteCoords,
+    summaryRouteCoords,
     currentLocation,
     checkpoints,
     arrivedCheckpointIds,
@@ -54,10 +55,13 @@ export default function NavigationScreen() {
     actualRoute,
     loading,
     syncing,
+    syncStatus,
+    syncNow,
+    isV2,
+    rejectedSampleCount,
     error,
     socketConnected,
     isSimulated,
-    toggleSimulation,
     isMapMatchingEnabled,
     toggleMapMatching,
     startRecording,
@@ -71,6 +75,10 @@ export default function NavigationScreen() {
   const [rosterDrawerVisible, setRosterDrawerVisible] = useState(false);
   const [checkpointSheetVisible, setCheckpointSheetVisible] = useState(false);
   const [resultModalVisible, setResultModalVisible] = useState(false);
+  const finishActionLockedRef = useRef(false);
+  const [finishActionPending, setFinishActionPending] = useState(false);
+  const [isFinishing, setIsFinishing] = useState(false);
+  const controlsDisabled = loading || finishActionPending;
 
   // Map interaction state (Learned from Personal Trail & TuongTacTrenMap.md)
   // 1. Follow Mode ON by default; automatically turns OFF when user gestures/pans/zooms
@@ -106,6 +114,10 @@ export default function NavigationScreen() {
         avatarUrl: m.avatarUrl,
         tripRole: m.tripRole,
         locationStatus: m.locationStatus,
+        connectionStatus: m.connectionStatus,
+        sessionId: m.session?.id,
+        locationVersion: m.locationVersion,
+        recordedAt: m.lastLocation!.recordedAt,
         latitude: m.lastLocation!.latitude,
         longitude: m.lastLocation!.longitude,
         isSelf: m.userId === gpsState?.selfUserId,
@@ -271,36 +283,53 @@ export default function NavigationScreen() {
 
   // Session Control Actions with Alerts
   const handleStart = useCallback(async () => {
+    if (loading || finishActionLockedRef.current) return;
     await startRecording();
-  }, [startRecording]);
+  }, [startRecording, loading]);
 
   const handlePause = useCallback(async () => {
+    if (loading || finishActionLockedRef.current) return;
     Alert.alert('Tạm dừng ghi GPS?', 'Phiên ghi sẽ được đánh dấu tạm dừng. Bạn có thể tiếp tục bất cứ lúc nào.', [
       { text: 'Hủy', style: 'cancel' },
       { text: 'Tạm dừng', onPress: pauseRecording },
     ]);
-  }, [pauseRecording]);
+  }, [pauseRecording, loading]);
 
   const handleResume = useCallback(async () => {
+    if (loading || finishActionLockedRef.current) return;
     await resumeRecording();
-  }, [resumeRecording]);
+  }, [resumeRecording, loading]);
 
   const handleFinish = useCallback(async () => {
+    if (loading || finishActionLockedRef.current) return;
+    finishActionLockedRef.current = true;
+    setFinishActionPending(true);
+    const unlock = () => {
+      finishActionLockedRef.current = false;
+      setFinishActionPending(false);
+      setIsFinishing(false);
+    };
     Alert.alert(
       'Kết thúc phiên ghi GPS?',
       'Dữ liệu đã ghi sẽ được lưu. Bạn có thể ghi tiếp bằng phiên mới khi chuyến còn cho phép ghi. Thao tác này không kết thúc chuyến đi.',
       [
-        { text: 'Hủy', style: 'cancel' },
+        { text: 'Hủy', style: 'cancel', onPress: unlock },
         {
           text: 'Kết thúc & Lưu',
           style: 'destructive',
           onPress: async () => {
-            if (await finishRecording()) setResultModalVisible(true);
+            setIsFinishing(true);
+            try {
+              if (await finishRecording()) setResultModalVisible(true);
+            } finally {
+              unlock();
+            }
           },
         },
-      ]
+      ],
+      { cancelable: false }
     );
-  }, [finishRecording]);
+  }, [finishRecording, loading]);
 
   const isSessionActive = session?.status === 'ACTIVE';
   const isSessionPaused = session?.status === 'PAUSED';
@@ -378,6 +407,7 @@ export default function NavigationScreen() {
           showControls={false}
           showEndpoints={false}
           autoCenterOnUser={true}
+          fitOnPlannedRouteUpdate={false}
           followUser={isFollowingUser && isSessionActive && !isSessionPaused}
           onUserInteraction={handleUserMapInteraction}
           onBearingChange={setCurrentBearing}
@@ -410,19 +440,6 @@ export default function NavigationScreen() {
                 color={currentBearing !== 0 ? Colors.primaryDark : Colors.ink}
               />
             </View>
-          </TouchableOpacity>
-
-          {/* Nút bật/tắt Fake GPS (Mô phỏng bám cung đường) */}
-          <TouchableOpacity
-            style={[styles.mapIconBtn, isSimulated && styles.mapIconBtnSimActive]}
-            onPress={() => toggleSimulation()}
-            activeOpacity={0.85}
-          >
-            <Ionicons
-              name={isSimulated ? 'walk' : 'navigate-circle-outline'}
-              size={20}
-              color={isSimulated ? '#ffffff' : Colors.ink}
-            />
           </TouchableOpacity>
 
           {/* Nút bật/tắt Map Matching (Snap vào tim đường) */}
@@ -568,7 +585,7 @@ export default function NavigationScreen() {
         )}
 
         {/* Syncing spinner badge */}
-        {syncing && (
+        {syncing && !isV2 && (
           <View style={styles.syncingBadge}>
             <ActivityIndicator size="small" color={Colors.ink} />
             <Text style={styles.syncingText}>Đang đồng bộ SQLite...</Text>
@@ -578,6 +595,39 @@ export default function NavigationScreen() {
 
       {/* 3. COMPACT DASHBOARD & CONTROLS PANEL (~1/3 màn hình, thiết kế Scandinavian Wise) */}
       <View style={[styles.bottomPanel, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+        {isV2 && session?.status === 'STOPPED' && (
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel={syncStatus === 'SYNCED' ? 'Đã đồng bộ lịch sử GPS' : 'Đồng bộ lịch sử GPS'}
+            accessibilityState={{ disabled: syncing || syncStatus === 'PROCESSING', busy: syncing || syncStatus === 'PROCESSING' }}
+            activeOpacity={0.8}
+            style={[
+              styles.syncAction,
+              syncStatus === 'SYNCED' && styles.syncActionComplete,
+              (syncing || syncStatus === 'PROCESSING') && styles.syncActionBusy,
+              syncStatus === 'NEEDS_ATTENTION' && styles.syncActionAttention,
+            ]}
+            disabled={syncing || syncStatus === 'PROCESSING'}
+            onPress={() => { void syncNow(); }}
+          >
+            <View style={styles.syncActionIcon}>
+              {syncing || syncStatus === 'PROCESSING' ? (
+                <ActivityIndicator size="small" color={Colors.inkDeep} />
+              ) : (
+                <Ionicons name={syncStatus === 'SYNCED' ? 'checkmark-circle-outline' : syncStatus === 'NEEDS_ATTENTION' ? 'alert-circle-outline' : 'cloud-upload-outline'} size={24} color={Colors.inkDeep} />
+              )}
+            </View>
+            <View style={styles.syncActionContent}>
+              <Text style={styles.syncActionTitle}>
+                {syncStatus === 'SYNCED' ? 'Đã đồng bộ' : syncStatus === 'PROCESSING' ? 'Đang xử lý lịch sử' : syncing ? 'Đang đồng bộ…' : syncStatus === 'NEEDS_ATTENTION' || syncStatus === 'WAITING_NETWORK' ? 'Đồng bộ lại' : 'Đồng bộ ngay'}
+              </Text>
+              <Text style={styles.syncActionDescription}>
+                {syncStatus === 'SYNCED' ? 'Lịch sử đã được máy chủ xử lý.' : syncStatus === 'PROCESSING' ? 'Máy chủ đang tổng hợp hành trình.' : syncing ? 'Đang gửi lịch sử GPS lên máy chủ.' : syncStatus === 'WAITING_NETWORK' ? 'Đã lưu trên máy. Chờ kết nối để gửi.' : syncStatus === 'NEEDS_ATTENTION' ? 'Cần kiểm tra. Nhấn để thử đồng bộ lại.' : 'Gửi lịch sử GPS đã lưu trên máy.'}
+              </Text>
+            </View>
+            {!syncing && syncStatus !== 'PROCESSING' && <Ionicons name="chevron-forward" size={20} color={Colors.inkDeep} />}
+          </TouchableOpacity>
+        )}
         {/* CRITICAL ROUTE DEVIATION WARNING BAR (If deviated) */}
         {deviation.isDeviated && (
           <View style={styles.deviationCardCompact}>
@@ -659,14 +709,14 @@ export default function NavigationScreen() {
             style={styles.primaryPillBtn}
             activeOpacity={0.88}
             onPress={handleStart}
-            disabled={loading || !context?.permissions.canRecord}
+            disabled={controlsDisabled || !(context?.permissions.canStartNewSession ?? context?.permissions.canRecord)}
           >
             {loading ? (
               <ActivityIndicator size="small" color={Colors.onPrimary} />
             ) : (
               <>
                 <Ionicons name="play" size={20} color={Colors.onPrimary} />
-                <Text style={styles.primaryPillText}>{!context?.permissions.canRecord
+                <Text style={styles.primaryPillText}>{!(context?.permissions.canStartNewSession ?? context?.permissions.canRecord)
                   ? (context?.tripStatus === 'COMPLETED' ? 'Chuyến đi đã kết thúc' : 'Chưa được phép ghi GPS')
                   : session?.status === 'STOPPED' ? 'Ghi tiếp hành trình' : 'Bắt đầu ghi GPS'}</Text>
               </>
@@ -681,20 +731,20 @@ export default function NavigationScreen() {
               style={styles.pauseBtn}
               activeOpacity={0.85}
               onPress={handlePause}
-              disabled={loading}
+              disabled={controlsDisabled}
             >
               <Ionicons name="pause" size={18} color={Colors.ink} />
               <Text style={styles.pauseBtnText}>Tạm dừng</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.finishBtn}
+              style={[styles.finishBtn, controlsDisabled && { opacity: 0.5 }]}
               activeOpacity={0.85}
               onPress={handleFinish}
-              disabled={loading}
+              disabled={controlsDisabled}
             >
-              <Ionicons name="stop" size={18} color="#ffffff" />
-              <Text style={styles.finishBtnText}>Kết thúc</Text>
+              {isFinishing ? <ActivityIndicator size="small" color="#ffffff" /> : <Ionicons name="stop" size={18} color="#ffffff" />}
+              <Text style={styles.finishBtnText}>{isFinishing ? 'Đang kết thúc…' : 'Kết thúc'}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -706,20 +756,20 @@ export default function NavigationScreen() {
               style={styles.resumeBtn}
               activeOpacity={0.88}
               onPress={handleResume}
-              disabled={loading}
+              disabled={controlsDisabled}
             >
               <Ionicons name="play" size={18} color={Colors.onPrimary} />
               <Text style={styles.resumeBtnText}>Tiếp tục ghi</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.finishBtn}
+              style={[styles.finishBtn, controlsDisabled && { opacity: 0.5 }]}
               activeOpacity={0.85}
               onPress={handleFinish}
-              disabled={loading}
+              disabled={controlsDisabled}
             >
-              <Ionicons name="stop" size={18} color="#ffffff" />
-              <Text style={styles.finishBtnText}>Kết thúc</Text>
+              {isFinishing ? <ActivityIndicator size="small" color="#ffffff" /> : <Ionicons name="stop" size={18} color="#ffffff" />}
+              <Text style={styles.finishBtnText}>{isFinishing ? 'Đang kết thúc…' : 'Kết thúc'}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -760,8 +810,10 @@ export default function NavigationScreen() {
       <TripGpsResultModal
         visible={resultModalVisible}
         actualRoute={actualRoute}
-        liveRouteCoords={liveRouteCoords}
+        liveRouteCoords={summaryRouteCoords}
         stats={stats}
+        syncStatus={isV2 ? syncStatus : undefined}
+        rejectedSampleCount={rejectedSampleCount}
         onClose={() => setResultModalVisible(false)}
       />
     </View>
@@ -1083,6 +1135,50 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     color: Colors.ink,
+  },
+  syncAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    minHeight: 72,
+    marginHorizontal: 16,
+    marginBottom: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: Radius.xl,
+    backgroundColor: Colors.primary,
+  },
+  syncActionComplete: {
+    backgroundColor: Colors.primaryPale,
+  },
+  syncActionBusy: {
+    backgroundColor: Colors.surfaceContainerLow,
+  },
+  syncActionAttention: {
+    backgroundColor: Colors.tertiaryFixed,
+  },
+  syncActionIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: Radius.pill,
+    backgroundColor: 'rgba(255, 255, 255, 0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  syncActionContent: {
+    flex: 1,
+    gap: 2,
+  },
+  syncActionTitle: {
+    fontSize: 16,
+    lineHeight: 24,
+    fontWeight: '700',
+    color: Colors.inkDeep,
+  },
+  syncActionDescription: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: Colors.body,
   },
   bottomPanel: {
     backgroundColor: '#ffffff',

@@ -10,10 +10,13 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Radius, Shadows } from '@/constants/theme';
-import type { ActualRouteResponse } from '../types';
+import type { ActualRouteResponse, LocalSyncStatus } from '../types';
 import { TripGpsRouteArt } from './TripGpsRouteArt';
+import { getTripGpsResult } from '../services/trip-gps.result';
 
 interface TripGpsResultModalProps {
+  syncStatus?: LocalSyncStatus;
+  rejectedSampleCount?: number;
   visible: boolean;
   actualRoute: ActualRouteResponse | null;
   liveRouteCoords?: [number, number][];
@@ -32,22 +35,12 @@ export function TripGpsResultModal({
   liveRouteCoords,
   stats,
   onClose,
+  syncStatus,
+  rejectedSampleCount = 0,
 }: TripGpsResultModalProps) {
-  // Khoảng cách ưu tiên từ actualRoute, fallback về stats
-  const distanceKm = actualRoute?.totalDistanceMeters != null
-    ? (actualRoute.totalDistanceMeters / 1000).toFixed(2)
-    : stats?.distanceKm ?? '0.00';
-
-  const cpPassed = actualRoute?.checkpointProgress?.passed ?? 0;
-  const cpTotal = actualRoute?.checkpointProgress?.total ?? 0;
-  const pointCount = actualRoute?.pointCount ?? (actualRoute ? 0 : (liveRouteCoords?.length ?? '--'));
+  const { distanceKm, pointCount, isReady, routeCoords } = getTripGpsResult(actualRoute, syncStatus, liveRouteCoords, stats?.distanceKm);
   const duration = stats?.recordingTime || '--:--:--';
-  const isReady = actualRoute?.resultStatus === 'READY';
-
-  // Toạ độ vẽ Strava: ưu tiên actualRoute GeoJSON, fallback sang liveRouteCoords ghi nhận thực tế
-  const routeCoords = (actualRoute?.routeGeojson && actualRoute.routeGeojson.type === 'LineString' && Array.isArray(actualRoute.routeGeojson.coordinates))
-    ? (actualRoute.routeGeojson.coordinates as [number, number][])
-    : liveRouteCoords;
+  const syncBusy = syncStatus === 'SYNCING' || syncStatus === 'PROCESSING';
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -67,7 +60,7 @@ export function TripGpsResultModal({
 
             <Text style={styles.title}>Hành Trình Hoàn Tất!</Text>
             <Text style={styles.subtitle}>
-              Dữ liệu GPS của bạn đã được ghi nhận và lưu trữ an toàn trong TripActualRoute.
+              Đã kết thúc ghi. Tổng kết từ dữ liệu GPS đã lưu trên máy.
             </Text>
 
             {/* Strava Minimalist GPS Route Art Canvas */}
@@ -86,7 +79,7 @@ export function TripGpsResultModal({
               <View style={styles.metricTile}>
                 <View style={styles.metricHeader}>
                   <Ionicons name="navigate-circle-outline" size={14} color={Colors.mute} />
-                  <Text style={styles.metricLabel}>QUÃNG ĐƯỜNG</Text>
+                  <Text style={styles.metricLabel}>QUÃNG ĐƯỜNG TẠM TÍNH</Text>
                 </View>
                 <View style={styles.metricValRow}>
                   <Text style={styles.metricVal}>{distanceKm}</Text>
@@ -105,25 +98,11 @@ export function TripGpsResultModal({
                 </View>
               </View>
 
-              {/* Tile 3: Checkpoint */}
-              <View style={styles.metricTile}>
-                <View style={styles.metricHeader}>
-                  <Ionicons name="flag-outline" size={14} color={Colors.mute} />
-                  <Text style={styles.metricLabel}>CHECKPOINT</Text>
-                </View>
-                <View style={styles.metricValRow}>
-                  <Text style={styles.metricVal}>
-                    {cpPassed}/{cpTotal}
-                  </Text>
-                  <Text style={styles.metricUnit}>mốc</Text>
-                </View>
-              </View>
-
-              {/* Tile 4: Điểm GPS hợp lệ */}
-              <View style={styles.metricTile}>
+              {/* Points persisted locally, independent of server validation. */}
+              <View style={[styles.metricTile, { width: '100%' }]}>
                 <View style={styles.metricHeader}>
                   <Ionicons name="analytics-outline" size={14} color={Colors.mute} />
-                  <Text style={styles.metricLabel}>ĐIỂM HỢP LỆ</Text>
+                  <Text style={styles.metricLabel}>ĐIỂM GPS ĐÃ LƯU</Text>
                 </View>
                 <View style={styles.metricValRow}>
                   <Text style={styles.metricVal}>{pointCount}</Text>
@@ -136,13 +115,17 @@ export function TripGpsResultModal({
             <View style={[styles.statusBadge, isReady ? styles.statusBadgeReady : styles.statusBadgeProcessing]}>
               {isReady ? (
                 <Ionicons name="checkmark-circle" size={16} color={Colors.positiveDeep} />
-              ) : (
+              ) : syncBusy ? (
                 <ActivityIndicator size="small" color={Colors.tertiary} style={{ marginRight: 2 }} />
+              ) : (
+                <Ionicons name="cloud-upload-outline" size={16} color={Colors.tertiary} />
               )}
               <Text style={[styles.statusText, isReady ? styles.statusTextReady : styles.statusTextProcessing]}>
-                {isReady ? 'Tuyến đường GPS đã dựng hoàn tất (LineString)' : 'Đang xử lý và tổng hợp dữ liệu tuyến...'}
+                {isReady ? 'Đã đồng bộ lịch sử' : syncStatus === 'WAITING_NETWORK' ? 'Chờ kết nối để đồng bộ lịch sử' : syncStatus === 'NEEDS_ATTENTION' ? 'Cần kiểm tra và đồng bộ lại' : syncStatus === 'PENDING' ? 'Lịch sử đang chờ đồng bộ' : 'Đang đồng bộ và xử lý tuyến đường...'}
               </Text>
             </View>
+
+            {rejectedSampleCount > 0 && <Text style={styles.subtitle}>{rejectedSampleCount} điểm không được máy chủ chấp nhận. Dữ liệu gốc vẫn được giữ trên máy.</Text>}
 
             {/* Wise Signature Primary CTA Button */}
             <TouchableOpacity style={styles.primaryBtn} activeOpacity={0.85} onPress={onClose}>

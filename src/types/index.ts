@@ -110,6 +110,8 @@ export interface PersonalTrail {
 }
 
 export interface CreatePersonalTrailInput {
+  endedAt?: string;
+  elapsedSeconds?: number;
   name: string;
   region: string;
   difficulty: DifficultyLevel;
