@@ -30,17 +30,44 @@ export async function getSystemTrailAccesses(page = 1) {
   return apiRequest<any[]>(`/api/v1/me/trail-accesses?page=${page}`);
 }
 
-/** GET /system-trails?destinationId={uuid}&page=1&pageSize=20 — Lấy danh sách cung đường hệ thống theo địa điểm */
+export interface GetSystemTrailsParams {
+  destinationId?: string;
+  keyword?: string;
+  difficulty?: "EASY" | "MEDIUM" | "HARD" | "EXTREME" | string;
+  status?: "ACTIVE" | "INACTIVE" | "ARCHIVED" | string;
+  minDistance?: number;
+  maxDistance?: number;
+  page?: number;
+  pageSize?: number;
+}
+
+/** GET /system-trails — Lấy danh sách cung đường hệ thống (có phân trang & lọc) */
 export async function getSystemTrails(
-  destinationId?: string,
+  paramsOrDestinationId?: GetSystemTrailsParams | string,
   page = 1,
   pageSize = 20,
 ) {
   const query = new URLSearchParams();
-  if (destinationId) query.set("destinationId", destinationId);
-  query.set("page", String(page));
-  query.set("pageSize", String(pageSize));
-  return apiRequest<{ items: any[] }>(`/api/v1/system-trails?${query.toString()}`);
+  if (typeof paramsOrDestinationId === "string") {
+    if (paramsOrDestinationId) query.set("destinationId", paramsOrDestinationId);
+    query.set("page", String(page));
+    query.set("pageSize", String(pageSize));
+  } else if (paramsOrDestinationId && typeof paramsOrDestinationId === "object") {
+    if (paramsOrDestinationId.destinationId) query.set("destinationId", paramsOrDestinationId.destinationId);
+    if (paramsOrDestinationId.keyword) query.set("keyword", paramsOrDestinationId.keyword);
+    if (paramsOrDestinationId.difficulty) query.set("difficulty", paramsOrDestinationId.difficulty);
+    if (paramsOrDestinationId.status) query.set("status", paramsOrDestinationId.status);
+    if (paramsOrDestinationId.minDistance !== undefined) query.set("minDistance", String(paramsOrDestinationId.minDistance));
+    if (paramsOrDestinationId.maxDistance !== undefined) query.set("maxDistance", String(paramsOrDestinationId.maxDistance));
+    query.set("page", String(paramsOrDestinationId.page ?? page));
+    query.set("pageSize", String(paramsOrDestinationId.pageSize ?? pageSize));
+  } else {
+    query.set("page", String(page));
+    query.set("pageSize", String(pageSize));
+  }
+  return apiRequest<{ items: any[]; pagination?: any }>(
+    `/api/v1/system-trails?${query.toString()}`,
+  );
 }
 
 /** GET /system-trails/{idOrCode} — Lấy chi tiết cung đường hệ thống (3D Map) */

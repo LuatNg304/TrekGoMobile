@@ -7,6 +7,12 @@ import { TopHeader } from "@/components/TopHeader";
 import { LiveTrailRecorderModal } from "@/components/trail/LiveTrailRecorderModal";
 import { Colors, Radius, Shadows } from "@/constants/theme";
 import { useApp } from "@/context/AppContext";
+import { PurchaseTrailModal } from "@/features/private-trips/components";
+import {
+  extractRouteCoordinates,
+  formatDuration as formatTrailDuration,
+  useExploreSystemTrails,
+} from "@/features/trips/hooks";
 import { PersonalTrail, Trail } from "@/types";
 import { Ionicons } from "@expo/vector-icons";
 import { Href, useRouter } from "expo-router";
@@ -45,32 +51,55 @@ function formatDateTime(dateStr?: string): string {
 
 export default function ExploreScreen() {
   const router = useRouter();
-  const { trails, unlockTrail, personalTrails, refreshPersonalTrails } =
-    useApp();
+  const { trails, personalTrails, refreshPersonalTrails } = useApp();
+  const {
+    trails: apiSystemTrails,
+    selectedTrail: apiSelectedTrail,
+    setSelectedTrail: setApiSelectedTrail,
+    selectedTrailDetail,
+    loading: loadingSystemTrails,
+    loadingDetail: loadingSystemDetail,
+    refetch: refetchSystemTrails,
+  } = useExploreSystemTrails();
+
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<"SYSTEM" | "PERSONAL">("SYSTEM");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedFilter, setSelectedFilter] = useState<string>("Tất cả");
-  const [selectedTrail, setSelectedTrail] = useState<Trail>(trails[0]);
   const [selectedPersonalTrail, setSelectedPersonalTrail] =
     useState<PersonalTrail | null>(personalTrails[0] || null);
   const [isRecordingModalVisible, setIsRecordingModalVisible] = useState(false);
+  const [purchaseModalVisible, setPurchaseModalVisible] = useState(false);
 
-  const filters = ["Tất cả", "Gần bạn", "Dễ", "Trung bình", "Khó", "Đã sở hữu"];
+  // Ưu tiên danh sách từ API thật; fallback mockTrails nếu API rỗng
+  const displaySystemTrails =
+    apiSystemTrails.length > 0 ? apiSystemTrails : trails;
 
-  const filteredTrails = trails.filter((trail) => {
-    if (selectedFilter === "Đã sở hữu") return trail.isUnlocked;
-    if (selectedFilter !== "Tất cả" && selectedFilter !== "Gần bạn") {
-      return trail.difficulty === selectedFilter;
-    }
-    if (searchQuery.trim()) {
-      return (
-        trail.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        trail.region.toLowerCase().includes(searchQuery.toLowerCase())
-      );
-    }
-    return true;
-  });
+  // Cung đường hệ thống đang được chọn
+  const currentSelectedTrail = useMemo(() => {
+    if (apiSelectedTrail) return apiSelectedTrail;
+    return displaySystemTrails[0] || trails[0];
+  }, [apiSelectedTrail, displaySystemTrails, trails]);
+
+  const filters = ["Tất cả", "Chưa sở hữu", "Đã sở hữu", "Dễ", "Trung bình", "Khó"];
+
+  const filteredTrails = useMemo(() => {
+    return displaySystemTrails.filter((trail) => {
+      if (selectedFilter === "Đã sở hữu") return trail.isUnlocked;
+      if (selectedFilter === "Chưa sở hữu") return !trail.isUnlocked;
+      if (selectedFilter !== "Tất cả") {
+        return trail.difficulty === selectedFilter;
+      }
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        return (
+          trail.name.toLowerCase().includes(q) ||
+          trail.region.toLowerCase().includes(q)
+        );
+      }
+      return true;
+    });
+  }, [displaySystemTrails, selectedFilter, searchQuery]);
 
   const filteredPersonalTrails = personalTrails.filter((trail) => {
     if (searchQuery.trim()) {
@@ -83,29 +112,52 @@ export default function ExploreScreen() {
   });
 
   const handleUnlock = () => {
-    unlockTrail(selectedTrail.id);
+    if (currentSelectedTrail) {
+      setPurchaseModalVisible(true);
+    }
   };
 
-  // Chuẩn bị dữ liệu Checkpoint và Toạ độ cho MapLibre 3D
-  const systemCheckpoints: MapCheckpoint[] = (
-    selectedTrail.checkpoints || []
-  ).map((cp, idx) => ({
-    id: cp.id,
-    name: cp.name,
-    order: cp.order || idx + 1,
-    latitude:
-      cp.realCoords?.lat ||
-      11.5831 + (cp.coords?.y ? (cp.coords.y - 200) * 0.0003 : idx * 0.003),
-    longitude:
-      cp.realCoords?.lon ||
-      108.529 + (cp.coords?.x ? (cp.coords.x - 200) * 0.0003 : idx * 0.003),
-    elevation: cp.elevation,
-    status: cp.status === "COMPLETED" ? "COMPLETED" : "PENDING",
-  }));
-  const systemPlannedRoute: [number, number][] = systemCheckpoints.map((cp) => [
-    cp.longitude,
-    cp.latitude,
-  ]);
+  // Chuẩn bị dữ liệu Checkpoint và Toạ độ cho MapLibre 3D từ API chi tiết
+  const systemCheckpoints: MapCheckpoint[] = useMemo(() => {
+    if (
+      selectedTrailDetail?.checkpoints &&
+      selectedTrailDetail.checkpoints.length > 0
+    ) {
+      return selectedTrailDetail.checkpoints.map((cp: any, idx: number) => ({
+        id: cp.id,
+        name: cp.name || cp.code || `Trạm ${idx + 1}`,
+        order: cp.sequence ?? idx + 1,
+        latitude: Number(cp.latitude),
+        longitude: Number(cp.longitude),
+        elevation: typeof cp.elevationM === "number" ? cp.elevationM : null,
+        status: "PENDING",
+      }));
+    }
+
+    // Fallback cho dữ liệu mock nếu chưa tải được chi tiết
+    return (currentSelectedTrail?.checkpoints || []).map((cp, idx) => ({
+      id: cp.id,
+      name: cp.name,
+      order: cp.order || idx + 1,
+      latitude:
+        cp.realCoords?.lat ||
+        11.5831 + (cp.coords?.y ? (cp.coords.y - 200) * 0.0003 : idx * 0.003),
+      longitude:
+        cp.realCoords?.lon ||
+        108.529 + (cp.coords?.x ? (cp.coords.x - 200) * 0.0003 : idx * 0.003),
+      elevation: cp.elevation,
+      status: cp.status === "COMPLETED" ? "COMPLETED" : "PENDING",
+    }));
+  }, [selectedTrailDetail, currentSelectedTrail]);
+
+  // Trích xuất toạ độ đầy đủ của cung đường thật từ API chi tiết (routeGeojson)
+  const systemPlannedRoute: [number, number, number?][] = useMemo(() => {
+    const coords = extractRouteCoordinates(selectedTrailDetail?.routeGeojson);
+    if (coords && coords.length > 0) {
+      return coords;
+    }
+    return systemCheckpoints.map((cp) => [cp.longitude, cp.latitude]);
+  }, [selectedTrailDetail, systemCheckpoints]);
 
   // Tự động làm mới danh sách từ Server khi chuyển sang tab PERSONAL
   useEffect(() => {
@@ -196,7 +248,11 @@ export default function ExploreScreen() {
 
     setIsRefreshing(true);
     try {
-      await refreshPersonalTrails();
+      if (activeTab === "SYSTEM") {
+        await refetchSystemTrails();
+      } else {
+        await refreshPersonalTrails();
+      }
     } finally {
       setIsRefreshing(false);
     }
@@ -210,14 +266,12 @@ export default function ExploreScreen() {
         contentContainerStyle={styles.scrollContent}
         alwaysBounceVertical
         refreshControl={
-          activeTab === "PERSONAL" ? (
-            <RefreshControl
-              refreshing={isRefreshing}
-              onRefresh={handleRefresh}
-              colors={[Colors.primaryDark]}
-              tintColor={Colors.primaryDark}
-            />
-          ) : undefined
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={handleRefresh}
+            colors={[Colors.primaryDark]}
+            tintColor={Colors.primaryDark}
+          />
         }
       >
         {/* 1. Mode Switcher (Cung đường hệ thống vs Cung đường cá nhân) */}
@@ -377,7 +431,7 @@ export default function ExploreScreen() {
             {/* Hero Image */}
             <View style={styles.trailHeroWrapper}>
               <Image
-                source={{ uri: selectedTrail.imageUrl }}
+                source={{ uri: currentSelectedTrail.imageUrl }}
                 style={styles.trailHeroImage}
               />
               <View style={styles.heroOverlay} />
@@ -390,7 +444,7 @@ export default function ExploreScreen() {
               <View style={styles.ratingBadge}>
                 <Ionicons name="star" size={13} color="#fed018" />
                 <Text style={styles.ratingText}>
-                  {selectedTrail.rating} ({selectedTrail.reviewCount})
+                  {currentSelectedTrail.rating} ({currentSelectedTrail.reviewCount})
                 </Text>
               </View>
 
@@ -398,7 +452,7 @@ export default function ExploreScreen() {
                 <View style={styles.categoryTagsRow}>
                   <View style={styles.categoryTag}>
                     <Text style={styles.categoryTagText}>
-                      {selectedTrail.terrainType}
+                      {currentSelectedTrail.terrainType}
                     </Text>
                   </View>
                   <View
@@ -407,14 +461,14 @@ export default function ExploreScreen() {
                     <Text
                       style={[styles.categoryTagText, { color: "#4a3b1c" }]}
                     >
-                      {selectedTrail.difficulty}
+                      {currentSelectedTrail.difficulty}
                     </Text>
                   </View>
                 </View>
 
-                <Text style={styles.trailTitle}>{selectedTrail.name}</Text>
+                <Text style={styles.trailTitle}>{currentSelectedTrail.name}</Text>
                 <Text style={styles.trailSubtitle}>
-                  📍 {selectedTrail.region}
+                  📍 {currentSelectedTrail.region}
                 </Text>
               </View>
             </View>
@@ -432,7 +486,7 @@ export default function ExploreScreen() {
                 <View>
                   <Text style={styles.bentoLabel}>KHOẢNG CÁCH</Text>
                   <Text style={styles.bentoValue}>
-                    {selectedTrail.distanceKm} km
+                    {selectedTrailDetail?.distanceKm ?? currentSelectedTrail.distanceKm} km
                   </Text>
                 </View>
               </View>
@@ -444,7 +498,9 @@ export default function ExploreScreen() {
                 <View>
                   <Text style={styles.bentoLabel}>THỜI GIAN</Text>
                   <Text style={styles.bentoValue}>
-                    {selectedTrail.duration}
+                    {selectedTrailDetail?.estimatedDurationMinutes
+                      ? formatTrailDuration(selectedTrailDetail.estimatedDurationMinutes)
+                      : currentSelectedTrail.duration}
                   </Text>
                 </View>
               </View>
@@ -456,7 +512,7 @@ export default function ExploreScreen() {
                 <View>
                   <Text style={styles.bentoLabel}>ĐỘ CAO LŨY KẾ</Text>
                   <Text style={styles.bentoValue}>
-                    +{selectedTrail.elevationGainM}m
+                    +{selectedTrailDetail?.elevationGainM ?? currentSelectedTrail.elevationGainM}m
                   </Text>
                 </View>
               </View>
@@ -468,7 +524,7 @@ export default function ExploreScreen() {
                 <View>
                   <Text style={styles.bentoLabel}>CHECKPOINTS</Text>
                   <Text style={styles.bentoValue}>
-                    {selectedTrail.checkpoints?.length || 5} Mốc GPS
+                    {systemCheckpoints.length || selectedTrailDetail?.checkpointCount || currentSelectedTrail.checkpoints?.length || 0} Mốc GPS
                   </Text>
                 </View>
               </View>
@@ -486,14 +542,27 @@ export default function ExploreScreen() {
                   </Text>
                 </View>
                 <View style={styles.contourBadge}>
-                  <Text style={styles.contourText}>DEM 3D</Text>
+                  <Text style={styles.contourText}>
+                    {loadingSystemDetail ? "ĐANG TẢI 3D..." : "DEM 3D"}
+                  </Text>
                 </View>
               </View>
 
               <MapLibre3DView
+                key={`system-map-${currentSelectedTrail?.id}-${selectedTrailDetail?.id ?? "pending"}-${systemPlannedRoute.length}`}
                 height={260}
                 plannedRoute={systemPlannedRoute}
                 checkpoints={systemCheckpoints}
+                center={
+                  selectedTrailDetail?.initialCamera?.center ??
+                  (systemPlannedRoute.length > 0
+                    ? [systemPlannedRoute[0][0], systemPlannedRoute[0][1]]
+                    : [108.529, 11.5831])
+                }
+                zoom={selectedTrailDetail?.initialCamera?.zoom ?? 13.5}
+                pitch={selectedTrailDetail?.initialCamera?.pitch ?? 50}
+                bearing={selectedTrailDetail?.initialCamera?.bearing ?? -20}
+                is3D={true}
                 interactive={true}
               />
             </View>
@@ -501,43 +570,28 @@ export default function ExploreScreen() {
             {/* Description */}
             <View style={styles.descSection}>
               <Text style={styles.descTitle}>Tổng quan hành trình</Text>
-              <Text style={styles.descBody}>{selectedTrail.description}</Text>
+              <Text style={styles.descBody}>
+                {selectedTrailDetail?.description || currentSelectedTrail.description}
+              </Text>
             </View>
 
             {/* CTA */}
             <View style={styles.ctaRow}>
-              {selectedTrail.isUnlocked ? (
-                <>
-                  <TouchableOpacity
-                    style={styles.primaryCta}
-                    onPress={() => router.push("/navigation")}
-                    activeOpacity={0.85}
-                  >
-                    <Ionicons
-                      name="navigate"
-                      size={18}
-                      color={Colors.onPrimary}
-                    />
-                    <Text style={styles.primaryCtaText}>
-                      Vào Chế Độ GPS Trekking
-                    </Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={styles.secondaryCta}
-                    onPress={() => router.push("/private-trips/create" as Href)}
-                    activeOpacity={0.8}
-                  >
-                    <Ionicons
-                      name="people"
-                      size={18}
-                      color={Colors.onSurface}
-                    />
-                    <Text style={styles.secondaryCtaText}>
-                      Tạo Private Trip
-                    </Text>
-                  </TouchableOpacity>
-                </>
+              {currentSelectedTrail.isUnlocked ? (
+                <TouchableOpacity
+                  style={styles.primaryCta}
+                  onPress={() => router.push("/private-trips/create" as Href)}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons
+                    name="people"
+                    size={18}
+                    color={Colors.onPrimary}
+                  />
+                  <Text style={styles.primaryCtaText}>
+                    Tạo Private Trip
+                  </Text>
+                </TouchableOpacity>
               ) : (
                 <TouchableOpacity
                   style={styles.unlockCta}
@@ -551,7 +605,10 @@ export default function ExploreScreen() {
                   />
                   <Text style={styles.unlockCtaText}>
                     Mở Khóa Bản Đồ GPS Toàn Tuyến (
-                    {selectedTrail.price.toLocaleString("vi-VN")} đ)
+                    {currentSelectedTrail.price > 0
+                      ? `${currentSelectedTrail.price.toLocaleString("vi-VN")} đ`
+                      : "Miễn phí"}
+                    )
                   </Text>
                 </TouchableOpacity>
               )}
@@ -790,10 +847,10 @@ export default function ExploreScreen() {
                     key={t.id}
                     style={[
                       styles.otherTrailItem,
-                      selectedTrail.id === t.id &&
+                      currentSelectedTrail?.id === t.id &&
                         styles.otherTrailItemSelected,
                     ]}
-                    onPress={() => setSelectedTrail(t)}
+                    onPress={() => setApiSelectedTrail(t)}
                     activeOpacity={0.8}
                   >
                     <Image
@@ -818,12 +875,21 @@ export default function ExploreScreen() {
                       </View>
                     </View>
                     <View style={styles.trailStatusCol}>
-                      <Text style={styles.trailPrice}>
-                        {t.isUnlocked ? "Đã mở" : `${t.price / 1000}k`}
+                      <Text
+                        style={[
+                          styles.trailPrice,
+                          t.isUnlocked && { color: "#38ef7d", fontWeight: "700" },
+                        ]}
+                      >
+                        {t.isUnlocked
+                          ? "Đã mở"
+                          : t.price > 0
+                            ? `${t.price / 1000}k`
+                            : "Free"}
                       </Text>
                       <Ionicons
                         name={
-                          selectedTrail.id === t.id
+                          currentSelectedTrail?.id === t.id
                             ? "chevron-down"
                             : "chevron-forward"
                         }
@@ -920,6 +986,17 @@ export default function ExploreScreen() {
         }}
       />
 
+      {/* MODAL MUA QUYỀN TRUY CẬP CUNG ĐƯỜNG */}
+      <PurchaseTrailModal
+        visible={purchaseModalVisible}
+        trailId={currentSelectedTrail?.id || ""}
+        trailName={currentSelectedTrail?.name || ""}
+        onClose={() => setPurchaseModalVisible(false)}
+        onAccessGranted={() => {
+          setPurchaseModalVisible(false);
+          void refetchSystemTrails();
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -1368,7 +1445,7 @@ const styles = StyleSheet.create({
     padding: 14,
   },
   primaryCta: {
-    flex: 1.5,
+    flex: 1,
     height: 46,
     borderRadius: Radius.full,
     backgroundColor: Colors.primaryDark,
