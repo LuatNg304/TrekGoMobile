@@ -5,6 +5,8 @@ import {
   DeliveryTaskSummary,
   PaginatedResult,
   RentalAvailability,
+  RentalCancellationPreview,
+  RentalCancellationResult,
   RentalCategory,
   RentalDepositStatus,
   RentalHandoverPreview,
@@ -455,6 +457,38 @@ export const rentalApi = {
           : item;
       }),
     };
+  },
+
+  async previewCancellation(orderId: string, accessToken: string) {
+    const response = await apiRequest<Envelope<RentalCancellationPreview>>(
+      `/api/v1/rental-orders/${orderId}/cancellation-preview`,
+      { method: "GET", accessToken },
+    );
+
+    return unwrap(response);
+  },
+
+  async cancelOrder(
+    orderId: string,
+    input: {
+      reason: string;
+      previewVersion: string;
+      expectedVersion: number;
+    },
+    idempotencyKey: string,
+    accessToken: string,
+  ) {
+    const response = await apiRequest<Envelope<RentalCancellationResult>>(
+      `/api/v1/rental-orders/${orderId}/cancel`,
+      {
+        method: "POST",
+        accessToken,
+        headers: { "Idempotency-Key": idempotencyKey },
+        body: JSON.stringify(input),
+      },
+    );
+
+    return unwrap(response);
   },
 
   async listDeliveryTasks(

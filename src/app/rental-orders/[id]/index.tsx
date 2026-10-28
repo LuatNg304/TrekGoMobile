@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { Href, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -498,7 +498,24 @@ export default function RentalOrderDetailScreen() {
       } else {
         if (
           requestError instanceof ApiError &&
-          requestError.code === "PAYMENT_INVALID_STATE"
+          requestError.code === "PAYMENT_WINDOW_EXPIRED"
+        ) {
+          await AsyncStorage.removeItem(
+            paymentStorageKey(orderId, selectedGateway),
+          );
+          setPaymentError(
+            "Thời gian giữ thiết bị đã hết. Vui lòng tạo đơn thuê mới thay vì thanh toán lại đơn cũ.",
+          );
+          void loadOrder(true);
+          return;
+        }
+        if (
+          requestError instanceof ApiError &&
+          [
+            "PAYMENT_INVALID_STATE",
+            "RENTAL_CUTOFF_PASSED",
+            "TRIP_MEMBERSHIP_NOT_ELIGIBLE",
+          ].includes(requestError.code ?? "")
         ) {
           void loadOrder(true);
         }
@@ -547,8 +564,16 @@ export default function RentalOrderDetailScreen() {
   const { order, items, assignedUnits = [], timeline = [] } = detail;
   const tripTitle = order.trip?.title?.trim();
   const canShowPickupCode = order.status === "READY_FOR_HANDOVER";
+  const canCancelOrder = [
+    "PENDING_PAYMENT",
+    "PAID",
+    "PREPARING",
+    "READY_FOR_HANDOVER",
+  ].includes(order.status);
+  const paymentCountdown = remainingPaymentTime(order.paymentExpiresAt);
   const canStartPayment =
     order.status === "PENDING_PAYMENT" &&
+    !paymentCountdown?.expired &&
     !payment?.reconciliationRequired &&
     payment?.applicationStatus !== "REJECTED" &&
     payment?.reconciliationStatus !== "NEEDS_REVIEW" &&
@@ -563,7 +588,6 @@ export default function RentalOrderDetailScreen() {
     ["PENDING", "PROCESSING", "SUCCEEDED"].includes(payment?.status || "");
   const paymentBusy =
     paying || pollingPayment || paymentNeedsConfirmation || Boolean(paymentCheckoutUrl);
-  const paymentCountdown = remainingPaymentTime(order.paymentExpiresAt);
   void clockTick;
 
   return (
@@ -717,6 +741,15 @@ export default function RentalOrderDetailScreen() {
               </View>
             </View>
           )}
+          {order.status === "PENDING_PAYMENT" && paymentCountdown?.expired && (
+            <TouchableOpacity
+              style={styles.payButton}
+              onPress={() => router.replace("/(tabs)/rental")}
+            >
+              <Ionicons name="refresh-outline" size={18} color={Colors.onPrimary} />
+              <Text style={styles.payButtonText}>Chọn lại thiết bị và tạo đơn mới</Text>
+            </TouchableOpacity>
+          )}
           {paymentBusy ? (
             <TrekkingLoader
               label={payment?.status === "SUCCEEDED" ? "Đang đưa thanh toán về đích..." : "Đang dò tín hiệu thanh toán..."}
@@ -855,6 +888,25 @@ export default function RentalOrderDetailScreen() {
           </Section>
         )}
 
+        {canCancelOrder && (
+          <TouchableOpacity
+            style={styles.cancelOrderButton}
+            activeOpacity={0.82}
+            onPress={() =>
+              router.push(`/rental-orders/${orderId}/cancel` as Href)
+            }
+          >
+            <Ionicons name="close-circle-outline" size={21} color={Colors.error} />
+            <View style={styles.flexOne}>
+              <Text style={styles.cancelOrderTitle}>Hủy đơn thuê</Text>
+              <Text style={styles.cancelOrderDescription}>
+                Xem chính sách và số tiền được hoàn trước khi xác nhận.
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={Colors.error} />
+          </TouchableOpacity>
+        )}
+
         <InfoBanner
           icon="shield-checkmark-outline"
           title="Đúng quyền Trekker"
@@ -974,6 +1026,28 @@ function InfoBanner({
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: Colors.surface },
   flexOne: { flex: 1 },
+  cancelOrderButton: {
+    marginBottom: 16,
+    padding: 16,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    borderColor: "#F2B8B5",
+    backgroundColor: "#FFF8F7",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  cancelOrderTitle: {
+    color: Colors.error,
+    fontSize: 16,
+    fontWeight: "800",
+  },
+  cancelOrderDescription: {
+    marginTop: 3,
+    color: Colors.onSurfaceVariant,
+    fontSize: 13,
+    lineHeight: 18,
+  },
   header: {
     minHeight: 72,
     paddingHorizontal: 16,
