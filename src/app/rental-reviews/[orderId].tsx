@@ -15,6 +15,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { TrekkingLoader } from "@/components/common/TrekkingLoader";
 import { Colors, Radius, Shadows } from "@/constants/theme";
 import { useAuth } from "@/features/auth/AuthContext";
 import { rentalApi } from "@/features/rentals/api";
@@ -25,6 +26,12 @@ import {
 import type { RentalOrderDetail, RentalOrderLine } from "@/features/rentals/types";
 
 type ReviewDraft = { rating: number; comment: string };
+
+function resolvedProductId(item: RentalOrderLine) {
+  const directId = typeof item.productId === "string" ? item.productId.trim() : "";
+  const nestedId = typeof item.product?.id === "string" ? item.product.id.trim() : "";
+  return directId || nestedId;
+}
 
 export default function RentalReviewDetailScreen() {
   const router = useRouter();
@@ -54,7 +61,10 @@ export default function RentalReviewDetailScreen() {
       }
       setDetail(result);
       setDrafts(Object.fromEntries(
-        result.items.map((item) => [item.productId, { rating: 5, comment: "" }]),
+        result.items.flatMap((item) => {
+          const productId = resolvedProductId(item);
+          return productId ? [[productId, { rating: 5, comment: "" } satisfies ReviewDraft] as const] : [];
+        }),
       ));
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Không tải được đơn thuê.");
@@ -70,7 +80,10 @@ export default function RentalReviewDetailScreen() {
   const uniqueItems = useMemo(() => {
     const byProduct = new Map<string, RentalOrderLine>();
     detail?.items.forEach((item) => {
-      if (!byProduct.has(item.productId)) byProduct.set(item.productId, item);
+      const productId = resolvedProductId(item);
+      if (productId && !byProduct.has(productId)) {
+        byProduct.set(productId, { ...item, productId });
+      }
     });
     return [...byProduct.values()];
   }, [detail]);
@@ -120,10 +133,10 @@ export default function RentalReviewDetailScreen() {
       </View>
 
       {loading ? (
-        <View style={styles.centerState}>
-          <ActivityIndicator size="large" color={Colors.primaryDark} />
-          <Text style={styles.stateDescription}>Đang tải thiết bị đã thuê...</Text>
-        </View>
+        <TrekkingLoader
+          label="Đang mở hành trình thiết bị"
+          hint="TrekGo đang tải các món đồ đã hoàn tất để bạn chia sẻ trải nghiệm."
+        />
       ) : error ? (
         <View style={styles.errorWrap}>
           <Ionicons name="lock-closed-outline" size={36} color={Colors.warningDeep} />
