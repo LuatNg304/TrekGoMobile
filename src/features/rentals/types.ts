@@ -440,6 +440,24 @@ export type RentalDepositStatus = {
   groupedRefunds?: Record<string, unknown>[];
 };
 
+export type RentalCancellationPreview = {
+  canCancel: boolean;
+  feeRefund: number;
+  depositRefund: number;
+  reason: string;
+  previewVersion: string;
+};
+
+export type RentalCancellationResult = {
+  order: RentalOrderSummary;
+  refund: {
+    refundRef: string;
+    amount: number;
+    status: string;
+  } | null;
+  quantityReleaseStatus: string;
+};
+
 export function calculateProductDeposit(product: RentalProduct) {
   if (typeof product.depositPolicy.amount === "number") {
     return product.depositPolicy.amount;
