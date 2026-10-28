@@ -25,6 +25,7 @@ interface WheelDatePickerModalProps {
   title?: string;
   initialDate?: string; // DD/MM/YYYY
   minDate?: Date;
+  minimumDate?: Date;
   maxDate?: Date;
   onClose: () => void;
   onConfirm: (dateStr: string, dateObj: Date) => void;
@@ -141,10 +142,12 @@ export function WheelDatePickerModal({
   title = "Chọn ngày",
   initialDate,
   minDate,
+  minimumDate,
   maxDate,
   onClose,
   onConfirm,
 }: WheelDatePickerModalProps) {
+  const effectiveMinDate = minDate || minimumDate;
   // Current Year range: from current year - 1 up to current year + 6
   const currentYear = new Date().getFullYear();
   const years = useMemo(() => {
@@ -209,10 +212,10 @@ export function WheelDatePickerModal({
     return new Date(selectedYear, selectedMonth - 1, clampedDay, 0, 0, 0, 0);
   }, [selectedYear, selectedMonth, selectedDay, daysInMonth.length]);
 
-  // Validity check against minDate and maxDate
+  // Validity check against minDate/minimumDate and maxDate
   const validationError = useMemo(() => {
-    if (minDate) {
-      const minD = new Date(minDate.getFullYear(), minDate.getMonth(), minDate.getDate(), 0, 0, 0, 0);
+    if (effectiveMinDate) {
+      const minD = new Date(effectiveMinDate.getFullYear(), effectiveMinDate.getMonth(), effectiveMinDate.getDate(), 0, 0, 0, 0);
       if (selectedDateObj.getTime() < minD.getTime()) {
         return `Không được chọn trước ngày ${formatVnDate(minD)}`;
       }
@@ -224,7 +227,7 @@ export function WheelDatePickerModal({
       }
     }
     return null;
-  }, [selectedDateObj, minDate, maxDate]);
+  }, [selectedDateObj, effectiveMinDate, maxDate]);
 
   const formattedDateStr = useMemo(() => {
     return formatVnDate(selectedDateObj);
@@ -333,7 +336,7 @@ export function WheelDatePickerModal({
               onPress={() => applyQuickOffset(1)}
               activeOpacity={0.7}
             >
-              <Text style={styles.quickChipText}>Ngày mai</Text>
+              <Text style={styles.quickChipText} numberOfLines={1}>Ngày mai</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -341,7 +344,7 @@ export function WheelDatePickerModal({
               onPress={applyNextWeekend}
               activeOpacity={0.7}
             >
-              <Text style={styles.quickChipText}>Thứ 7 tuần này</Text>
+              <Text style={styles.quickChipText} numberOfLines={1}>Thứ 7 này</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -349,7 +352,7 @@ export function WheelDatePickerModal({
               onPress={() => applyQuickOffset(7)}
               activeOpacity={0.7}
             >
-              <Text style={styles.quickChipText}>+1 tuần</Text>
+              <Text style={styles.quickChipText} numberOfLines={1}>+1 tuần</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -357,7 +360,7 @@ export function WheelDatePickerModal({
               onPress={() => applyQuickOffset(14)}
               activeOpacity={0.7}
             >
-              <Text style={styles.quickChipText}>+2 tuần</Text>
+              <Text style={styles.quickChipText} numberOfLines={1}>+2 tuần</Text>
             </TouchableOpacity>
           </View>
 
@@ -563,19 +566,21 @@ const styles = StyleSheet.create({
   },
   quickChip: {
     flex: 1,
+    height: 36,
     backgroundColor: "#eff4ff",
-    paddingVertical: 6,
     borderRadius: Radius.full,
     alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 2,
     borderWidth: 1,
     borderColor: "#d9e3f6",
   },
   quickChipText: {
     fontFamily: "Roboto",
-    fontSize: 12,
-    lineHeight: 12 * 1.5,
+    fontSize: 11,
     color: "#125238",
-    fontWeight: "600",
+    fontWeight: "700",
+    textAlign: "center",
   },
   wheelWrapper: {
     height: CONTAINER_HEIGHT,

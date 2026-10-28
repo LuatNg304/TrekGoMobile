@@ -113,9 +113,17 @@ function computeDurationText(startIso: string, endIso: string): { durationText: 
     return { durationText: "Chưa xác định", isInvalid: false };
   }
 
+  const minAllowedStart = Date.now() + 2 * 24 * 60 * 60 * 1000;
+  if (s.getTime() < minAllowedStart) {
+    return {
+      durationText: "Thời gian khởi hành phải cách thời điểm hiện tại ít nhất 2 ngày (48 giờ).",
+      isInvalid: true,
+    };
+  }
+
   const diffMs = e.getTime() - s.getTime();
   if (diffMs <= 0) {
-    return { durationText: "Thời gian kết thúc phải sau thời gian khởi hành", isInvalid: true };
+    return { durationText: "Thời gian kết thúc chuyến đi phải sau thời gian khởi hành.", isInvalid: true };
   }
 
   const totalHours = Math.round(diffMs / (1000 * 60 * 60));
@@ -237,13 +245,34 @@ export function CreateTripBasicInfoStep({
     onChangeEndAt(end.toISOString());
   }
 
+  const minAllowedStart = useMemo(
+    () => new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
+    [],
+  );
+
   // Presets calculation (Không dùng icon tia sét / AI, chỉ gợi ý các mốc thời gian thiết thực)
   const quickPresets = useMemo(() => {
     const now = new Date();
     const day = now.getDay();
-    const diffToSaturday = (6 - day + 7) % 7 || 7;
+    const minTime = Date.now() + 2 * 24 * 60 * 60 * 1000;
+
+    let diffToSaturday = (6 - day + 7) % 7 || 7;
+    const testSat = new Date(now);
+    testSat.setDate(now.getDate() + diffToSaturday);
+    testSat.setHours(6, 0, 0, 0);
+    if (testSat.getTime() < minTime) {
+      diffToSaturday += 7;
+    }
+
     const diffToNextSat = diffToSaturday + 7;
-    const diffToFriday = (5 - day + 7) % 7 || 7;
+
+    let diffToFriday = (5 - day + 7) % 7 || 7;
+    const testFri = new Date(now);
+    testFri.setDate(now.getDate() + diffToFriday);
+    testFri.setHours(6, 0, 0, 0);
+    if (testFri.getTime() < minTime) {
+      diffToFriday += 7;
+    }
 
     return [
       {
@@ -508,7 +537,8 @@ export function CreateTripBasicInfoStep({
         visible={datePickerTarget === "start"}
         title="Chọn ngày khởi hành"
         initialDate={startDateInput}
-        minDate={new Date()}
+        minDate={minAllowedStart}
+        minimumDate={minAllowedStart}
         onClose={() => setDatePickerTarget(null)}
         onConfirm={handleConfirmWheelDate}
       />
@@ -517,7 +547,8 @@ export function CreateTripBasicInfoStep({
         visible={datePickerTarget === "end"}
         title="Chọn ngày dự kiến về"
         initialDate={endDateInput || startDateInput}
-        minDate={parseVnDate(startDateInput) || new Date()}
+        minDate={parseVnDate(startDateInput) || minAllowedStart}
+        minimumDate={parseVnDate(startDateInput) || minAllowedStart}
         onClose={() => setDatePickerTarget(null)}
         onConfirm={handleConfirmWheelDate}
       />

@@ -198,7 +198,14 @@ export function PurchaseTrailModal({
   async function handleVerifyPayment(isAuto = false) {
     setVerifying(true);
     try {
-      const res = await checkAccess(trailId);
+      let res = await checkAccess(trailId);
+      if (!res.hasAccess && isAuto) {
+        for (let attempt = 0; attempt < 5; attempt++) {
+          await new Promise((r) => setTimeout(r, 1000));
+          res = await checkAccess(trailId);
+          if (res.hasAccess) break;
+        }
+      }
       if (res.hasAccess) {
         Alert.alert(
           "Thanh toán thành công!",

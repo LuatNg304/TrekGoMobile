@@ -429,6 +429,20 @@ export function LeaderTripDetailScreen() {
           <Text style={styles.tripMeta} numberOfLines={1}>
             {formatVnDate(trip.startAt)} - {formatVnDate(trip.endAt)} · Mã tour: #{trip.id}
           </Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 14, marginTop: 4, flexWrap: "wrap" }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+              <Ionicons name="person-outline" size={13} color="#166534" />
+              <Text style={{ fontSize: 12, color: "#4b5563", fontWeight: "600" }}>
+                {authUser?.fullName || (authUser as any)?.name || (user as any)?.fullName || (user as any)?.name || (trip as any)?.leader?.fullName || "Leader"}
+              </Text>
+            </View>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+              <Ionicons name="location-outline" size={13} color="#166534" />
+              <Text style={{ fontSize: 12, color: "#4b5563", fontWeight: "600" }}>
+                {pickupDisplayName}
+              </Text>
+            </View>
+          </View>
         </View>
 
         {/* Action Buttons Bar matching web buttons */}
@@ -902,7 +916,7 @@ export function LeaderTripDetailScreen() {
           <View style={styles.sectionCardHeader}>
             <View style={styles.sectionTitleRow}>
               <Ionicons name="trail-sign-outline" size={18} color="#125238" />
-              <Text style={styles.sectionTitle}>CUNG ĐƯỜNG THẨM ĐỊNH (SYSTEM TRAIL)</Text>
+              <Text style={styles.sectionTitle} numberOfLines={1}>Cung đường thẩm định</Text>
             </View>
             <View style={styles.sectionHeaderBadge}>
               <Text style={styles.sectionHeaderBadgeText}>CHUẨN VFRS</Text>
@@ -952,7 +966,7 @@ export function LeaderTripDetailScreen() {
           <View style={styles.sectionCardHeader}>
             <View style={styles.sectionTitleRow}>
               <Ionicons name="flag-outline" size={18} color="#125238" />
-              <Text style={styles.sectionTitle}>TRẠM DỪNG & CHECKPOINTS KIỂM SOÁT VFRS</Text>
+              <Text style={styles.sectionTitle} numberOfLines={1}>Trạm dừng & Checkpoints</Text>
             </View>
             <View style={styles.sectionHeaderBadge}>
               <Text style={styles.sectionHeaderBadgeText}>
@@ -1675,18 +1689,25 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+    gap: 8,
+    marginBottom: 8,
   },
   sectionTitleRow: {
+    flex: 1,
+    minWidth: 0,
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
   },
   sectionTitle: {
-    fontSize: 13.5,
+    flexShrink: 1,
+    fontSize: 13,
     fontWeight: "800",
     color: "#125238",
+    textTransform: "uppercase",
   },
   sectionHeaderBadge: {
+    flexShrink: 0,
     backgroundColor: "#dcfce7",
     paddingHorizontal: 7,
     paddingVertical: 3,

@@ -7,6 +7,7 @@ import {
   Alert,
   FlatList,
   Modal,
+  Platform,
   RefreshControl,
   StyleSheet,
   Text,
@@ -76,10 +77,18 @@ export function MyPrivateTripsScreen() {
     } as any);
   }
 
+  const handleCodeChange = (text: string) => {
+    const normalized = text.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+    setInviteCodeInput(normalized);
+  };
+
   function handleOpenInvitePreview() {
-    const code = inviteCodeInput.trim();
-    if (!code) {
-      Alert.alert("Chưa nhập mã", "Vui lòng nhập mã mời Private Trip.");
+    const code = inviteCodeInput.trim().toUpperCase();
+    if (code.length !== 6) {
+      Alert.alert(
+        "Mã mời không hợp lệ",
+        "Mã mời phải gồm đúng 6 ký tự chữ in hoa và số.",
+      );
       return;
     }
     setShowCodeModal(false);
@@ -254,16 +263,17 @@ export function MyPrivateTripsScreen() {
             </View>
             <Text style={styles.modalTitle}>Nhập mã mời Private Trip</Text>
             <Text style={styles.modalSubtitle}>
-              Nhập mã mời hoặc chuỗi ký tự được bạn bè chia sẻ để xem thông tin chuyến đi.
+              Nhập mã mời 6 ký tự (chữ in hoa và số) do Trưởng đoàn chia sẻ để xem và tham gia chuyến đi.
             </Text>
 
             <TextInput
               style={styles.modalInput}
-              placeholder="Ví dụ: abc123xy"
+              placeholder="K7X9P2"
               placeholderTextColor={Colors.onSurfaceVariant}
               value={inviteCodeInput}
-              onChangeText={setInviteCodeInput}
-              autoCapitalize="none"
+              onChangeText={handleCodeChange}
+              maxLength={6}
+              autoCapitalize="characters"
               autoCorrect={false}
             />
 
@@ -277,23 +287,30 @@ export function MyPrivateTripsScreen() {
             >
               <Ionicons name="camera-outline" size={18} color={Colors.primaryDark} />
               <Text style={styles.modalQRScannerBtnText}>
-                Hoặc quét mã QR từ màn hình web
+                Hoặc quét mã QR từ thiết bị khác
               </Text>
             </TouchableOpacity>
 
             <View style={styles.modalBtnRow}>
               <TouchableOpacity
                 style={styles.modalCancelBtn}
-                onPress={() => setShowCodeModal(false)}
+                onPress={() => {
+                  setShowCodeModal(false);
+                  setInviteCodeInput("");
+                }}
               >
                 <Text style={styles.modalCancelBtnText}>Hủy</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={styles.modalConfirmBtn}
+                style={[
+                  styles.modalConfirmBtn,
+                  inviteCodeInput.length !== 6 && styles.modalConfirmBtnDisabled,
+                ]}
+                disabled={inviteCodeInput.length !== 6}
                 onPress={handleOpenInvitePreview}
               >
-                <Text style={styles.modalConfirmBtnText}>Xem lời mời</Text>
+                <Text style={styles.modalConfirmBtnText}>Tham gia / Tìm phòng</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -421,14 +438,19 @@ const styles = StyleSheet.create({
   },
   modalInput: {
     width: "100%",
-    height: 44,
-    borderWidth: 1,
+    height: 48,
+    borderWidth: 1.5,
     borderColor: Colors.surfaceContainer,
     borderRadius: Radius.md,
     paddingHorizontal: 12,
-    fontSize: 14,
-    color: Colors.onSurface,
-    backgroundColor: Colors.surfaceContainerLow,
+    fontSize: 20,
+    fontWeight: "800",
+    color: Colors.primaryDark,
+    backgroundColor: Colors.surfaceContainerLowest,
+    textAlign: "center",
+    letterSpacing: 4,
+    textTransform: "uppercase",
+    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
     marginBottom: 16,
   },
   modalQRScannerBtn: {
@@ -472,6 +494,9 @@ const styles = StyleSheet.create({
     borderRadius: Radius.full,
     alignItems: "center",
     backgroundColor: Colors.primaryDark,
+  },
+  modalConfirmBtnDisabled: {
+    opacity: 0.45,
   },
   modalConfirmBtnText: {
     fontSize: 13,

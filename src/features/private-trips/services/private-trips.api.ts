@@ -335,20 +335,46 @@ export async function getMyPrivateTrips(
   return Array.from(map.values());
 }
 
-/** GET /private-trips/:id — Chi tiết chuyến đi dành cho Host */
+/** GET /private-trips/:id — Chi tiết chuyến đi dành cho Host, tự động fallback sang /private-trips/:id/room cho Member */
 export async function getPrivateTripDetail(tripId: string): Promise<PrivateTrip> {
-  const res = await apiRequest<any>(`/api/v1/private-trips/${tripId}`);
-  let raw = res;
-  if (res && typeof res === "object" && "data" in res && res.data) {
-    raw = res.data;
+  try {
+    const res = await apiRequest<any>(`/api/v1/private-trips/${tripId}`);
+    let raw = res;
+    if (res && typeof res === "object" && "data" in res && res.data) {
+      raw = res.data;
+    }
+    if (raw && typeof raw === "object" && "trip" in raw && raw.trip) {
+      raw = { ...raw.trip, ...raw };
+    }
+    return raw as PrivateTrip;
+  } catch (err: any) {
+    // Nếu 404 hoặc không phải Host (chẳng hạn tài khoản tham gia với tư cách Member), lấy qua phòng chuyến đi /private-trips/:id/room
+    try {
+      const roomRes = await apiRequest<any>(`/api/v1/private-trips/${tripId}/room`);
+      const roomData = roomRes?.data ?? roomRes;
+      const t = roomData?.trip ?? roomData;
+      return {
+        ...t,
+        maxPax: t.capacity ?? t.maxPax ?? 1,
+        pickupPoint: t.pickupPoint ?? undefined,
+        tripTrailPlansViaTripId: roomData.plannedRoutes?.map((r: any) => ({
+          snapshotName: r.name,
+          snapshotDifficulty: r.difficulty,
+          snapshotDistanceKm: r.distanceKm,
+          snapshotElevationGainM: r.elevationGainM,
+          snapshotGeojson: r.geojson,
+        })),
+        tripCheckpointsViaTripId: roomData.requiredCheckpoints,
+        viewer: roomData.viewer,
+        permissions: roomData.permissions,
+        activeMemberCount: t.activeMemberCount,
+      } as PrivateTrip;
+    } catch {
+      throw err;
+    }
   }
-  if (raw && typeof raw === "object" && "trip" in raw && raw.trip) {
-    raw = { ...raw.trip, ...raw };
-  }
-  return raw as PrivateTrip;
 }
 
-/** PATCH /private-trips/:id — Cập nhật thông tin chuyến đi */
 export async function updatePrivateTrip(
   tripId: string,
   payload: UpdatePrivateTripPayload,

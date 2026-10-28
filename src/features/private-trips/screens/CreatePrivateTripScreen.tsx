@@ -19,15 +19,20 @@ import { CreateTripTrailStep } from "../components/CreateTripTrailStep";
 import { useCreatePrivateTrip } from "../hooks/useCreatePrivateTrip";
 import type { PrivateTrailSource } from "../types";
 
-// Dynamic initial trip dates (next Saturday 06:00 to Sunday 18:00)
+// Dynamic initial trip dates (next Saturday 06:00 to Sunday 18:00, at least 48h from now)
 function getDefaultTripDates() {
+  const minAllowedStart = Date.now() + 2 * 24 * 60 * 60 * 1000;
   const now = new Date();
   const day = now.getDay();
   // Next Saturday: if today is Sat (6), jump 7 days, else days until Saturday
-  const daysUntilSaturday = (6 - day + 7) % 7 || 7;
-  const start = new Date(now);
+  let daysUntilSaturday = (6 - day + 7) % 7 || 7;
+  let start = new Date(now);
   start.setDate(now.getDate() + daysUntilSaturday);
   start.setHours(6, 0, 0, 0);
+
+  if (start.getTime() < minAllowedStart) {
+    start.setDate(start.getDate() + 7);
+  }
 
   const end = new Date(start);
   end.setDate(start.getDate() + 1);
@@ -96,6 +101,27 @@ export function CreatePrivateTripScreen() {
         Alert.alert("Thiếu thời gian", "Vui lòng nhập ngày giờ bắt đầu và kết thúc.");
         return;
       }
+
+      const minAllowedStart = Date.now() + 2 * 24 * 60 * 60 * 1000;
+      const sTime = new Date(startAt).getTime();
+      const eTime = new Date(endAt).getTime();
+
+      if (isNaN(sTime) || sTime < minAllowedStart) {
+        Alert.alert(
+          "Thời gian không hợp lệ",
+          "Thời gian khởi hành phải cách thời điểm hiện tại ít nhất 2 ngày (48 giờ).",
+        );
+        return;
+      }
+
+      if (isNaN(eTime) || eTime <= sTime) {
+        Alert.alert(
+          "Thời gian không hợp lệ",
+          "Thời gian kết thúc chuyến đi phải sau thời gian khởi hành.",
+        );
+        return;
+      }
+
       setCurrentStep(3);
     }
   }
@@ -149,6 +175,26 @@ function toValidIsoDate(val: string, defaultDaysFromNow = 7): string {
 
       const validStartAt = toValidIsoDate(startAt, 7);
       const validEndAt = toValidIsoDate(endAt, 8);
+
+      const minAllowedStart = Date.now() + 2 * 24 * 60 * 60 * 1000;
+      const sTime = new Date(validStartAt).getTime();
+      const eTime = new Date(validEndAt).getTime();
+
+      if (isNaN(sTime) || sTime < minAllowedStart) {
+        Alert.alert(
+          "Thời gian không hợp lệ",
+          "Thời gian khởi hành phải cách thời điểm hiện tại ít nhất 2 ngày (48 giờ).",
+        );
+        return;
+      }
+
+      if (isNaN(eTime) || eTime <= sTime) {
+        Alert.alert(
+          "Thời gian không hợp lệ",
+          "Thời gian kết thúc chuyến đi phải sau thời gian khởi hành.",
+        );
+        return;
+      }
 
       const created = await createTrip({
         type: selectedTrail.type,

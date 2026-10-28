@@ -26,6 +26,17 @@ import {
   View,
 } from "react-native";
 
+
+function getTimePeriodLabel(timeStr: string): string {
+  if (!timeStr) return "Sáng";
+  const parts = timeStr.trim().split(":");
+  const h = parseInt(parts[0], 10);
+  if (isNaN(h)) return "Sáng";
+  if (h >= 0 && h < 12) return "Sáng";
+  if (h >= 12 && h < 18) return "Chiều";
+  return "Tối";
+}
+
 export interface LeaderTripFormData {
   name: string;
   description: string;
@@ -75,7 +86,7 @@ export function LeaderTripFormStep({
 }: LeaderTripFormStepProps) {
   const [destDropdownOpen, setDestDropdownOpen] = useState(false);
   const [pickupDropdownOpen, setPickupDropdownOpen] = useState(false);
-  const [datePickerTarget, setDatePickerTarget] = useState<"start" | "end" | null>(null);
+  const [datePickerTarget, setDatePickerTarget] = useState<"start" | "end" | "regOpen" | null>(null);
 
   const tomorrow = useMemo(() => {
     const t = new Date();
@@ -309,11 +320,15 @@ export function LeaderTripFormStep({
         {/* Date constraints & Dual input */}
         <View style={styles.dateSection}>
           <View style={styles.dateSectionTop}>
-            <Text style={styles.inputLabel}>Lịch trình di chuyển (Ngày đi & về) *</Text>
+            <Text style={[styles.inputLabel, { flex: 1, marginRight: 6 }]} numberOfLines={1}>
+              Lịch trình di chuyển (Ngày đi & về) *
+            </Text>
             {durationInfo && (
               <View style={styles.durationPill}>
-                <Ionicons name="time-outline" size={13} color="#125238" />
-                <Text style={styles.durationPillText}>{durationInfo.text}</Text>
+                <Ionicons name="time-outline" size={12} color="#125238" />
+                <Text style={styles.durationPillText} numberOfLines={1}>
+                  {durationInfo.nights === 0 ? "1 Ngày" : `${durationInfo.days}N${durationInfo.nights}Đ`}
+                </Text>
               </View>
             )}
           </View>
@@ -428,7 +443,7 @@ export function LeaderTripFormStep({
             </View>
             <View style={styles.timeRow}>
               <View style={styles.timeInputBox}>
-                <Ionicons name="time-outline" size={18} color="#125238" />
+                <Ionicons name="time-outline" size={17} color="#125238" />
                 <TextInput
                   value={form.departureTime || "05:30"}
                   onChangeText={(val) => onUpdateField("departureTime", val)}
@@ -436,19 +451,31 @@ export function LeaderTripFormStep({
                   placeholderTextColor="#707972"
                   style={styles.timeInputText}
                 />
+                <View style={styles.timePeriodBadge}>
+                  <Text style={styles.timePeriodBadgeText}>
+                    {getTimePeriodLabel(form.departureTime || "05:30")}
+                  </Text>
+                </View>
               </View>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.timeChipsRow}>
-                {["05:00", "05:30", "06:00", "07:00", "13:00"].map((timeVal) => {
-                  const isSelected = (form.departureTime || "05:30") === timeVal;
+                {[
+                  { time: "05:00", label: "05:00 Sáng" },
+                  { time: "05:30", label: "05:30 Sáng" },
+                  { time: "06:00", label: "06:00 Sáng" },
+                  { time: "07:00", label: "07:00 Sáng" },
+                  { time: "13:30", label: "13:30 Chiều" },
+                  { time: "20:00", label: "20:00 Tối" },
+                ].map(({ time, label }) => {
+                  const isSelected = (form.departureTime || "05:30") === time;
                   return (
                     <TouchableOpacity
-                      key={timeVal}
+                      key={time}
                       style={[styles.timeChip, isSelected && styles.timeChipActive]}
-                      onPress={() => onUpdateField("departureTime", timeVal)}
+                      onPress={() => onUpdateField("departureTime", time)}
                       activeOpacity={0.8}
                     >
                       <Text style={[styles.timeChipText, isSelected && styles.timeChipTextActive]}>
-                        {timeVal}
+                        {label}
                       </Text>
                     </TouchableOpacity>
                   );
@@ -498,18 +525,93 @@ export function LeaderTripFormStep({
             <View style={styles.gateInputsGrid}>
               <View style={styles.gateInputCol}>
                 <Text style={styles.gateInputLabel}>Giờ mở nhận đăng ký (Tùy chọn)</Text>
-                <View style={styles.gateInputBox}>
-                  <Ionicons name="calendar-outline" size={16} color="#707972" />
-                  <TextInput
-                    value={form.registrationOpenAt || ""}
-                    onChangeText={(val) => onUpdateField("registrationOpenAt", val)}
-                    placeholder="Ngay khi xuất bản"
-                    placeholderTextColor="#707972"
-                    style={styles.gateInputText}
-                  />
+                <TouchableOpacity
+                  style={styles.gateInputBox}
+                  onPress={() => setDatePickerTarget("regOpen")}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="calendar-outline" size={16} color="#125238" />
+                  <Text
+                    style={[
+                      styles.gateInputText,
+                      !form.registrationOpenAt && { color: "#707972" },
+                      { flex: 1 },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {form.registrationOpenAt || "Ngay khi xuất bản"}
+                  </Text>
+                  {form.registrationOpenAt ? (
+                    <TouchableOpacity
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        onUpdateField("registrationOpenAt", "");
+                      }}
+                      style={styles.clearRegOpenBtn}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Ionicons name="close-circle" size={16} color="#ba1a1a" />
+                    </TouchableOpacity>
+                  ) : (
+                    <Ionicons name="chevron-down" size={14} color="#707972" style={{ marginLeft: "auto" }} />
+                  )}
+                </TouchableOpacity>
+
+                {/* Quick Presets for Registration Open */}
+                <View style={styles.regOpenChipsRow}>
+                  <TouchableOpacity
+                    style={[styles.regOpenChip, !form.registrationOpenAt && styles.regOpenChipActive]}
+                    onPress={() => onUpdateField("registrationOpenAt", "")}
+                    activeOpacity={0.75}
+                  >
+                    <Text style={[styles.regOpenChipText, !form.registrationOpenAt && styles.regOpenChipTextActive]}>
+                      Mở ngay khi duyệt
+                    </Text>
+                  </TouchableOpacity>
+
+                  {form.startDate ? (
+                    <>
+                      <TouchableOpacity
+                        style={styles.regOpenChip}
+                        onPress={() => {
+                          const d = parseVnDate(form.startDate);
+                          if (d) {
+                            d.setDate(d.getDate() - 7);
+                            onUpdateField("registrationOpenAt", formatVnDate(d));
+                          }
+                        }}
+                        activeOpacity={0.75}
+                      >
+                        <Text style={styles.regOpenChipText}>Trước 7 ngày</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={styles.regOpenChip}
+                        onPress={() => {
+                          const d = parseVnDate(form.startDate);
+                          if (d) {
+                            d.setDate(d.getDate() - 5);
+                            onUpdateField("registrationOpenAt", formatVnDate(d));
+                          }
+                        }}
+                        activeOpacity={0.75}
+                      >
+                        <Text style={styles.regOpenChipText}>Trước 5 ngày</Text>
+                      </TouchableOpacity>
+                    </>
+                  ) : null}
+
+                  <TouchableOpacity
+                    style={styles.regOpenChip}
+                    onPress={() => setDatePickerTarget("regOpen")}
+                    activeOpacity={0.75}
+                  >
+                    <Text style={styles.regOpenChipText}>Tự chọn ngày...</Text>
+                  </TouchableOpacity>
                 </View>
+
                 <Text style={styles.gateInputHint}>
-                  Bỏ trống nếu muốn mở đăng ký ngay lập tức khi Publish chuyến đi.
+                  Chạm để chọn ngày hoặc bấm các nút gợi ý nhanh bên trên mà không cần gõ tay.
                 </Text>
               </View>
 
@@ -936,6 +1038,18 @@ export function LeaderTripFormStep({
         onClose={() => setDatePickerTarget(null)}
         onConfirm={(val) => {
           onUpdateField("endDate", val);
+        }}
+      />
+
+      <WheelDatePickerModal
+        visible={datePickerTarget === "regOpen"}
+        title="Chọn ngày mở nhận đăng ký"
+        initialDate={form.registrationOpenAt || form.startDate}
+        minDate={new Date()}
+        maxDate={parseVnDate(form.startDate) || undefined}
+        onClose={() => setDatePickerTarget(null)}
+        onConfirm={(val) => {
+          onUpdateField("registrationOpenAt", val);
         }}
       />
     </View>
@@ -1783,6 +1897,48 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
+  },
+  timePeriodBadge: {
+    backgroundColor: "#b1f0cd",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: Radius.pill,
+    marginLeft: "auto",
+  },
+  timePeriodBadgeText: {
+    color: "#002113",
+    fontSize: 10,
+    fontWeight: "800",
+  },
+  clearRegOpenBtn: {
+    marginLeft: "auto",
+    padding: 2,
+  },
+  regOpenChipsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: 6,
+  },
+  regOpenChip: {
+    backgroundColor: "#eff4ff",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: Radius.sm,
+    borderWidth: 1,
+    borderColor: "#ccd9ea",
+  },
+  regOpenChipActive: {
+    backgroundColor: "#125238",
+    borderColor: "#125238",
+  },
+  regOpenChipText: {
+    color: "#125238",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  regOpenChipTextActive: {
+    color: "#ffffff",
   },
   timeInputBox: {
     flexDirection: "row",

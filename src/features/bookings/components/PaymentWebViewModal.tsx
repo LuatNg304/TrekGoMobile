@@ -50,32 +50,71 @@ export function PaymentWebViewModal({
       message: string,
       navUrl: string,
     ) => {
-      // Đổi host localhost / 127.0.0.1 thành API_BASE_URL thực tế
-      const isLocalhost =
-        navUrl.includes("localhost:") ||
-        navUrl.includes("127.0.0.1:") ||
-        navUrl.includes("localhost/") ||
-        navUrl.includes("127.0.0.1/");
+      try {
+        // 1. Xử lý VNPAY callback: Chuyển tiếp query string sang webhook /api/v1/payments/webhooks/vnpay
+        if (navUrl.includes("vnp_ResponseCode")) {
+          const queryIndex = navUrl.indexOf("?");
+          const queryString = queryIndex !== -1 ? navUrl.slice(queryIndex + 1) : "";
+          const searchParams = new URLSearchParams(queryString);
+          const vnpParams = new URLSearchParams();
+          searchParams.forEach((val, key) => {
+            if (key.startsWith("vnp_")) {
+              vnpParams.set(key, val);
+            }
+          });
 
-      const backendEndpoint = isLocalhost
-        ? navUrl.replace(/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/, API_BASE_URL)
-        : navUrl;
+          if (vnpParams.toString().length > 0) {
+            const vnpWebhookUrl = `${API_BASE_URL}/api/v1/payments/webhooks/vnpay?${vnpParams.toString()}`;
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 4000);
+            await fetch(vnpWebhookUrl, { signal: controller.signal }).catch(() => {});
+            clearTimeout(timer);
+          }
+        }
+        // 2. Xử lý MoMo callback: Chuyển tiếp body sang /api/v1/payments/webhooks/momo
+        else if (navUrl.includes("resultCode=") && navUrl.includes("signature=")) {
+          const queryIndex = navUrl.indexOf("?");
+          const queryString = queryIndex !== -1 ? navUrl.slice(queryIndex + 1) : "";
+          const searchParams = new URLSearchParams(queryString);
+          const momoPayload: Record<string, string> = {};
+          searchParams.forEach((val, key) => {
+            momoPayload[key] = val;
+          });
 
-      // Nếu URL là endpoint của backend hoặc có query callback thanh toán, gọi backend
-      if (
-        isLocalhost ||
-        backendEndpoint.includes("/payments/") ||
-        backendEndpoint.includes("/vnpay/") ||
-        backendEndpoint.includes("/momo/")
-      ) {
-        try {
+          const momoWebhookUrl = `${API_BASE_URL}/api/v1/payments/webhooks/momo`;
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 4000);
+          await fetch(momoWebhookUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(momoPayload),
+            signal: controller.signal,
+          }).catch(() => {});
+          clearTimeout(timer);
+        }
+        // 3. Fallback cho các return URL nội bộ khác
+        else if (
+          navUrl.includes("localhost:") ||
+          navUrl.includes("127.0.0.1:") ||
+          navUrl.includes("/payments/")
+        ) {
+          const isLocalhost =
+            navUrl.includes("localhost:") ||
+            navUrl.includes("127.0.0.1:") ||
+            navUrl.includes("localhost/") ||
+            navUrl.includes("127.0.0.1/");
+
+          const backendEndpoint = isLocalhost
+            ? navUrl.replace(/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/, API_BASE_URL)
+            : navUrl;
+
           const controller = new AbortController();
           const timer = setTimeout(() => controller.abort(), 3500);
           await fetch(backendEndpoint, { signal: controller.signal }).catch(() => {});
           clearTimeout(timer);
-        } catch {
-          // ignore network error
         }
+      } catch (err) {
+        console.warn("[PaymentWebViewModal] Failed to forward callback to backend:", err);
       }
 
       onPaymentComplete({
@@ -88,7 +127,7 @@ export function PaymentWebViewModal({
     [onPaymentComplete],
   );
 
-  // Check if URL indicates a payment result (VNPAY / MoMo / Return Callback)
+    // Check if URL indicates a payment result (VNPAY / MoMo / Return Callback)
   function handleUrlChange(navUrl: string): boolean {
     if (!navUrl) return true;
 

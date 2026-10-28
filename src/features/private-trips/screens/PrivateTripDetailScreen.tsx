@@ -228,7 +228,7 @@ export function PrivateTripDetailScreen({
     );
   }
 
-  const isHost = propIsHost ?? true;
+  const isHost = propIsHost ?? (trip.viewer?.isHost ?? true);
   const isCancelled = trip.status === "CANCELLED";
 
   return (
@@ -366,7 +366,7 @@ export function PrivateTripDetailScreen({
       <InviteShareModal
         visible={showInviteModal}
         inviteCode={inviteData?.inviteCode || trip.inviteCode}
-        inviteUrl={inviteData?.inviteUrl}
+        expiresAt={inviteData?.expiresAt}
         tripTitle={trip.title}
         tripId={trip.id}
         expectedVersion={trip.version}
