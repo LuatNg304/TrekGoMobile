@@ -122,14 +122,13 @@ export async function getPublicTrips(
   if (filter.dateTo) params.set("dateTo", filter.dateTo);
   if (filter.price !== undefined) params.set("price", String(filter.price));
 
-  // Ưu tiên endpoint public-trips (khớp với endpoint chi tiết), fallback legacy /trips
-  let basePath = "/api/v1/public-trips";
+  // Uu tien /api/v1/trips (BookingDiscoveryController tra ve day du leader, pickupPoint, remainingSlots tinh theo occupiedSeats)
+  let basePath = "/api/v1/trips";
   let rawRes: any;
   try {
     rawRes = await apiRequest<any>(`${basePath}?${params.toString()}`);
   } catch (err) {
-    if (!isNotFound(err)) throw err;
-    basePath = "/api/v1/trips";
+    basePath = "/api/v1/public-trips";
     rawRes = await apiRequest<any>(`${basePath}?${params.toString()}`);
   }
 
@@ -161,19 +160,32 @@ function normalizeTrip(raw: any, fallbackId?: string): PublicTrip {
               : raw.destinationName ?? "",
         };
 
-  const leader =
-    raw.leader && typeof raw.leader === "object"
-      ? {
-          id: raw.leader.id ?? "",
-          fullName: raw.leader.fullName ?? raw.leader.name ?? "",
-        }
-      : { id: raw.leaderId ?? "", fullName: raw.leaderName ?? "" };
+  const leaderFullName =
+    raw.leader?.fullName ||
+    raw.leader?.name ||
+    raw.leader?.displayName ||
+    raw.leaderName ||
+    raw.creator?.fullName ||
+    raw.creator?.name ||
+    raw.creatorName ||
+    "";
+
+  const leader = {
+    id: raw.leader?.id ?? raw.leaderId ?? raw.creatorId ?? "",
+    fullName: leaderFullName,
+  };
 
   const pickupSrc = raw.pickup ?? raw.pickupPoint;
   const pickup =
     pickupSrc && typeof pickupSrc === "object"
-      ? { name: pickupSrc.name ?? "", address: pickupSrc.address ?? undefined }
-      : { name: raw.pickupName ?? "" };
+      ? {
+          name: pickupSrc.name ?? "",
+          address: pickupSrc.address ?? undefined,
+        }
+      : {
+          name: raw.pickupName ?? (typeof raw.pickup === "string" ? raw.pickup : ""),
+          address: typeof raw.pickupAddress === "string" ? raw.pickupAddress : undefined,
+        };
 
   const capacity = Number(raw.capacity ?? raw.maxPax ?? 0);
   const booked = Number(
@@ -256,7 +268,7 @@ async function getTripFromMyBookings(id: string): Promise<PublicTrip | null> {
 export async function getPublicTripById(id: string): Promise<PublicTrip> {
   let lastError: unknown;
 
-  for (const path of [`/api/v1/public-trips/${id}`, `/api/v1/trips/${id}`]) {
+  for (const path of [`/api/v1/trips/${id}`, `/api/v1/public-trips/${id}`]) {
     try {
       const res = await apiRequest<any>(path);
       const trip = unwrapTrip(res);

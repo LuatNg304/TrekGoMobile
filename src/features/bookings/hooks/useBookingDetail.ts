@@ -8,6 +8,7 @@ import type { BookingDetail } from "../types";
 export function useBookingDetail(
   bookingId: string | null | undefined,
   enablePolling = true,
+  isPaused = false,
 ) {
   const [booking, setBooking] = useState<BookingDetail | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(Boolean(bookingId));
@@ -44,10 +45,15 @@ export function useBookingDetail(
     void fetchDetail();
   }, [fetchDetail]);
 
-  // Hold expiration countdown timer
+  // Hold expiration countdown timer (tam dung khi dang cho xac nhan thanh toan)
   useEffect(() => {
     if (!booking?.expiresAt || booking.status !== "PENDING_PAYMENT") {
       setRemainingSeconds(0);
+      return;
+    }
+
+    if (isPaused) {
+      // Khi nut dang cho xac nhan dang xoay, dong bang dong ho dem nguoc
       return;
     }
 
@@ -69,7 +75,7 @@ export function useBookingDetail(
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [booking?.expiresAt, booking?.status]);
+  }, [booking?.expiresAt, booking?.status, isPaused]);
 
   // Auto-polling when PENDING_PAYMENT to detect payment completion
   useEffect(() => {

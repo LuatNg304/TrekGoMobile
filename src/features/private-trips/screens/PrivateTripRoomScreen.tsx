@@ -355,7 +355,7 @@ export function PrivateTripRoomScreen({
       <InviteShareModal
         visible={showInviteModal}
         inviteCode={inviteData?.inviteCode}
-        inviteUrl={inviteData?.inviteUrl}
+        expiresAt={inviteData?.expiresAt}
         tripTitle={roomData.trip.title}
         tripId={tripId}
         expectedVersion={roomData.trip.version}

@@ -14,6 +14,7 @@ import { useAuth } from "@/features/auth/AuthContext";
 import { useJoinPrivateTrip } from "../hooks/useJoinPrivateTrip";
 import { usePreviewTripInvite } from "../hooks/usePreviewTripInvite";
 import type { InvitePreviewData } from "../types";
+import { getInviteErrorMessage } from "../utils/inviteErrorUtils";
 import { PrivateStatusBadge } from "./PrivateStatusBadge";
 
 export interface InvitePreviewCardProps {
@@ -102,19 +103,8 @@ export function InvitePreviewCard({
           : "Chào mừng bạn đã gia nhập đoàn!",
       );
     } catch (err: any) {
-      if (err?.code === "CAPACITY_CONFLICT") {
-        Alert.alert(
-          "Chuyến đi đã đủ người",
-          "Rất tiếc, chuyến đi này đã đạt sĩ số tối đa.",
-        );
-      } else if (err?.code === "MEMBER_REMOVED") {
-        Alert.alert(
-          "Không thể tham gia",
-          "Bạn đã từng bị Host loại khỏi chuyến đi này nên không thể tham gia lại.",
-        );
-      } else {
-        Alert.alert("Lỗi tham gia", err?.message || "Không thể tham gia chuyến.");
-      }
+      const errorMsg = getInviteErrorMessage(err);
+      Alert.alert("Không thể tham gia", errorMsg);
     }
   }
 

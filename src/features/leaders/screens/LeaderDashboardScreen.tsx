@@ -225,13 +225,13 @@ export function LeaderDashboardScreen({ onNavigateTab }: LeaderDashboardScreenPr
 
               <View style={styles.heroMetaRow}>
                 <View style={styles.heroMetaItem}>
-                  <Ionicons name="calendar-outline" size={13} color="#b8cbb2" />
+                  <Ionicons name="calendar-outline" size={13} color="#166534" />
                   <Text style={styles.heroMetaText}>
                     {formatTripDates(highlightTrip.startAt, highlightTrip.endAt)}
                   </Text>
                 </View>
                 <View style={styles.heroMetaItem}>
-                  <Ionicons name="location-outline" size={13} color="#b8cbb2" />
+                  <Ionicons name="location-outline" size={13} color="#166534" />
                   <Text style={styles.heroMetaText}>
                     {highlightTrip.checkpoints?.length || 0} trạm kiểm soát
                   </Text>
@@ -240,7 +240,7 @@ export function LeaderDashboardScreen({ onNavigateTab }: LeaderDashboardScreenPr
 
               {highlightTrip.trails?.[0]?.snapshotName && (
                 <View style={styles.heroTrailBox}>
-                  <Ionicons name="trail-sign-outline" size={13} color="#86efac" />
+                  <Ionicons name="trail-sign-outline" size={13} color="#166534" />
                   <Text style={styles.heroTrailText} numberOfLines={1}>
                     {highlightTrip.trails[0].snapshotName}
                   </Text>
@@ -448,10 +448,12 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
   },
   heroCard: {
-    backgroundColor: "#10351f",
+    backgroundColor: "#f0fdf4",
+    borderWidth: 1.5,
+    borderColor: "#bbf7d0",
     borderRadius: Radius.lg,
     padding: 18,
-    ...Shadows.tactical,
+    ...Shadows.card,
   },
   heroHeader: { marginBottom: 8 },
   heroBadgeRow: {
@@ -460,13 +462,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   heroIdTag: {
-    backgroundColor: "rgba(255, 255, 255, 0.12)",
+    backgroundColor: "#dcfce7",
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 6,
   },
   heroIdText: {
-    color: "#a7f3d0",
+    color: "#166534",
     fontSize: 11,
     fontWeight: "800",
     letterSpacing: 0.5,
@@ -478,7 +480,7 @@ const styles = StyleSheet.create({
   },
   heroStatusText: { fontSize: 10, fontWeight: "800" },
   heroTitle: {
-    color: "#ffffff",
+    color: "#125238",
     fontSize: 20,
     fontWeight: "900",
     lineHeight: 26,
@@ -490,29 +492,33 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   heroMetaItem: { flexDirection: "row", alignItems: "center", gap: 5 },
-  heroMetaText: { color: "#b8cbb2", fontSize: 12, fontWeight: "600" },
+  heroMetaText: { color: "#4b5563", fontSize: 12, fontWeight: "600" },
   heroTrailBox: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    backgroundColor: "rgba(255, 255, 255, 0.08)",
+    backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: "#bbf7d0",
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: Radius.sm,
     marginBottom: 14,
   },
-  heroTrailText: { color: "#86efac", fontSize: 12, fontWeight: "700", flex: 1 },
+  heroTrailText: { color: "#166534", fontSize: 12, fontWeight: "700", flex: 1 },
   heroMetricsRow: {
     flexDirection: "row",
-    backgroundColor: "rgba(0, 0, 0, 0.2)",
+    backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
     borderRadius: Radius.sm,
     padding: 10,
     marginBottom: 14,
   },
   heroMetric: { flex: 1, alignItems: "center" },
-  heroMetricDivider: { width: 1, backgroundColor: "rgba(255, 255, 255, 0.12)" },
-  heroMetricLabel: { color: "#9ca3af", fontSize: 10, fontWeight: "600" },
-  heroMetricVal: { color: "#ffffff", fontSize: 13, fontWeight: "800", marginTop: 2 },
+  heroMetricDivider: { width: 1, backgroundColor: "#e5e7eb" },
+  heroMetricLabel: { color: "#6b7280", fontSize: 10, fontWeight: "600" },
+  heroMetricVal: { color: "#125238", fontSize: 13, fontWeight: "800", marginTop: 2 },
   heroActionBtn: {
     flexDirection: "row",
     alignItems: "center",

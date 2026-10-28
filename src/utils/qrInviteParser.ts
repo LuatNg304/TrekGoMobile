@@ -15,15 +15,16 @@ export function parsePrivateTripInviteCode(rawContent: string): string | null {
   const trimmed = rawContent.trim();
   if (!trimmed) return null;
 
+  let extracted: string | null = null;
+
   // 1. Kiểm tra nếu là chuỗi JSON
   if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
     try {
       const parsed = JSON.parse(trimmed);
       if (parsed.code && typeof parsed.code === "string") {
-        return parsed.code.trim();
-      }
-      if (parsed.inviteCode && typeof parsed.inviteCode === "string") {
-        return parsed.inviteCode.trim();
+        extracted = parsed.code.trim();
+      } else if (parsed.inviteCode && typeof parsed.inviteCode === "string") {
+        extracted = parsed.inviteCode.trim();
       }
     } catch {
       // Bỏ qua lỗi parse JSON nếu không hợp lệ
@@ -31,23 +32,37 @@ export function parsePrivateTripInviteCode(rawContent: string): string | null {
   }
 
   // 2. Kiểm tra nếu là URL chứa đường dẫn invite: /invite/{code} hoặc /invitations/{code}
-  const pathRegex = /(?:invite|invitations)\/([a-zA-Z0-9_\-\.]+)/i;
-  const pathMatch = trimmed.match(pathRegex);
-  if (pathMatch && pathMatch[1]) {
-    // Loại bỏ query params phía sau nếu có
-    return pathMatch[1].split(/[?#]/)[0].trim();
+  if (!extracted) {
+    const pathRegex = /(?:invite|invitations)\/([a-zA-Z0-9_\-\.]+)/i;
+    const pathMatch = trimmed.match(pathRegex);
+    if (pathMatch && pathMatch[1]) {
+      extracted = pathMatch[1].split(/[?#]/)[0].trim();
+    }
   }
 
   // 3. Kiểm tra query param: ?code={code} hoặc ?inviteCode={code}
-  const queryRegex = /[?&](?:code|inviteCode)=([a-zA-Z0-9_\-\.]+)/i;
-  const queryMatch = trimmed.match(queryRegex);
-  if (queryMatch && queryMatch[1]) {
-    return queryMatch[1].split(/[&#]/)[0].trim();
+  if (!extracted) {
+    const queryRegex = /[?&](?:code|inviteCode)=([a-zA-Z0-9_\-\.]+)/i;
+    const queryMatch = trimmed.match(queryRegex);
+    if (queryMatch && queryMatch[1]) {
+      extracted = queryMatch[1].split(/[&#]/)[0].trim();
+    }
   }
 
-  // 4. Nếu là mã code đơn thuần (không chứa dấu cách, độ dài hợp lý từ 3 đến 64 ký tự)
-  if (/^[a-zA-Z0-9_\-\.]{3,64}$/.test(trimmed)) {
-    return trimmed;
+  // 4. Nếu là mã code đơn thuần
+  if (!extracted) {
+    extracted = trimmed;
+  }
+
+  // Chuẩn hóa và kiểm tra mã 6 ký tự
+  const normalized = extracted.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (normalized.length === 6) {
+    return normalized;
+  }
+
+  // Nếu là mã cũ hoặc định dạng khác hợp lệ (3-64 ký tự)
+  if (/^[a-zA-Z0-9_\-\.]{3,64}$/.test(extracted)) {
+    return extracted;
   }
 
   return null;
