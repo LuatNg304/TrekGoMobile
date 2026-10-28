@@ -19,6 +19,7 @@ import {
   RentalProduct,
   RentalQuote,
   RentalReturnObservationResult,
+  RentalReturnReceipt,
   RentalReturnScanResult,
   RentalReturnTransferResult,
   RentalTripOption,
@@ -699,9 +700,41 @@ export const rentalApi = {
     return unwrap(response);
   },
 
+  async finalizeRentalReturnReceipt(
+    orderId: string,
+    input: {
+      returnSessionId: string;
+      expectedVersion: number;
+      remarks?: string;
+      failureEvidenceId?: string;
+      evidenceIds?: string[];
+    },
+    idempotencyKey: string,
+    accessToken: string,
+  ) {
+    const response = await apiRequest<Envelope<RentalReturnReceipt>>(
+      `/api/v1/rental-orders/${orderId}/return-receipts`,
+      {
+        method: "POST",
+        accessToken,
+        headers: { "Idempotency-Key": idempotencyKey },
+        body: JSON.stringify(input),
+      },
+    );
+
+    return unwrap(response);
+  },
+
   async transferRentalReturnToInventory(
     returnTaskId: string,
-    input: { unitIds: string[]; packageId?: string; pendingTransferId?: string; expectedVersion: number },
+    input: {
+      unitIds: string[];
+      missingInCustodyUnitIds?: string[];
+      incidentNote?: string;
+      packageId?: string;
+      pendingTransferId?: string;
+      expectedVersion: number;
+    },
     idempotencyKey: string,
     accessToken: string,
   ) {

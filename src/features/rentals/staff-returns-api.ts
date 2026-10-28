@@ -162,6 +162,7 @@ export const staffReturnsApi = {
   async receive(
     detail: StaffReturnDetail,
     scannedUnitIds: string[],
+    incidentNote: string | undefined,
     accessToken: string,
   ) {
     if (!detail.pendingTransfer) throw new Error("Task chưa có yêu cầu bàn giao về kho.");
@@ -174,6 +175,7 @@ export const staffReturnsApi = {
         pendingTransferId: detail.pendingTransfer.id,
         inventoryLocationId: detail.pendingTransfer.inventoryLocationId,
         scannedUnitIds,
+        incidentNote: incidentNote?.trim() || undefined,
         expectedVersion: detail.version,
       },
       accessToken,

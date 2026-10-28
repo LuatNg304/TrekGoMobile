@@ -12,7 +12,6 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import QRCode from "react-native-qrcode-svg";
 
 import { TrekkingLoader } from "@/components/common/TrekkingLoader";
 import { Colors, Radius, Shadows } from "@/constants/theme";
@@ -32,11 +31,6 @@ type EvidenceDraft = { imageIds: string[]; videoIds: string[] };
 function shortAssetCode(value?: string | null) {
   const compact = (value ?? "").replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
   return compact.slice(-6).padStart(6, "0");
-}
-
-function packageDisplayCode(value: string) {
-  const sixDigitCode = value.match(/(?:^|\D)(\d{6})(?:\D|$)/)?.[1];
-  return sixDigitCode || null;
 }
 
 const TASK_STATUS_LABEL: Record<string, string> = {
@@ -364,7 +358,7 @@ export default function InventoryTaskDetailScreen() {
 
         {!detail.package && (
           <ActionButton
-            label={busy === "pack" ? "Đang đóng gói..." : "Đóng gói và tạo mã QR"}
+            label={busy === "pack" ? "Đang đóng gói..." : "Đóng gói thiết bị"}
             disabled={!canPack || Boolean(busy)}
             onPress={() =>
               void run("pack", () =>
@@ -379,46 +373,21 @@ export default function InventoryTaskDetailScreen() {
           />
         )}
 
-        {detail.package && (
-          <>
-            <SectionTitle title="4. Gói thiết bị bàn giao" />
-            <View style={styles.packageCard}>
-              <View style={styles.qrFrame}>
-                <QRCode
-                  value={detail.package.qrValue}
-                  size={156}
-                  color={Colors.inkDeep}
-                  backgroundColor="#ffffff"
-                />
-              </View>
-              <Text style={styles.packageLabel}>MÃ KIỆN BÀN GIAO</Text>
-              {packageDisplayCode(detail.package.code) ? (
-                <Text style={styles.packageCode}>{packageDisplayCode(detail.package.code)}</Text>
-              ) : (
-                <Text style={styles.packagePending}>Mã 6 số đang chờ hệ thống cấp</Text>
-              )}
-              <Text style={styles.muted}>
-                {detail.package.unitIds.length} thiết bị · {detail.package.status === "PACKED" ? "Đã đóng gói" : detail.package.status === "READY" ? "Sẵn sàng bàn giao" : "Đang cập nhật"}
-              </Text>
-              <Text style={styles.qrHint}>Nhân viên giao nhận quét mã này để nhận đúng kiện.</Text>
-            </View>
-            {detail.package.status === "PACKED" && (
-              <ActionButton
-                label={busy === "ready" ? "Đang tạo nhiệm vụ giao..." : "Sẵn sàng giao thiết bị"}
-                disabled={Boolean(busy)}
-                onPress={() =>
-                  void run("ready", () =>
-                    staffInventoryApi.markReady(
-                      detail.task.id,
-                      detail.package!.id,
-                      detail.version,
-                      accessToken!,
-                    ),
-                  )
-                }
-              />
-            )}
-          </>
+        {detail.package?.status === "PACKED" && (
+          <ActionButton
+            label={busy === "ready" ? "Đang tạo nhiệm vụ giao..." : "Sẵn sàng giao thiết bị"}
+            disabled={Boolean(busy)}
+            onPress={() =>
+              void run("ready", () =>
+                staffInventoryApi.markReady(
+                  detail.task.id,
+                  detail.package!.id,
+                  detail.version,
+                  accessToken!,
+                ),
+              )
+            }
+          />
         )}
 
         {detail.package?.status === "READY" && !detail.pendingTransfer && (
@@ -581,18 +550,6 @@ const styles = StyleSheet.create({
   },
   primaryText: { color: "#fff", fontSize: 13, fontWeight: "600" },
   disabled: { opacity: 0.45 },
-  packageCard: {
-    alignItems: "center",
-    backgroundColor: "#fff",
-    borderRadius: Radius.xl,
-    padding: 22,
-    ...Shadows.card,
-  },
-  qrFrame: { padding: 12, borderWidth: 1, borderColor: Colors.surfaceContainer, borderRadius: Radius.lg, backgroundColor: "#fff" },
-  packageLabel: { marginTop: 14, color: Colors.onSurfaceMuted, fontSize: 10, fontWeight: "700", letterSpacing: 1.1 },
-  packageCode: { color: Colors.ink, fontSize: 30, lineHeight: 38, fontWeight: "700", letterSpacing: 4, marginVertical: 5 },
-  packagePending: { marginVertical: 8, color: Colors.onSurfaceVariant, fontSize: 12, lineHeight: 17, fontWeight: "600", textAlign: "center" },
-  qrHint: { maxWidth: 240, marginTop: 10, color: Colors.onSurfaceVariant, fontSize: 11, lineHeight: 16, textAlign: "center" },
   successCard: {
     flexDirection: "row",
     alignItems: "center",

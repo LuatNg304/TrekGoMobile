@@ -25,6 +25,7 @@ type EnrichedDeliveryTask = DeliveryTaskSummary & {
   tripType?: "PUBLIC" | "PRIVATE";
   tripStartAt?: string;
   tripEndAt?: string;
+  itemSummary?: string;
 };
 
 const completedStatuses = new Set([
@@ -119,7 +120,41 @@ export default function FieldOperationsHome() {
           page: 1,
           pageSize: 100,
         });
-        setTasks(result.items);
+        const enrichedTasks = await Promise.all(
+          result.items.map(async (task): Promise<EnrichedDeliveryTask> => {
+            try {
+              const detail = await rentalApi.getOrder(
+                task.orderSummary.orderId,
+                accessToken,
+              );
+              const names = detail.items
+                .map((item) => item.product?.name || item.name || item.sku)
+                .filter((name): name is string => Boolean(name));
+              const uniqueNames = [...new Set(names)];
+              const remainingNames = Math.max(uniqueNames.length - 2, 0);
+              const visibleNames = uniqueNames.slice(0, 2).join(", ");
+              const quantity = detail.items.reduce(
+                (total, item) => total + item.quantity,
+                0,
+              );
+              const trip = detail.order.trip;
+
+              return {
+                ...task,
+                tripTitle: trip?.title,
+                tripType: trip?.type,
+                tripStartAt: trip?.startAt,
+                tripEndAt: trip?.endAt,
+                itemSummary: visibleNames
+                  ? `${visibleNames}${remainingNames ? ` +${remainingNames} món` : ""} · ${quantity} thiết bị`
+                  : undefined,
+              };
+            } catch {
+              return task;
+            }
+          }),
+        );
+        setTasks(enrichedTasks);
       } catch (requestError) {
         setError(
           requestError instanceof Error
@@ -351,11 +386,12 @@ export default function FieldOperationsHome() {
                   color={Colors.primaryDark}
                 />
                 <Text style={styles.taskItemsText}>
-                  {task.package.status === "HANDED_OVER"
-                    ? "Gói thiết bị đã bàn giao"
-                    : task.package.status === "READY"
-                      ? "Gói thiết bị sẵn sàng"
-                      : "Thông tin gói thiết bị"}
+                  {task.itemSummary ||
+                    (task.package.status === "HANDED_OVER"
+                      ? "Gói thiết bị đã bàn giao"
+                      : task.package.status === "READY"
+                        ? "Gói thiết bị sẵn sàng"
+                        : "Thông tin gói thiết bị")}
                 </Text>
                 <Text style={styles.openTaskText}>Mở nhiệm vụ</Text>
                 <Ionicons name="chevron-forward" size={17} color={Colors.primaryDark} />

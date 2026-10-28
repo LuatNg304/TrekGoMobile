@@ -277,8 +277,9 @@ export type RentalReturnObservationResult = {
 };
 
 export type RentalReturnTransferResult = {
-  pendingTransferId: string;
+  pendingTransferId: string | null;
   unitIds: string[];
+  missingInCustodyUnitIds?: string[];
   status: string;
   transferStartedAt?: string | null;
   transferWatchAt?: string | null;

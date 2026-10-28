@@ -236,7 +236,7 @@ export default function StaffTaskScreen() {
     if (!custodyTransferId.trim() || !packageCode.trim()) {
       setFeedback({
         title: "Thiếu dữ liệu từ kho",
-        message: "Cần quét mã bàn giao và mã gói thiết bị trên QR của kho.",
+        message: "Thông tin bàn giao chưa sẵn sàng. Hãy tải lại nhiệm vụ hoặc liên hệ nhân viên kho.",
       });
       return;
     }
@@ -409,10 +409,14 @@ export default function StaffTaskScreen() {
         ) : serverStatus === "SCHEDULED" || serverStatus === "BLOCKED" ? (
           <View style={styles.card}>
             <Text style={styles.section}>BƯỚC 1 · NHẬN GÓI TỪ KHO</Text>
-            <InfoRow icon="cube-outline" label="Mã gói thiết bị" value={task.package?.code || summary.package.code} />
-            <TextInput value={custodyTransferId} onChangeText={setCustodyTransferId} autoCapitalize="none" placeholder="Quét mã bàn giao từ kho" placeholderTextColor={Colors.onSurfaceMuted} style={styles.input} />
-            <TextInput value={packageCode} onChangeText={setPackageCode} autoCapitalize="characters" placeholder="Nhập mã gói thiết bị" placeholderTextColor={Colors.onSurfaceMuted} style={styles.input} />
-            <Text style={styles.notice}>Quét hoặc nhập đúng hai giá trị trên phiếu/QR bàn giao của Staff Kho.</Text>
+            <Text style={styles.cardTitle}>Thiết bị trong gói</Text>
+            {units.map((unit) => (
+              <View key={unit.unitId} style={styles.item}>
+                <Text style={styles.itemName}>{unit.product?.name || "Thiết bị thuê"}</Text>
+                <Text style={styles.assetCode}>Mã thiết bị {shortAssetCode(unit.assetCode)}</Text>
+              </View>
+            ))}
+            <Text style={styles.notice}>Đối chiếu đúng tên và mã thiết bị trước khi xác nhận nhận gói từ kho.</Text>
             <TouchableOpacity disabled={busy} style={[styles.primary, busy && styles.disabled]} onPress={() => void receivePackage()}>
               <Text style={styles.primaryText}>{busy ? "ĐANG XỬ LÝ..." : "XÁC NHẬN NHẬN GÓI"}</Text>
             </TouchableOpacity>

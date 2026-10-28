@@ -21,6 +21,7 @@ import {
   RentalOrderCreated,
   RentalQuote,
 } from "@/features/rentals/types";
+import { ApiError } from "@/lib/api-client";
 
 const money = (value: number, currency = "VND") =>
   `${value.toLocaleString("vi-VN")} ${currency === "VND" ? "đ" : currency}`;
@@ -141,6 +142,68 @@ export default function RentalCheckoutScreen() {
     }
   }
 
+  async function refreshQuoteAfterStaleContext() {
+    if (!accessToken || !selectedTrip || cart.length === 0) return;
+
+    const eligibility = await rentalApi.getEligibility(
+      selectedTrip.id,
+      accessToken,
+    );
+
+    if (!eligibility.eligible) {
+      setQuote(undefined);
+      setError(
+        eligibility.reason ||
+          "Thông tin chuyến đi đã thay đổi và hiện chưa đủ điều kiện thuê thiết bị.",
+      );
+      return;
+    }
+
+    const results = await Promise.all(
+      cart.map(({ item }) =>
+        rentalApi.getAvailability(
+          { tripId: selectedTrip.id, productId: item.id },
+          accessToken,
+        ),
+      ),
+    );
+    const nextAvailability = Object.fromEntries(
+      results.map((result) => [result.productId, result]),
+    );
+    setAvailability(nextAvailability);
+
+    const unavailableItem = cart.find(({ item, quantity }) => {
+      const result = nextAvailability[item.id];
+      return !result || quantity > result.availableCount;
+    });
+
+    if (unavailableItem) {
+      setQuote(undefined);
+      idempotencyKey.current = createIdempotencyKey();
+      setError(
+        `${unavailableItem.item.name} không còn đủ số lượng. Vui lòng cập nhật giỏ thuê.`,
+      );
+      return;
+    }
+
+    const refreshedQuote = await rentalApi.createQuote(
+      {
+        tripId: selectedTrip.id,
+        items: cart.map(({ item, quantity }) => ({
+          productId: item.id,
+          quantity,
+        })),
+      },
+      accessToken,
+    );
+
+    idempotencyKey.current = createIdempotencyKey();
+    setQuote(refreshedQuote);
+    setError(
+      "Thông tin chuyến đi hoặc đặt chỗ vừa được cập nhật. Báo giá mới đã được tạo; vui lòng kiểm tra và xác nhận thuê lại.",
+    );
+  }
+
   async function createOrder() {
     if (!accessToken || !quote) return;
 
@@ -156,11 +219,26 @@ export default function RentalCheckoutScreen() {
       setCreatedOrder(result);
       cart.forEach(({ item }) => setCartQuantity(item, 0));
     } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "Không tạo được đơn thuê.",
-      );
+      if (
+        requestError instanceof ApiError &&
+        requestError.code === "STALE_CONTEXT"
+      ) {
+        try {
+          await refreshQuoteAfterStaleContext();
+        } catch (refreshError) {
+          setError(
+            refreshError instanceof Error
+              ? refreshError.message
+              : "Thông tin chuyến đi đã thay đổi nhưng chưa thể tạo lại báo giá.",
+          );
+        }
+      } else {
+        setError(
+          requestError instanceof Error
+            ? requestError.message
+            : "Không tạo được đơn thuê.",
+        );
+      }
     } finally {
       setCreatingOrder(false);
     }
