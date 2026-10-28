@@ -3,7 +3,6 @@ import * as ImagePicker from "expo-image-picker";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   ScrollView,
   StyleSheet,
@@ -192,7 +191,10 @@ export default function InventoryTaskDetailScreen() {
   if (loading && !detail) {
     return (
       <SafeAreaView style={styles.center}>
-        <ActivityIndicator color={Colors.primaryDark} />
+        <TrekkingLoader
+          label="Đang mở nhiệm vụ kho..."
+          hint="Đang đối chiếu thiết bị, bằng chứng và kiện bàn giao"
+        />
       </SafeAreaView>
     );
   }
@@ -241,9 +243,20 @@ export default function InventoryTaskDetailScreen() {
 
         {error && <Text style={styles.errorBanner}>{error}</Text>}
 
-        {busy === "evidence" && (
-          <TrekkingLoader label="Đang đưa ảnh, video về trạm kiểm định..." compact />
-        )}
+        {busy ? (
+          <TrekkingLoader
+            label={
+              busy === "evidence"
+                ? "Đang đưa ảnh, video về trạm kiểm định..."
+                : busy === "pack"
+                  ? "Đang đóng gói thiết bị..."
+                  : busy === "ready"
+                    ? "Đang mở tuyến giao thiết bị..."
+                    : "Đang cập nhật nhiệm vụ kho..."
+            }
+            compact
+          />
+        ) : null}
 
         {!detail.task.assignee && detail.task.status === "OPEN" && (
           <ActionButton

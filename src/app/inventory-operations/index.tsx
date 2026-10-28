@@ -1,8 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
+import { TrekkingLoader } from "@/components/common/TrekkingLoader";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import {
-  ActivityIndicator,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -184,7 +184,10 @@ export default function InventoryQueueScreen() {
         </ScrollView>
 
         {loading ? (
-          <ActivityIndicator color={Colors.primaryDark} style={styles.loader} />
+          <TrekkingLoader
+            label="Đang tải hàng đợi kho..."
+            hint="Đang đồng bộ thiết bị cần chuẩn bị và kiểm định"
+          />
         ) : error ? (
           <View style={styles.messageCard}>
             <Text style={styles.error}>{error}</Text>

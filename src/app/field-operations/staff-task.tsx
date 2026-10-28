@@ -1,4 +1,5 @@
 import { FieldModal } from "@/components/FieldModal";
+import { TrekkingLoader } from "@/components/common/TrekkingLoader";
 import { Colors, Radius, Shadows } from "@/constants/theme";
 import { useAuth } from "@/features/auth/AuthContext";
 import { rentalApi } from "@/features/rentals/api";
@@ -11,7 +12,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Modal,
   Pressable,
   ScrollView,
@@ -358,8 +358,10 @@ export default function StaffTaskScreen() {
     return (
       <SafeAreaView style={styles.safe}>
         <View style={styles.center}>
-          <ActivityIndicator size="large" color={Colors.primaryDark} />
-          <Text style={styles.muted}>Đang cập nhật nhiệm vụ giao thiết bị...</Text>
+          <TrekkingLoader
+            label="Đang mở tuyến giao thiết bị..."
+            hint="Đang đồng bộ gói thiết bị, người nhận và điểm bàn giao"
+          />
         </View>
       </SafeAreaView>
     );
@@ -478,6 +480,18 @@ export default function StaffTaskScreen() {
         )}
 
         {error && task ? <View style={styles.errorBox}><Text style={styles.errorText}>{error}</Text></View> : null}
+        {busy ? (
+          <TrekkingLoader
+            label={
+              serverStatus === "PACKAGE_RECEIVED"
+                ? "Đang xác minh người nhận..."
+                : serverStatus === "RECIPIENT_VERIFIED"
+                  ? "Đang hoàn tất bàn giao..."
+                  : "Đang cập nhật nhiệm vụ giao thiết bị..."
+            }
+            compact
+          />
+        ) : null}
         {task && !completedStatus(serverStatus) ? (
           <TouchableOpacity style={styles.noShowButton} onPress={() => setNoShowVisible(true)}>
             <Ionicons name="alert-circle-outline" size={18} color={Colors.error} />

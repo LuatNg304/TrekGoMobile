@@ -5,10 +5,10 @@ import { rentalApi } from "@/features/rentals/api";
 import { DeliveryTaskSummary } from "@/features/rentals/types";
 import { LeaderNavigationShell } from "@/features/leaders/screens";
 import { Ionicons } from "@expo/vector-icons";
+import { TrekkingLoader } from "@/components/common/TrekkingLoader";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -312,8 +312,10 @@ export default function FieldOperationsHome() {
 
         {loading ? (
           <View style={styles.center}>
-            <ActivityIndicator color={Colors.primaryDark} />
-            <Text style={styles.emptyText}>Đang tải lịch giao nhận...</Text>
+            <TrekkingLoader
+              label="Đang tải lịch giao nhận..."
+              hint="Đang sắp xếp các chặng giao và thu hồi gần nhất"
+            />
           </View>
         ) : error ? (
           <View style={styles.errorBox}>
