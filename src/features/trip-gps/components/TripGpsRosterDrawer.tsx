@@ -111,11 +111,17 @@ export function TripGpsRosterDrawer({
                           Đã qua {m.checkpointProgress.passed}/{m.checkpointProgress.total} mốc kiểm tra
                         </Text>
                       )}
+
+                      {/* Last Location timestamp */}
+                      {m.lastLocation && (
+                        <Text style={styles.locationTimeText}>
+                          Vị trí lúc {new Date(m.lastLocation.recordedAt).toLocaleTimeString('vi-VN')}
+                        </Text>
+                      )}
                     </View>
                   </View>
 
                   {/* Locate Button */}
-                  {m.lastLocation && <Text style={styles.cpProgressText}>Vị trí lúc {new Date(m.lastLocation.recordedAt).toLocaleTimeString('vi-VN')}</Text>}
                   {m.lastLocation && (
                     <TouchableOpacity
                       style={styles.locateBtn}
@@ -207,6 +213,7 @@ const styles = StyleSheet.create({
     borderRadius: Radius.xl, // 24px signature rounded card
     borderWidth: 1,
     borderColor: '#e8ebe6',
+    gap: 10,
   },
   selfCard: {
     backgroundColor: Colors.primaryPale,
@@ -259,6 +266,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     marginTop: 3,
+    flexWrap: 'wrap',
   },
   roleBadge: {
     paddingHorizontal: 7,
@@ -277,6 +285,12 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: Colors.mute,
     marginTop: 4,
+    fontWeight: '500',
+  },
+  locationTimeText: {
+    fontSize: 10.5,
+    color: Colors.mute,
+    marginTop: 3,
     fontWeight: '500',
   },
   locateBtn: {

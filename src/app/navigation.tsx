@@ -350,11 +350,11 @@ export default function NavigationScreen() {
             <Ionicons name="arrow-back" size={20} color={Colors.ink} />
           </TouchableOpacity>
           <TrekGoLogo size={24} showText={false} />
-          <View>
+          <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={styles.hudTitle} numberOfLines={1}>
               {effectiveTitle}
             </Text>
-            <Text style={styles.hudSubtitle}>
+            <Text style={styles.hudSubtitle} numberOfLines={1}>
               {params.tripType ? `${params.tripType} TRIP` : 'TREK HUD'} · {isSessionActive ? 'ĐANG GHI' : isSessionPaused ? 'TẠM DỪNG' : 'CHẾ ĐỘ GPS'}
             </Text>
           </View>
