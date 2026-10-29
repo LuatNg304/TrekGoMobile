@@ -34,15 +34,24 @@ export const rentalReviewApi = {
     reviews: CreateRentalProductReviewInput[],
     accessToken: string,
   ) {
-    const response = await apiRequest<Envelope<{ items: RentalProductReview[] }>>(
-      `/api/v1/rental-orders/${encodeURIComponent(orderId)}/reviews`,
-      {
-        method: "POST",
-        accessToken,
-        body: JSON.stringify({ reviews }),
-      },
+    const items = await Promise.all(
+      reviews.map(async (review) => {
+        const response = await apiRequest<Envelope<RentalProductReview>>(
+          `/api/v1/rental-orders/${encodeURIComponent(orderId)}/reviews`,
+          {
+            method: "POST",
+            accessToken,
+            headers: {
+              "Idempotency-Key": `rental-review:${orderId}:${review.productId}`,
+            },
+            body: JSON.stringify(review),
+          },
+        );
+
+        return unwrap(response);
+      }),
     );
 
-    return unwrap(response);
+    return { items };
   },
 };

@@ -17,7 +17,6 @@ import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   ScrollView,
   StyleSheet,
@@ -260,9 +259,8 @@ export default function StaffReturnScreen() {
 
     setScannedAssetCodes(requiredScanCodes);
     setFeedback({
-      title: "Đã nhận nhanh thiết bị",
-      message:
-        "Chế độ demo đã dùng mã thiết bị có sẵn. Khi có tem QR, thao tác này sẽ được thay bằng quét thực tế.",
+      title: "Đã thu hồi thiết bị",
+      message: "Đã ghi nhận các thiết bị thực nhận để tiếp tục lập biên nhận trả đồ.",
     });
   };
 
@@ -491,8 +489,10 @@ export default function StaffReturnScreen() {
     return (
       <SafeAreaView style={styles.safe}>
         <View style={styles.center}>
-          <ActivityIndicator size="large" color={Colors.primaryDark} />
-          <Text style={styles.muted}>Đang cập nhật nhiệm vụ thu hồi...</Text>
+          <TrekkingLoader
+            label="Đang mở tuyến thu hồi..."
+            hint="Đang đồng bộ thiết bị, điểm hẹn và trạng thái bàn giao"
+          />
         </View>
       </SafeAreaView>
     );
@@ -685,10 +685,7 @@ export default function StaffReturnScreen() {
                 />
                 <View style={styles.demoReceiveCopy}>
                   <Text style={styles.demoReceiveTitle}>
-                    Nhận nhanh tất cả món thực nhận
-                  </Text>
-                  <Text style={styles.demoReceiveHint}>
-                    Chế độ demo chưa sử dụng tem QR vật lý
+                    Thu hồi các thiết bị
                   </Text>
                 </View>
               </TouchableOpacity>
@@ -731,7 +728,8 @@ export default function StaffReturnScreen() {
             </Text>
             {returnReceipt ? (
               <Text style={styles.receiptText}>
-                Biên nhận {returnReceipt.documentNumber} đã được phát hành.
+                Biên nhận thu hồi của {recipientName(summary)} đã được phát
+                hành.
               </Text>
             ) : null}
             <Text style={styles.muted}>
@@ -796,7 +794,13 @@ export default function StaffReturnScreen() {
         ) : null}
         {busy ? (
           <TrekkingLoader
-            label="Đang chuyển bằng chứng qua chặng kiểm định..."
+            label={
+              stage === 0
+                ? "Đang ghi nhận thiết bị thu hồi..."
+                : stage === 1
+                  ? "Đang lập biên nhận trả đồ..."
+                  : "Đang bàn giao thiết bị về kho..."
+            }
             compact
           />
         ) : null}
@@ -1051,11 +1055,6 @@ const styles = StyleSheet.create({
     color: Colors.primaryDark,
     fontSize: 12,
     fontWeight: "700",
-  },
-  demoReceiveHint: {
-    color: Colors.onSurfaceVariant,
-    fontSize: 10,
-    marginTop: 2,
   },
   cardTitle: {
     color: Colors.ink,

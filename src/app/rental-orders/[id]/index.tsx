@@ -82,6 +82,9 @@ const shortAssetCode = (value?: string) => {
   return value.replace(/[^a-z0-9]/gi, "").slice(-6).toUpperCase();
 };
 
+const shortOrderId = (value: string) =>
+  value.replace(/[^a-z0-9]/gi, "").slice(0, 6).toUpperCase();
+
 const PAYMENT_LABELS: Record<string, string> = {
   NOT_STARTED: "Chưa thanh toán",
   PENDING: "Đang chờ thanh toán",
@@ -538,8 +541,10 @@ export default function RentalOrderDetailScreen() {
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.centerState}>
-          <ActivityIndicator size="large" color={Colors.primaryDark} />
-          <Text style={styles.mutedText}>Đang cập nhật chi tiết đơn thuê...</Text>
+          <TrekkingLoader
+            label="Đang mở hành trình đơn thuê..."
+            hint="Đang đồng bộ thanh toán, thiết bị và tiến trình bàn giao"
+          />
         </View>
       </SafeAreaView>
     );
@@ -629,7 +634,10 @@ export default function RentalOrderDetailScreen() {
           />
         )}
 
-        <Section title="Tiến trình đơn thuê" subtitle="Trạng thái do hệ thống và Staff cập nhật">
+        <Section
+          title="Tiến trình đơn thuê"
+          subtitle={`Mã tra cứu ${shortOrderId(order.id)} · Trạng thái do hệ thống và nhân viên cập nhật`}
+        >
           {ORDER_STEPS.map((step, index) => {
             const complete = currentStep >= index;
             const active = currentStep === index;

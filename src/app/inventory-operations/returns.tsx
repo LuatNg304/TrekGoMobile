@@ -3,7 +3,6 @@ import * as ImagePicker from "expo-image-picker";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   RefreshControl,
   ScrollView,
@@ -321,8 +320,19 @@ export default function InventoryReturnsScreen() {
           </View>
           {error ? <Text style={styles.errorBanner}>{error}</Text> : null}
           {notice ? <Text style={styles.noticeBanner}>{notice}</Text> : null}
-          {busy?.startsWith("evidence-") ? (
-            <TrekkingLoader label="Đang tải bằng chứng kiểm định lên trạm..." compact />
+          {busy ? (
+            <TrekkingLoader
+              label={
+                busy.startsWith("evidence-")
+                  ? "Đang tải bằng chứng kiểm định lên trạm..."
+                  : busy === "receive"
+                    ? "Đang xác nhận thiết bị vào kho..."
+                    : busy === "inspect"
+                      ? "Đang hoàn tất kiểm định cuối..."
+                      : "Đang cập nhật trạng thái thiết bị..."
+              }
+              compact
+            />
           ) : null}
 
           {detail.pendingTransfer?.status === "PENDING_RECEIPT" ? (
@@ -454,7 +464,12 @@ export default function InventoryReturnsScreen() {
           ))}
         </ScrollView>
         {error ? <Text style={styles.errorBanner}>{error}</Text> : null}
-        {loading ? <ActivityIndicator color={Colors.primaryDark} style={{ marginTop: 40 }} /> : null}
+        {loading ? (
+          <TrekkingLoader
+            label="Đang tải danh sách hoàn trả..."
+            hint="Đang đối chiếu kiện hàng và trạng thái kiểm định"
+          />
+        ) : null}
         {!loading && !items.length ? <Text style={styles.empty}>Không có đơn hoàn trả ở trạng thái này.</Text> : null}
         {items.map((item) => (
           <TouchableOpacity key={item.id} style={styles.queueCard} onPress={() => void open(item.id)}>

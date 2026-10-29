@@ -12,6 +12,7 @@ import {
 } from "react-native";
 
 import { Colors, Radius, Shadows } from "@/constants/theme";
+import { TrekkingLoader } from "@/components/common/TrekkingLoader";
 import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/features/auth/AuthContext";
 import { rentalApi } from "@/features/rentals/api";
@@ -506,15 +507,7 @@ function ProgressCard({
   description: string;
 }) {
   return (
-    <View style={styles.progressCard} accessibilityRole="progressbar">
-      <View style={styles.progressIcon}>
-        <ActivityIndicator size="small" color={Colors.primaryDark} />
-      </View>
-      <View style={styles.flexOne}>
-        <Text style={styles.progressTitle}>{title}</Text>
-        <Text style={styles.progressDescription}>{description}</Text>
-      </View>
-    </View>
+    <TrekkingLoader label={title} hint={description} />
   );
 }
 
